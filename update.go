@@ -28,13 +28,12 @@ package monshi
 //     together" a claim about the engine rather than about a client: the
 //     batch arrives as one state, not as one write at a time.
 //
-// What a successful batch reports is the copy's new revision and the paths it
-// created. `affected` — the set whose *view* may have changed — is RUNTIME
-// §5.3's closure over the dependency adjacency and joins this result there.
-// It is not a field that can be filled in honestly before the adjacency is
-// walked, and a fanout computed for nobody is a cost with no benefit.
-// Validation errors likewise: §6.2's response carries them, and they need
-// §5.2's `satisfied` over the re-evaluated closure — the same dependency.
+// What a successful batch reports is the copy's new revision, the paths it
+// created, and the set whose *view* may have changed: §5.3's closure over the
+// dependency adjacency, which `affected.go` walks once the batch is finished
+// and which `ChangeResult.Affected` renders. Validation errors are the one
+// remaining field of §6.2's response: they need §5.2's `satisfied` over that
+// same closure, and arrive with §5.4's completeness pass.
 
 import "context"
 
@@ -49,6 +48,16 @@ type ChangeResult struct {
 	// becomes "application.shareholders.42". It is what makes the row
 	// addressable, which is the reason §5.1's `Add` takes no value.
 	Created []string
+
+	// Affected holds the declaration paths whose *view* may have changed,
+	// which is what lets a client refresh a subtree it never wrote: DESIGN
+	// §6.2's "changes such as province and city are evaluated together", and
+	// the reason a created instance is spelled with its ID in `Created` but
+	// appears here as its declaration. A group path stands for its subtree, no
+	// path in the list contains another, and the order is declaration order —
+	// RUNTIME §5.3 and affected.go say what the walk marks, and why it is a
+	// superset rather than an exact diff.
+	Affected []string
 }
 
 // Update applies edits to this actor's working copy and reports the copy's
@@ -94,9 +103,10 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 	// inside the same batch that wrote it (§4.3, T4).
 	img := d.img
 	roles := img.rolesHeld(c.actor, rec.commit.s)
+	fan := newFanout(img)
 	var out ChangeResult
 	for _, e := range edits {
-		created, err := c.apply(ctx, img, &w.s, roles, rec.commit.stage, e)
+		created, err := c.apply(ctx, img, &w.s, roles, rec.commit.stage, e, fan)
 		if err != nil {
 			return ChangeResult{}, err
 		}
@@ -105,24 +115,32 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 		}
 	}
 
-	// The save is the only thing in this function that writes, and the store
-	// does the numbering: what the batch reported as observed is the guard,
-	// and the revision it comes back with is the answer (§3.1's division).
+	// The closure runs on the finished candidate: a guard's operand is whatever
+	// the row holds after `settle` replaced what the host asked for, which is
+	// DESIGN §7's "re-evaluate dependencies after *normalization*". The walk
+	// reads no values, only the adjacency, so it needs nothing from here but
+	// the write set — and it waits for the save, because a batch the store
+	// refuses should not have paid for a closure nobody is told about.
 	rev, err := c.w.cases.saveWorking("update", c.id, c.actor.User, base, w)
 	if err != nil {
 		return ChangeResult{}, err
 	}
+	// The store did the numbering: what the caller presented as observed is
+	// the guard, and the revision that comes back is the answer (§3.1).
 	out.Working = rev
+	out.Affected = fan.affected()
 	return out, nil
 }
 
-// apply settles one edit against the candidate. The order inside it is the
-// §6 re-evaluation order, truncated where §5.3 takes over: resolve, check the
-// structure of what the text reached, check authority, then write, normalizing
-// as the write happens. What it deliberately does not do is re-evaluate the
-// dependency closure — see ChangeResult and RUNTIME §5.3.
+// apply settles one edit against the candidate and tells the fanout what it
+// wrote. The order inside it is §6's re-evaluation order: resolve, check the
+// structure the verb was given, check authority, then write, normalizing as the
+// write happens. What it does not do is re-evaluate anything the write reaches
+// — that is the batch's job rather than the edit's, because §6.2's whole point
+// is that a guard reading two fields in one batch is asked once, after both
+// landed (RUNTIME §5.3).
 func (c Case) apply(ctx context.Context, img *image, s *state,
-	roles []roleID, stage stageID, e Edit) (string, error) {
+	roles []roleID, stage stageID, e Edit, fan *fanout) (string, error) {
 	// An edit that names no path is a batch element nobody filled in, and it
 	// is worth saying so about the edit rather than letting §3.9's walk answer
 	// that no declaration is reached: the difference is between a host whose
@@ -175,6 +193,7 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 	switch e.kind {
 	case editEmpty:
 		r.cell.clear()
+		fan.wroteField(n)
 		return "", nil
 	case editSet:
 		v, err := c.w.settle(ctx, img, c.id, n, e.v)
@@ -182,6 +201,7 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 			return "", err
 		}
 		r.cell.set(v)
+		fan.wroteField(n)
 		return "", nil
 	case editAdd:
 		// The row's defaults materialize without a per-field permission test,
@@ -198,6 +218,7 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 			return "", refused("update", SchemaMismatch, c.id,
 				quote(e.path)+" reaches a collection this state cannot add to")
 		}
+		fan.wroteRows(n)
 		return e.path + "." + dec(uint64(id)), nil
 	case editRemove:
 		// The last step names the instance to drop; the rows it lives in are
@@ -220,6 +241,7 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 			return "", refused("update", SchemaMismatch, c.id,
 				quote(e.path)+" names an instance this state does not hold")
 		}
+		fan.wroteRows(n)
 		return "", nil
 	}
 	return "", refused("update", InvalidOp, c.id, "an edit with no verb")

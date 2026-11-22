@@ -757,17 +757,34 @@ ranges, and the re-evaluated set is `W ∪ transitive-closure(depFrom, W)`.
 
 Two properties make that walk cheap and bounded. The adjacency is
 slot-indexed, so one write reaches its dependents by array bounds rather
-than by searching a graph: no map, no allocation, no pointer chasing.
-And a slot is enqueued at most once, which fixes the queue's bound at
-lowering — `img.depBound`, the slot count — before any request knows
-what it is about to write. F7's acyclicity is what makes the closure
-finite at all; the bound is what makes it non-surprising.
+than by searching a graph: no map, no allocation and no pointer chasing
+per edge. And a slot is enqueued at most once, which fixes the queue's
+bound at lowering — `img.depBound`, the slot count — before any request
+knows what it is about to write. F7's acyclicity is what makes the
+closure finite at all; the bound is what makes it non-surprising.
+
+What the walk does allocate is two arrays per batch, both sized from
+that bound — the visited set and the queue — plus one string per
+*reported* path and none for a slot the collapse drops. So a batch's
+cost is a function of the definition's size and not of what it wrote,
+which is the shape §8's `BenchmarkUpdateFanout` measures.
 
 Owners are the declarations a guard hangs off (§5.2), not the guards
 themselves: a group with `present[…]` is one re-evaluated unit, and its
 subtree is what §5.2 and §5.4 then walk. So `depOwn` answers "which
 declarations must I ask again", and the declaration's own condition
 closure answers the question.
+
+An owner that lives inside a `multiple` declaration is re-asked *as that
+collection*. F6 makes a condition written inside a collection uniform
+over it, so the answer that moved is the group's — a client told about
+one member's cell would refresh a column whose requiredness changed for
+every row at once. And the collection is sufficient as well as neater:
+E2 rejects a guard whose operand traverses a `multiple` node, so no slot
+inside a collection's rows is an adjacency key, and promoting the member
+cannot lose an edge. For the same reason `Add` and `Remove` mark the
+collection and nothing else; a row's members carry its values, but the
+declaration whose rows changed is the collection.
 
 Edge guards are deliberately absent from the adjacency: they own no
 path. Nothing in a slot's affected set changes when a transition
@@ -783,6 +800,24 @@ only value changes. No path strings are built to compute it, and no
 map is probed: results are slot sets rendered on demand. This is the
 machinery behind DESIGN §6.2's "changes such as province and city are
 evaluated together".
+
+Two of those three terms need no separate computation, and the reason
+is worth keeping beside the code. An options field must be re-fetched
+exactly when it becomes reachable or unreachable, or when its own
+condition moves — both presence answers, both already in the closure,
+so "reached" is the walk arriving at the field. And `Update` contributes
+no permission component at all: §3.5's masks depend on stage and role
+set and on no value, an edit changes neither, and so no path's
+permission answer differs across a batch. The operations that move those
+inputs — §5.5's transition, §5.6's commit — carry that part themselves.
+
+As shipped, the list is declaration-addressed (a row's ID belongs to
+`Created`, never here), sorted in declaration order, and prefix-free: a
+re-asked group or collection stands for its subtree, so a client matches
+on path prefixes. And a superset means a superset — a field inside a subtree
+`present` prunes is still reported, because deciding otherwise means
+evaluating the guard, and §5.2 derives presence at read time for exactly
+that reason.
 
 ### 5.4 Submit completeness
 
@@ -956,15 +991,38 @@ A path request joins those three at the cheap end: 70 ns to walk four
 segments, intern nothing, and hand back a slot, a row and a position —
 the §3.9 seam is not a tax on every read.
 
+The fanout's cost is stated as a ratio rather than a row, because what
+it claims is about proportions: in one run, a field write on the 20-slot
+corpus, a write crossing both edges that corpus has, and every
+declaration of it marked at once came out at 1 : 1.4 : 2.2, and the same
+single write against the 51-slot corpus cost 1.9× the small one. Three
+allocations in every case — the visited set, the queue, the paths — and
+none per edge. That is §5.3's bound claim in one sentence: the numbers
+move with the definition, not with the batch.
+(`BenchmarkUpdateFanout`.)
+
+Charged to a whole batch, that is two of `Update`'s allocations — the
+walk's scratch state — and in a same-process A/B that skipped the render,
+about a tenth of its time. `BenchmarkUpdate`'s row waits for a clean run for the
+reason in the next paragraph.
+
+Absolute rows here are only as good as the machine that printed them: a
+re-run under background load read some five times *every* figure in the
+table, the untouched ones too. So where the point is a proportion — the
+front end against lowering, the fanout against itself — the section says
+so, and a regression check should compare against a baseline measured in
+the same process rather than against this table.
+
 What is *not* measured yet, because the operations that would drive it
-are not shipped: `BenchmarkViewWide`, `BenchmarkUpdateFanout` and
-`BenchmarkTransitionGuard`. The frame of §5.1 and §5.2's answers exist
-and are tested, but a benchmark that hand-builds a state and calls one
-internal function would measure the fixture, not a request; they arrive
-with `Update`, `View` and `Transition`. Nor is any "× faster than the
-compiled tree" ratio: that would mean an interpreted-tree harness, and
-building one to prove a point the absolute numbers already make is a
-cost of its own. The multiples this section used to promise are dropped;
+are not shipped: `BenchmarkViewWide` and `BenchmarkTransitionGuard`. The
+frame of §5.1 and §5.2's answers exist and are tested, but a benchmark
+that hand-builds a state and calls one internal function would measure
+the fixture, not a request; they arrive with `View` and `Transition`.
+
+Nor is any "× faster than the compiled tree" ratio measured: that would
+mean an interpreted-tree harness, and building one to prove a point the
+absolute numbers already make is a cost of its own. The multiples this
+section used to promise are dropped;
 the measured rows above are the facts, and a regression is now something
 a re-run shows.
 
@@ -1003,10 +1061,10 @@ semantics*) is in progress. The image of §3, the lowering of §4, the
 `Load` seam, the frame and instance rows of §5.1, §5.2's presence and
 requiredness and §3.9's resolution seam are in place and tested, and so
 is the exported half that reads them: `Runtime` and `Case` (DESIGN §6),
-the registry and the store seam, and §5.1's four working edits as one
-atomic `Update` (§6.2). What remains is the fanout that fills
-`ChangeResult`'s affected set (§5.3), `View`, §5.4's completeness
-guards at `Submit`, §5.5's transition checks, and the *registration*
+the registry and the store seam, §5.1's four working edits as one atomic
+`Update` (§6.2), and §5.3's fanout behind `ChangeResult.Affected`. What
+remains is `View`, §5.4's completeness guards at `Submit`, §5.5's
+transition checks, and the *registration*
 half of §6's hook contract: a declared `Validate` normalization runs
 today, and exporting its signature waits for the read-only context
 DESIGN §7 describes.

@@ -83,8 +83,8 @@ func BenchmarkLoweringOnly(b *testing.B) {
 
 // wideSrc is §8's generated corpus: one form, 40 fields, 6 roles, 5
 // stages, and one collection whose instances a request would carry.
-func wideSrc(b *testing.B) string {
-	b.Helper()
+func wideSrc(tb testing.TB) string {
+	tb.Helper()
 	var w strings.Builder
 	w.WriteString("roles {\n")
 	for r := 0; r < 6; r++ {
@@ -199,8 +199,9 @@ func BenchmarkPermResolve(b *testing.B) {
 	b.ReportMetric(float64(n), "slots/op")
 }
 
-// --- lookups by name, for fixtures only (RUNTIME §3.9's seam is not
-// shipped yet, and these read the closed arrays directly) ---
+// --- lookups by name, for fixtures only: a benchmark states its target as a
+// path, so a corpus change is obvious in the failure rather than silent in the
+// number. ---
 
 func findSlot(img *image, path string) nodeID {
 	for i := range img.slots {
@@ -263,5 +264,76 @@ func BenchmarkUpdate(b *testing.B) {
 			b.Fatalf("Update: %v", err)
 		}
 		base = res.Working
+	}
+}
+
+// BenchmarkUpdateFanout measures §5.3's walk on its own, in four shapes, so the
+// two claims the section makes are two comparisons rather than one number.
+//
+// Sized by the definition, not by the batch: `spec/floor` writes `full_name`, a
+// field no guard in the §7 example reads, and `wide/floor` writes the same
+// nothing against the 51-slot corpus. Same work, 20 slots versus 51, and the
+// difference is the visited array and queue that `depBound` fixed at lowering —
+// which is also why the *edge* count barely appears: `spec/guard` crosses both
+// edges the small definition has, from `kind` to the group and the collection
+// its tag decides the presence of, expands each to its subtree, and collapses
+// them back on the way out. `spec/all` is the ceiling, and a ceiling on the same
+// image as the floor is what makes the pair readable: a closure from any subset
+// visits a subset of these edges and enqueues a subset of these slots.
+//
+// The allocations in every row are those two arrays plus the rendered paths: the
+// walk allocates nothing per edge, and no path string is built for a slot the
+// collapse drops.
+func BenchmarkUpdateFanout(b *testing.B) {
+	spec := mustLower(b, "spec", specExample(b))
+	wide := mustLower(b, "wide", wideSrc(b))
+	floor := findSlot(spec, "application.full_name")
+	guarded := findSlot(spec, "application.kind")
+	unread := findSlot(wide, "f.s1")
+
+	b.Run("spec", func(b *testing.B) {
+		b.Run("floor", func(b *testing.B) { walkOne(b, spec, floor) })
+		b.Run("guard", func(b *testing.B) { walkOne(b, spec, guarded) })
+		b.Run("all", func(b *testing.B) { walkAll(b, spec) })
+	})
+	b.Run("wide", func(b *testing.B) {
+		b.Run("floor", func(b *testing.B) { walkOne(b, wide, unread) })
+	})
+}
+
+// walkOne runs the walk for a single-field write set. These are functions rather
+// than three loops so the reporting and each sub-benchmark's scope stay in one
+// place and the cases differ only in what they mark.
+func walkOne(b *testing.B, img *image, wrote nodeID) {
+	b.Helper()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		f := newFanout(img)
+		f.wroteField(wrote)
+		if len(f.affected()) == 0 {
+			b.Fatal("the walk reported nothing for a slot it was handed")
+		}
+	}
+}
+
+// walkAll is the upper-bound case: every declaration marked, as a batch that
+// rewrote a form field by field would. A collection is marked as a row arriving,
+// which is the wider of its two verbs, and the slot count comes from the image
+// rather than from the corpus's description — the point of the row is the bound.
+func walkAll(b *testing.B, img *image) {
+	b.Helper()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		f := newFanout(img)
+		for n := range img.slots {
+			if img.slots[n].coll != 0 {
+				f.wroteRows(nodeID(n))
+			} else {
+				f.wroteField(nodeID(n))
+			}
+		}
+		if len(f.affected()) == 0 {
+			b.Fatal("marking every declaration reported nothing")
+		}
 	}
 }
