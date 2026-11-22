@@ -821,14 +821,15 @@ that reason.
 
 ### 5.4 Submit completeness
 
-`Submit(form, workingRevision)` (DESIGN §6.3) checks the form's working
-revision and `base_revision == current committed revision`, then walks
-the form's dense subtree: `present ∧ satisfied` over §5.2, with
-`Validate` clean at this candidate. Defaults count as satisfaction
-without implying prior commitment (DESIGN §4.1). Verification and
-signature requirements are evaluated through `verif` units and
-`sigEntry`, all index-based. An empty diff means no commit is written
-(DESIGN §6.3: no meaningless commits).
+`Submit(form, workingRevision)` (DESIGN §6.3) checks the working copy's
+revision — the actor's copy the form lives in, one number per
+`(case, user)` (§5.1) — and `base_revision == current committed
+revision`, then walks the form's dense subtree: `present ∧ satisfied`
+over §5.2, with `Validate` clean at this candidate. Defaults count as
+satisfaction without implying prior commitment (DESIGN §4.1).
+Verification and signature requirements are evaluated through `verif`
+units and `sigEntry`, all index-based. An empty diff means no commit is
+written (DESIGN §6.3: no meaningless commits).
 
 ### 5.5 Transition checking
 
@@ -886,21 +887,34 @@ definition content, and hooks sit outside it, bound by the read-only
   `typeInfo.hook` carries it; the engine calls it for every value
   assigned to a field of that type and stores the *normalized* value
   for all later checks — the §5.3 re-evaluation, Submit's final
-  validation, and the commit diff alike.
+  validation, and the commit diff alike. A binding the host never
+  registered is identity, per DESIGN §7's per-kind rule: the value the
+  type checker accepted is the value the definition asked for. A binding
+  that returns something of the wrong class, or a value the field's type
+  cannot hold, is `HOOK_FAILURE` and abandons the batch — a host hook is
+  code, and code that misbehaves is heard as a failure rather than
+  absorbed as data.
 - **`Options` is bound by field path.** Lowering attaches the binding to
-  `options`-typed slots; the view layer fetches when a requested view
+  `options`-typed slots, and that is all the image does with it today:
+  the fetch belongs to the view layer, which asks when a requested view
   needs options (DESIGN §6.1), so `view` permission gates option sets
   exactly as it gates values. There is no separate client `GetOptions`
   call, and E2 is what keeps `options` values out of conditions
-  entirely.
+  entirely. What §5.3 owes an options field it cannot yet fetch is
+  already paid: the walk reports the field, which is the only thing a
+  client could act on.
 - **Re-evaluation order:** apply edits → normalize per field
   (`Validate`) → re-evaluate the §5.3 closure → report validation
   errors against final values. Submit re-runs the whole chain against
   current rules (DESIGN §7).
-- **Failures:** missing required hooks, hook execution failures,
-  structural errors and forbidden edits reject the whole `Update`
-  atomically; ordinary validation errors persist with draft values for
-  UI feedback (DESIGN §6.2; the error taxonomy is DESIGN §9).
+- **Failures:** hook execution failures, structural errors and forbidden
+  edits reject the whole `Update` atomically — the batch is one act, so a
+  refused one leaves the working copy exactly as it was, at the revision
+  the caller already had, with no half-applied row. Ordinary
+  validation errors persist with draft values for UI feedback (DESIGN
+  §6.2; the error taxonomy is DESIGN §9); they are an operation *result*
+  rather than a refusal, which is why §9's categories do not name one,
+  and they arrive with the read side that would display them.
 - **`OnCommit`** receives the actual durable `Commit` and the
   post-commit frame (DESIGN §7). It is observer-only: it never vetoes or
   rolls back the commit that triggered it, and a delivery failure cannot
@@ -1001,10 +1015,14 @@ none per edge. That is §5.3's bound claim in one sentence: the numbers
 move with the definition, not with the batch.
 (`BenchmarkUpdateFanout`.)
 
-Charged to a whole batch, that is two of `Update`'s allocations — the
-walk's scratch state — and in a same-process A/B that skipped the render,
-about a tenth of its time. `BenchmarkUpdate`'s row waits for a clean run for the
-reason in the next paragraph.
+Charged to a whole batch, the two arrays are paid whatever the answer
+turns out to be — `newFanout` runs before the first edit does — and the
+paths are allocated on the way out. A same-process A/B that skipped the
+closure and its render, leaving the arrays in place, came out two
+allocations and about a tenth of the time cheaper, which is the honest
+reading of what the walk costs a request: the render, plus the queue
+drain, not the reservation. `BenchmarkUpdate`'s absolute row waits for a
+clean run, for the reason in the next paragraph.
 
 Absolute rows here are only as good as the machine that printed them: a
 re-run under background load read some five times *every* figure in the
@@ -1038,9 +1056,14 @@ a re-run shows.
   closed, decodable structure, still not a general VM. That is the
   option-3 fork of §2.3, and it must be justified by measurement first.
 - **No JIT, no bytecode ISA, no embedded scripting engine** (§2.3).
-- **No hot reload of images.** Replacement is an explicit `Load`
-  (DESIGN §3); definition-compatibility rules are unchanged by this
-  document.
+- **No hot reload of images.** Replacement is an explicit `Load` plus
+  `Runtime.Replace` (DESIGN §3), and the pair is the whole mechanism:
+  nothing watches a file, and `Replace` itself touches no case data — it
+  swaps what an ID resolves to. The compatibility question is asked where
+  a snapshot is actually read, which is a case operation: §4's drift
+  check refuses a definition whose ordinal space moved rather than
+  reinterpreting the data into nonsense, and a case nobody opens again is
+  never asked.
 - **No automatic `Rebase` merging** (DESIGN §6.5 deferral stands).
 - **No per-instance condition paths** (SYNTAX Appendix B item 11): F6
   uniformity is load-bearing for §3.4's one-closure-per-collection. If
@@ -1064,14 +1087,17 @@ is the exported half that reads them: `Runtime` and `Case` (DESIGN §6),
 the registry and the store seam, §5.1's four working edits as one atomic
 `Update` (§6.2), and §5.3's fanout behind `ChangeResult.Affected`. What
 remains is `View`, §5.4's completeness guards at `Submit`, §5.5's
-transition checks, and the *registration*
-half of §6's hook contract: a declared `Validate` normalization runs
-today, and exporting its signature waits for the read-only context
-DESIGN §7 describes.
+transition checks, and the *registration* half of §6's hook contract: a
+declared `Validate` normalization runs today, and exporting its
+signature waits for the read-only context DESIGN §7 describes.
 
-Contract at the seam. The exported surface is deliberately tiny:
+Contract at the seam. Two halves are exported: the definition seam this
+handoff was written for, and the case operations milestone 2 has grown
+beside it. `ctx` stands for `context.Context`, and the operations that
+read the store take it and can refuse.
 
 ```go
+// Source in, an immutable definition out.
 func Load(id string, src io.Reader) (*Definition, error)
 func (d *Definition) ID() string
 func (d *Definition) Warnings() []Problem
@@ -1081,12 +1107,52 @@ type Code string
 
 type Error struct{ ID string; Problems []Problem; Defects []string }
 func (e *Error) Mismatch() bool
+
+// The registry, the actor, and one handle per case.
+func NewRuntime() *Runtime
+func (r *Runtime) Define(id string, src io.Reader) (*Definition, error)
+func (r *Runtime) Register(d *Definition) error
+func (r *Runtime) Replace(d *Definition) error
+func (r *Runtime) Definition(id string) (*Definition, bool)
+func (r *Runtime) Create(ctx, defID string, actor Actor) (Case, error)
+func (r *Runtime) Open(ctx, id CaseID, actor Actor) (Case, error)
+
+type Actor struct{ User UserID; PrimaryRole string }
+type UserID string
+type CaseID uint64
+
+func (c Case) ID() CaseID
+func (c Case) Actor() Actor
+func (c Case) Definition() (*Definition, bool)
+func (c Case) Stage(ctx) (string, error)
+func (c Case) Revision(ctx) (uint64, error)
+func (c Case) Update(ctx, base uint64, edits ...Edit) (ChangeResult, error)
+
+// Edits, values, and what an accepted batch says.
+type Edit struct{ /* unexported */ }  // Set · Empty · Add · Remove
+type Value struct{ /* unexported */ } // Text · Int · Decimal · Bool · Date
+                                      // · DateTime · Tag · Binary · User
+type BinaryRef []byte
+type ChangeResult struct{ Working uint64; Created, Affected []string }
+
+// Refusals, by category.
+type Category string  // NOT_FOUND, ACCESS_DENIED, INVALID_OPERATION, …
+type CaseError struct {
+    Op string; Reason Category; Case CaseID; Detail string; Cause error
+}
+func Failed(err error, want Category) bool
 ```
 
-One more name is exported: `BinaryRef`, a `[]byte` with no behavior.
-DESIGN §5.2 puts content handles in case *data*, and §5.1's value row
-reserves the field now so a row never changes shape when the binary
-store arrives; nothing in this package reads or resolves one.
+`Definition`, `Case`, `Edit` and `Value` have no exported fields, which
+is what lets §5.1's class tagging and §6's hook contract stay decisions
+of this package rather than a struct literal a host assembles by hand.
+What §6 names and this list does not — `View`, `Submit`, `Review`,
+`Sign`, `Transition`, `Rebase`, `Discard` — does not exist yet.
+
+`BinaryRef` is exported as a `[]byte` with no behavior. DESIGN §5.2 puts
+content handles in case *data*, and §5.1's value row reserves the field
+now so a row never changes shape when the binary store arrives; nothing
+in this package reads or resolves one.
 
 - `schema` remains the only consumer of source text and exports nothing
   beyond its diagnostics and resolved model (SYNTAX §5.8). `Load` calls it
@@ -1101,19 +1167,24 @@ store arrives; nothing in this package reads or resolves one.
   invariants as assumptions. A violated assumption is an internal
   defect: reported through the `SCHEMA_MISMATCH` category with the
   offending slot (DESIGN §9), never laundered into data corruption.
-- One error type, two causes, and the cause is not something a host has
-  to parse out of a message. `Problems` is what the author must fix, with
-  the codes and positions the front end chose; `Defects` is what the
-  runtime must fix, and `Mismatch` says which. Either way `Load` returns
+- At the definition seam one error type carries two causes, and the cause
+  is not something a host has to parse out of a message. `Problems` is
+  what the author must fix, with the codes and positions the front end
+  chose; `Defects` is what the runtime must fix, and `Mismatch` says
+  which. Either way `Load` returns
   no definition: a refused definition has no image at all (§7.5).
 - `Definition` is immutable and safe for concurrent use, because nothing
   in it is written after `Load` returns (§7.4). Warnings are reported and
   kept (§4): they never invalidate a definition, and they are the only
   thing about a loaded definition an author would still want to read.
-- Duplicate definition IDs (DESIGN §3) are a registry rule, and the
-  registry arrives with `Create`. Two `Load`s of one source yield two
-  equivalent, independent definitions; naming them the same is the host's
-  mistake to reject.
+- Duplicate definition IDs (DESIGN §3) are a registry rule, and
+  `Runtime.Register` is where it lives: two `Load`s of one source yield
+  two equivalent, independent definitions, and registering the second
+  name under the same ID is the host's mistake to hear about. `Replace`
+  is the separate act that says so — re-registering a definition under a
+  live ID reinterprets every case that names it, which is why `Create`
+  and `Open` read through the registry rather than holding a definition
+  pointer of their own.
 - The ceilings are checked where the ordinal or mask they protect is
   assigned — 64 roles, 64 top-level forms, 255 stages, 65535 types and
   tags, four levels of `multiple` nesting (§3.5, §3.9) — and each is

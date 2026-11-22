@@ -304,6 +304,10 @@ func (l *lowerer) verifySigs() {
 // during the build, so verify does not run on that image at all and this
 // branch is unreachable from a definition — it is here because §4's table
 // says so, and it costs nothing but a sentence.
+// sigKind names the shape of a signature entry for a defect message. The
+// caller reaches it only when the two targets agree on being empty, so the
+// last line is unreachable by construction: it is here because the function
+// has to answer for every entry, not because a third shape is expected.
 func sigKind(e sigEntry) string {
 	switch {
 	case e.role == 0 && e.assigned == 0:

@@ -75,6 +75,12 @@ func Create(definition string, actor Actor) (Case, error)
 func Open(id CaseID, actor Actor) (Case, error)
 ```
 
+The shipped surface for this section is RUNTIME §10. `Load` is the
+package function it looks like, and it hands back the immutable
+definition rather than installing it; installing is `Runtime.Register`,
+and `Create` and `Open` are methods of that same `Runtime`, which
+resolves both by ID through one registry.
+
 A loaded definition is compiled and immutable. Duplicate IDs are
 rejected. The Host explicitly loads definitions; Monshi does not watch
 files or automatically reload changes. More than one definition can
@@ -306,10 +312,14 @@ Add(path)         — create an empty instance in a multiple collection
 Remove(path)      — remove an instance of a multiple collection
 ```
 
-`Add` does **not** take an initial value: use `Set` separately (possibly
-in the same atomic `Update`). `Remove` is not for deleting fixed schema
-nodes. `Empty` differs from a field being structurally absent because of
-`present`.
+`Add` does **not** take an initial value, and it cannot: the ID the new
+instance is addressed by belongs to the engine, so it is only known when
+the batch that created it returns (`ChangeResult.Created` names it). The
+values go in a following `Update`, presented with the working revision
+the first one reported. `Remove` is not for deleting fixed schema nodes.
+`Empty` differs from a field being structurally absent because of
+`present`: it clears a cell the definition still asks for, so a
+`required` field stays required and still fails.
 
 ### 5.2 Binary values
 
@@ -332,6 +342,16 @@ state. Prefer package functions and functional transformations over
 hidden engine state. A single runtime instance per process is acceptable
 for wiring, not as an implicit domain dependency. A Go
 `context.Context` is distinct from domain `CaseContext`.
+
+The shipped handle carries one pointer, to the wiring that made it: the
+registry and the store, both shared, both written only under their own
+locks. That is the paragraph's allowance read literally — the handle
+owns no state a caller can mutate, and `Update` returns a new working
+revision rather than editing anything the handle holds — and it is why
+`Open` needs no global to resolve a case through its definition. What
+would break the rule is a `Case` holding a frame or a cached snapshot,
+which it does not: every operation reads the store afresh. RUNTIME §10
+is the shipped surface; the block below stays the semantic one.
 
 Illustrative API (exact Go types and method/function presentation to be
 finalized):
@@ -401,11 +421,13 @@ Submit(form, workingRevision)
 
 The client sends **only a top-level form identifier and its working
 revision**. The server already holds the working data. The revision
-supplied to `Submit` is for the selected working form; the
-implementation must track/check that form's revision, distinct from the
-case-wide committed revision.
+supplied to `Submit` is that of the **working copy the form lives in** —
+one per `(case, user)`, per §5 — and it is distinct from the case-wide
+committed revision. Checking the copy's revision covers every form in it:
+an edit to any form the same actor holds, including the submitted one,
+has moved it.
 
-Submit checks: form's expected working revision,
+Submit checks: the working copy's expected revision,
 `base_revision == current committed revision`, permission,
 required/present fields, and final validation using current
 rules/hooks. It computes a diff limited to the selected form, atomically
@@ -494,8 +516,20 @@ stable evaluation, dependencies/conditions must be reevaluated after
 normalization; validation at Submit runs again.
 
 `Options` is looked up by field path; `Validate` is looked up by custom
-type. The DSL contains no calls to these hooks. Missing required hooks
-and execution failures are errors, not silent success.
+type. The DSL contains no calls to these hooks. An execution failure is
+an error, not silent success.
+
+A *missing* hook is the case where the choice has to be stated rather
+than assumed, because a definition names a hook by declaring an
+`options`-typed field or a custom type with a `Validate` rule, and a host
+that wired no function for it has not broken its definition — nothing in
+the definition is wrong. The rule is therefore per kind: `Options` is
+required, since a declared options field with no provider has no list to
+show and inventing an empty one would answer a question nobody was able
+to ask; `Validate` is absent-means-identity, since its job is to change a
+value and the unchanged value is exactly what the type checker already
+accepted. Either way the failure is loud: the first is a refusal naming
+the binding, and a hook that returns `Failure` refuses the whole batch.
 
 `OnCommit` receives the **actual committed `Commit`**, including its
 latest diff and metadata, plus a context representing the **post-commit
@@ -508,6 +542,14 @@ Embedded execution may call hook functions directly; a standalone
 service may invoke external providers over RPC. Core should expose one
 domain contract irrespective of deployment. External hooks should not be
 called inside long-held storage transactions.
+
+The one contract is *where* a hook runs, not *how* it is reached: the
+domain half is the signature above plus the read-only context, and a
+transport — direct call, RPC, queue — stays in the host's wiring. That is
+why an in-process runtime can hold bindings behind a key while a service
+resolves the same key against a remote provider, and why no hook result
+may be cached across a commit: the context it saw is the snapshot, not a
+lease.
 
 ## 8. Storage contract
 
@@ -541,6 +583,15 @@ valid changes but does not choose transaction technology.
 
 A separate binary abstraction can expose `Put(io.Reader) -> BinaryRef`
 and `Get(BinaryRef) -> io.ReadCloser` with appropriate request contexts.
+
+Milestone 2 ships a store *behind* this shape rather than this interface
+itself: an in-memory seam, unexported, whose methods are named for the
+same acts and whose two revision checks are exactly the ones this section
+requires.
+`NewRuntime` wires it in, because a host has no store to hand over yet.
+Milestone 4 supplies the implementation and the seam becomes exported
+contract; what does not change then is the operations' shapes, which is
+the point of keeping the seam narrow now.
 
 The API may be refined during implementation, but it must not weaken
 these atomicity and revision guarantees.

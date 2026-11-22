@@ -2,11 +2,16 @@ package monshi
 
 // RUNTIME §8's harness. What is measured here is what is shipped:
 // lowering, the two hot reads the image exists to make cheap — one
-// condition closure, one permission resolve — path resolution, and one
-// accepted edit batch. The view, fanout and transition benchmarks need
-// operations that do not exist yet, so they are not faked here; the tree
-// baseline §8 compares against needs the same operations too, and
-// arrives with them.
+// condition closure, one permission resolve — path resolution, the
+// fanout on its own, and one accepted edit batch. The view and transition
+// benchmarks need operations that do not exist yet, so they are not faked
+// here; the tree baseline §8 compares against needs the same operations
+// too, and arrives with them.
+//
+// A row is measured against something. Where the pair is not obvious from
+// the name, the benchmark's own comment says what its sub-benchmarks are
+// the two ends of, because a number with no comparison is folklore with a
+// timestamp on it.
 //
 // These are not pass/fail tests. They exist so the cost claims in §2.2
 // and §8 stay assertions someone re-runs rather than folklore.
