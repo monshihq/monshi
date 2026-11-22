@@ -101,6 +101,33 @@ func slotByPath(t *testing.T, img *image, path string) nodeID {
 	return found[0]
 }
 
+// nestedSrc is the shape the §7 example cannot express: a repeated field, and
+// a collection inside a collection. SYNTAX §4 allows `multiple` on a field and
+// on a group, and nothing forbids a group inside a group, so the row model has
+// to answer for all three at once.
+const nestedSrc = `
+roles {
+    A { allow view, edit all; }
+}
+forms {
+    f {
+        tags : string multiple;
+        rows multiple {
+            n : integer default 7;
+            meta {
+                m : integer;
+            }
+            cells multiple {
+                v : integer;
+            }
+        }
+    }
+}
+stages {
+    start { allow A view, edit, submit f; }
+}
+`
+
 func roleIDBy(t *testing.T, img *image, name string) roleID {
 	t.Helper()
 	for r := roleID(1); int(r) < len(img.roleIdx); r++ {

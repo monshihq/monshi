@@ -102,6 +102,27 @@ func (l *lowerer) verifySlots(n int) {
 				l.reportf(at, "condition %d was not built", c)
 			}
 		}
+		// The collection ordinal is how a state finds a collection's rows by
+		// index (§5.1), so it has to point back and be dense.
+		switch {
+		case s.coll != 0 && s.flags&flagMultiple == 0:
+			l.reportf(at, "a non-collection carries a collection ordinal")
+		case s.coll == 0 && s.flags&flagMultiple != 0:
+			l.reportf(at, "a multiple declaration has no collection ordinal")
+		case s.coll != 0 && int(s.coll) > len(img.colls):
+			l.reportf(at, "collection ordinal %d exceeds %d collections",
+				s.coll, len(img.colls))
+		case s.coll != 0 && img.colls[s.coll-1] != nodeID(i):
+			l.reportf(at, "collection ordinal %d does not point back here", s.coll)
+		}
+	}
+	for k, c := range img.colls {
+		// collOf stops at the first ordinal past its slot and keeps the last
+		// one that reaches, so preorder is what makes it find the *innermost*
+		// enclosing collection (§5.1).
+		if k > 0 && c <= img.colls[k-1] {
+			l.reportf(l.where(c), "collection ordinals are not in preorder")
+		}
 	}
 }
 
@@ -278,6 +299,11 @@ func (l *lowerer) verifySigs() {
 	}
 }
 
+// sigKind renders the half of S2's contract that an entry got wrong. Its
+// caller is an assertion: every way to build such an entry reports a problem
+// during the build, so verify does not run on that image at all and this
+// branch is unreachable from a definition — it is here because §4's table
+// says so, and it costs nothing but a sentence.
 func sigKind(e sigEntry) string {
 	switch {
 	case e.role == 0 && e.assigned == 0:

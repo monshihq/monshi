@@ -29,6 +29,11 @@ const (
 	maxStages = 255 // stageID is one byte, ordinals from 1
 	maxTypes  = 65535
 	maxTags   = 65535
+
+	// How deep `multiple` may nest. Instance paths are addressed by a fixed
+	// array at request time, so resolution allocates nothing (§3.9), and a
+	// path deeper than this cannot be formed by a definition that loaded.
+	maxCollDepth = 4
 )
 
 type lowerer struct {
@@ -103,7 +108,14 @@ func lower(id string, s *schema.Schema) (*image, error) {
 	l.conditions()
 	l.permissions()
 	l.dependencies()
-	l.verify()
+	// The §4 checks read the image as if it were finished. A build that had
+	// to refuse something — a ceiling, a missing ordinal — leaves arrays
+	// short, and walking them would report a second defect about the wrong
+	// node, or crash before saying anything. The first problem is the one
+	// that matters, so the drift checks wait for a complete build.
+	if len(l.problems) == 0 {
+		l.verify()
+	}
 
 	if len(l.problems) > 0 {
 		// Refused, not repaired: the definition compiled, so the fault is
@@ -442,7 +454,7 @@ func (l *lowerer) forms() {
 			return
 		}
 		l.formOf[f] = formID(i + 1)
-		slot := l.buildNode(f, 0, 0, false)
+		slot := l.buildNode(f, 0, 0, 0)
 		l.img.forms = append(l.img.forms, slot)
 		kids = append(kids, slot)
 	}
@@ -457,9 +469,10 @@ func (l *lowerer) forms() {
 
 // buildNode numbers one subtree and returns its slot. parent is the slot of
 // the enclosing declaration (0 for a form), unit the outermost verifiable
-// ancestor's slot, and inCollection marks the subtree of a multiple node,
-// whose members E2 keeps out of every condition.
-func (l *lowerer) buildNode(n *schema.Node, parent, unit nodeID, inCollection bool) nodeID {
+// ancestor's slot, and depth the number of `multiple` collections enclosing
+// this one: their members are stored one row per instance (§5.1) and kept out
+// of every condition (E2).
+func (l *lowerer) buildNode(n *schema.Node, parent, unit nodeID, depth int) nodeID {
 	id := l.nextID
 	slot := nodeSlot{
 		parent: parent,
@@ -511,17 +524,27 @@ func (l *lowerer) buildNode(n *schema.Node, parent, unit nodeID, inCollection bo
 		slot.hook = l.internHook(hookByPath, n.Path)
 	}
 
-	l.appendSlot(slot, n)
+	// A collection gets a dense ordinal, so a state addresses its rows by
+	// index rather than by lookup (§5.1). Preorder numbering makes img.colls
+	// the declaration-order list as well, which is what collOf relies on.
 	if n.Multiple {
-		inCollection = true
+		if depth+1 > maxCollDepth {
+			l.reportf(n.Path, "collections nest %d deep, the limit is %d",
+				depth+1, maxCollDepth)
+		} else {
+			slot.coll = uint32(len(l.img.colls)) + 1
+			l.img.colls = append(l.img.colls, id)
+		}
+		depth++
 	}
-	if inCollection {
-		l.collection[id] = true
+	l.appendSlot(slot, n)
+	if depth > 0 {
+		l.collection[id] = true // E2 keeps this subtree out of conditions
 	}
 
 	kids := make([]nodeID, 0, len(n.Nodes))
 	for _, c := range n.Nodes {
-		kids = append(kids, l.buildNode(c, id, unit, inCollection))
+		kids = append(kids, l.buildNode(c, id, unit, depth))
 	}
 	// The child run is written after the whole subtree was built: the
 	// descendants' own lists were appended to the same array while this

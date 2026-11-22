@@ -126,7 +126,8 @@ type BinaryRef []byte
 // field but reads exactly one of them: the class is fixed per slot by
 // typeInfo, so a getter selects the field at lowering time — no tag test,
 // no interface boxing on the hot path (RUNTIME §5.1). Booleans live in i
-// as 0 or 1; an enum value is its tagID.
+// as 0 or 1; an enum value is its tagID; an options value is the chosen
+// text, since its choice set is hook data the row cannot hold (§3.3).
 type slotValue struct {
 	set bool
 	i   int64
@@ -147,6 +148,7 @@ type nodeSlot struct {
 	first    uint32 // [first, first+n) into image.children
 	n        uint32 // direct children, declaration order
 	span     uint32 // preorder subtree size, at least 1
+	coll     uint32 // 1-based ordinal into image.colls; 0 = not a collection
 	typ      typeID // 0 on role-typed fields, which carry role instead
 	role     roleID // role-typed field: the role it confers (T4)
 	flags    uint16
@@ -269,6 +271,7 @@ type image struct {
 	sigs     []sigEntry  // indexed by nodeSlot.sig; index 0 unused
 	stages   []stageInfo // indexed by stageID; index 0 unused
 	forms    []nodeID    // indexed by formID; index 0 unused
+	colls    []nodeID    // multiple collections, in preorder; slot.coll is 1-based here
 	hooks    []hookKey   // indexed by hookID; index 0 unused
 	tagNames []stringID  // indexed by tagID; index 0 unused
 	tagType  []typeID    // indexed by tagID; index 0 unused
@@ -308,6 +311,68 @@ func (img *image) childrenOf(n nodeID) []nodeID {
 // §5.4). Callers iterate lo inclusive, hi exclusive.
 func (img *image) subtree(n nodeID) (lo, hi nodeID) {
 	return n, n + nodeID(img.slots[n].span)
+}
+
+// baseOf is a slot's value class, or 0 for a role-typed field, which has no
+// value class at all (§3.3).
+func (img *image) baseOf(n nodeID) uint8 {
+	t := img.slots[n].typ
+	if t == 0 {
+		return 0
+	}
+	return img.types[t].base
+}
+
+// collOf is the innermost multiple collection whose instance rows hold slot
+// n, and 0 when n lives in the base row. img.colls is in preorder, so the
+// innermost enclosing range is the last one that reaches n.
+func (img *image) collOf(n nodeID) nodeID {
+	var inner nodeID
+	for _, c := range img.colls {
+		if c > n {
+			break // preorder: no later collection can enclose n either
+		}
+		if n >= img.rowLo(c) && n < c+nodeID(img.slots[c].span) {
+			inner = c
+		}
+	}
+	return inner
+}
+
+// rowLo is the first slot an instance row covers. A repeated group's own slot
+// stays in the base row — what it "has" is instances — so its rows begin at
+// its first descendant. A repeated *field* has no descendants, and its
+// instances are values of that field, so its rows cover the slot itself
+// (SYNTAX §4 allows `multiple` on both).
+func (img *image) rowLo(coll nodeID) nodeID {
+	if img.slots[coll].span > 1 {
+		return coll + 1
+	}
+	return coll
+}
+
+// rowLen is how many slots one instance of a collection holds.
+func (img *image) rowLen(coll nodeID) int {
+	return int(coll) + int(img.slots[coll].span) - int(img.rowLo(coll))
+}
+
+// nonEmpty is §5.2's emptiness test, and the only class-sensitive question
+// interpretation asks about a stored value. Absence is empty, and so are ""
+// and an empty binary handle. A stored zero, a stored false and a first-tag
+// enum are values: `required` asks whether something was entered, not
+// whether it is interesting.
+func (img *image) nonEmpty(n nodeID, v slotValue) bool {
+	if !v.set {
+		return false
+	}
+	switch img.baseOf(n) {
+	case baseString, baseOptions:
+		return v.s != ""
+	case baseBinary:
+		return len(v.bin) > 0
+	default:
+		return true
+	}
 }
 
 // permAt resolves the effective allow/deny bits one role holds for one slot

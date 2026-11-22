@@ -486,10 +486,11 @@ resolve path "application.internal.risk_score":
         if child of cur named seg exists:    //   caller's own string,
             cur = that child                 //   never a copy
         else if cur is a collection and seg parses as a stable ID:
-            row = frame.instance(cur, id)    // §5.1's one data-keyed map
+            steps += (cur, id)               // §5.1's one data-keyed map
+            if reach(steps) fails: return unknown path
         else:
             return unknown path              // DESIGN §9, not a fallback
-    return cur
+    return cur, reach(steps)                 // a slot and its cell
 ```
 
 No name-keyed map is needed, because the tree the image already holds is
@@ -502,11 +503,18 @@ allocation: `path[i:j]` on a Go string is a header, not a copy. Role,
 tag, form and stage names resolve the same way against their closed
 arrays (`roleIdx`, `tagNames`, `forms`, `stages`).
 
+The instance path an answer carries is a fixed array, not a list: the
+number of steps is at most the number of `multiple` declarations that
+enclose one node, which lowering refuses past a documented ceiling of
+four. A definition that loaded therefore cannot produce a path that
+overflows the answer, and a resolution allocates nothing — measured as
+`BenchmarkResolvePath`, §8.
+
 Two properties follow, and they are the whole of §7.2's containment
 argument. First, a name can select *data*, never *behavior*: after
 resolution the request walks slots, bits and closures, and no code path
 depends on which letters the host typed. Second, the only key taken from
-case data is a stable instance ID inside `instance.index`, bounded by
+case data is a stable instance ID inside `instances.index`, bounded by
 that collection's committed rows (§5.1) — there is still no
 data-keyed-anything in the definition.
 
@@ -515,8 +523,9 @@ seam. It is never resolved to a near miss, and there is no partial
 answer to interpret: `nodeID`, `stageID` and `roleID` ordinals exist only
 for declared things.
 
-Resolution arrives with the operations that need it (§10); the image's
-shape is what makes it cheap, and is already fixed.
+Resolution is shipped as `resolve.go`; the operations that use it come
+next (§10). The image's shape is what makes it cheap, and was fixed
+before the seam was written.
 
 ---
 
@@ -580,64 +589,120 @@ type slotValue struct {
 	set bool
 	i   int64            // integer, boolean, enum tag
 	d   decimal.Decimal  // decimal(p, s)
-	s   string           // string data
+	s   string           // string data, and options values
 	t   time.Time        // date, datetime
 	bin BinaryRef        // opaque content handle (DESIGN §5.2)
 }
 
-type frame struct {
-	img    *image
-	commit stateView // committed snapshot, dense by slot (§3.4)
-	work   stateView // candidate overlay during Update
-	insts  []instance // multiple collections, keyed by stable ID
+type cell struct {
+	slot nodeID   // the declaration
+	row  stateView // which row holds this one value
+	idx  int      // where in that row
 }
 
 type instanceID uint64 // stable identity, host-visible (DESIGN §5.1)
 
-// One row per instance of one multiple collection.
-type instance struct {
-	coll  nodeID            // the collection slot that owns this row
-	row   stateView         // dense over descendant slots
-	index map[instanceID]int // stable ID → row position
+type instStep struct { coll nodeID; id instanceID }
+
+// One instance: its stable ID, its values, and any collection inside it.
+type instRow struct {
+	id   instanceID
+	row  stateView // dense over the slots this instance holds
+	nest []*instances // collections declared inside this one
+}
+
+// One collection's rows, in creation order, plus the ID → position map.
+type instances struct {
+	coll  nodeID
+	rows  []instRow
+	index map[instanceID]int
+}
+
+// One snapshot of a case's data: the base row and every collection's rows.
+type state struct {
+	img   *image
+	row   stateView
+	insts []*instances // indexed by nodeSlot.coll-1, the dense ordinal
+	seq   instanceID   // next stable ID, part of the case's data
+}
+
+type frame struct {
+	img    *image
+	commit state // what is committed
+	work   state // what the actor is about to commit
 }
 ```
 
 A `stateView` is the shipped parameter type of `condFn` (§3.4): one
-`slotValue` per slot, in slot order. Interpretation passes a frame's
-`commit` or `work` row and nothing else, which is why a condition needs
-no frame pointer and no notion of which state it is being asked about.
+`slotValue` per slot, in slot order. Interpretation passes a state's own
+row and nothing else, which is why a condition needs no frame pointer
+and no notion of which state it is being asked about, and why the two
+states in a frame are the same shape rather than two representations.
+
+A `cell` is what a read, a write and a condition all agree on: the slot,
+the row, the position. Addressing a member costs one subtraction —
+`n - rowLo(coll)` — because numbering is preorder (§3.2), and the same
+fact is why a member's offset makes sense only against the *innermost*
+collection enclosing it. `rowLo` is that collection's first row slot:
+its first descendant for a repeated group, itself for a repeated field,
+since `multiple` is legal on both (SYNTAX §4) and a field's instances
+are values *of* that field. A collection's own slot, in short, belongs
+to its parent's row and never to its own.
 
 A row carries every payload field but reads exactly one of them: the
 class is fixed per slot by `typeInfo`, so a getter selects the field at
 lowering time — there is no runtime tag test, and no `any` boxing on the
-hot path. The `frame` allocates two dense rows per slot once, not per
-node per request.
+hot path. A frame allocates its two dense rows once, not per node per
+request.
 
-A `multiple` group stores one row per instance whose positions are the
-collection's descendant slots; instances are addressed by stable ID as
-an ordinary path segment, matching DESIGN §5.1 — `shareholders.42`,
-with no `[id:42]` syntax. Condition closures capture only slot indexes,
-so swapping a frame (committed → working candidate)
-redirects every getter for free — that swap is what makes Update's
-candidate evaluation and Submit's final evaluation share one code path.
+Defaults are materialized when data is *created* — a new case, a new
+instance — into the row itself (§5.2). Nothing fills a value at read
+time, so a field a host cleared with `Empty(path)` stays cleared, and a
+definition change that adds a default never silently rewrites persisted
+data (DESIGN §3, invariant 8).
 
 Instance rows are the one place where a key taken from case data indexes
-anything: `instance.index`, a per-collection `map[instanceID]int`
+anything: `instances.index`, a per-collection `map[instanceID]int`
 bounded by that collection's committed size, mapping stable IDs to row
 positions rather than to nodes. Definition names never appear in it,
-which is the scope of §7's claim about name-keyed execution.
+which is the scope of §7's claim about name-keyed execution. Nested
+collections belong to the instance that declares them, so
+`shareholders.42.addresses.7` is two rows, and the inner one is not
+reachable from another outer instance. Removal never reuses a stable ID
+and never renumbers the survivors, so a host's saved path keeps
+pointing where it pointed.
+
+Instances are addressed by stable ID as an ordinary path segment,
+matching DESIGN §5.1 — `shareholders.42`, with no `[id:42]` syntax.
+Condition closures capture only slot indexes, so swapping a frame
+(committed → working candidate) redirects every getter for free — that
+swap is what makes Update's candidate evaluation and Submit's final
+evaluation share one code path. Because E2 keeps a collection's members
+out of every condition, no guard ever reads a row: instance rows store
+data, and every condition answer is computed from the base row, which
+is what makes F6's one evaluation per collection the only possible
+reading rather than a policy (§5.2).
 
 ### 5.2 Presence and requiredness
 
 ```text
-present(n, f) = n.condPres == 0 || cond(n.condPres)(f)
+present(n, s) = n.condPres == 0 || cond(n.condPres)(s.row)
 
-// Consulted only when present(n, f):
-satisfied(n, f) =
-    n.flags.Required → nonEmpty(n, f) || n.def != 0
+// Consulted only when present(n, s):
+satisfied(n, v) =
+    n.flags.Required → nonEmpty(n, v)
     n.condReq == 0   → true                        // not required
-    otherwise        → !cond(n.condReq)(f) || nonEmpty(n, f)
+    otherwise        → !cond(n.condReq)(s.row) || nonEmpty(n, v)
 ```
+
+`v` is the slot's value in that state: its cell for an ordinary field,
+its instance count for a collection (`required multiple` means ≥1
+element, SYNTAX §4), and nothing at all for a plain group, whose
+requiredness is exactly that it is present. A slot with no single value
+— a member of a collection, or a collection nested inside one — has one
+answer per enclosing instance, so §5.4's completeness walk iterates rows
+and asks `satisfied` per member rather than letting the state invent an
+aggregate.
 
 Absence is what makes those two lines mean something, and E6 fixes it:
 a comparison over a slot with no value is unsatisfied, `!=` included, so
@@ -649,10 +714,14 @@ where `n` was never entered. Absence is therefore never a hidden third
 truth value inside a closure: `condFn` returns `bool`, and the third
 state lives in `slotValue.set`, tested by the comparator that reads it.
 
-Frames materialize defaults before evaluation (§5.1), so "unset" means
-genuinely without a value: a defaulted field is never absent, and
-`Empty(path)` on a present field is an empty value, not absence —
-which is exactly why an emptied `required` field still fails (§5.4).
+Defaults are materialized into the row when data is created (§5.1), so
+"unset" means genuinely without a value: a defaulted field is never
+absent, and `Empty(path)` on a present field is an empty value, not
+absence — which is exactly why an emptied `required` field still fails
+(§5.4). That is also why `required` needs nothing but the emptiness
+test: the default is *in* the row, so there is no `|| n.def != 0` to
+consult, and a field a host cleared is not rescued by a default nobody
+re-applied. A definition change therefore never rewrites persisted data.
 
 The last two branches are exclusive. `required` and `required[expr]`
 are mutually exclusive variants of one attribute (SYNTAX §4), kept
@@ -865,11 +934,12 @@ group, 6 roles, 5 stages — 51 slots.
 | Benchmark | Measures | Result |
 | --- | --- | --- |
 | `BenchmarkCondEval` | one `tagCmp` guard | 2.1 ns, 0 allocs |
-| `BenchmarkPermResolve` | 51 slots, one role | 407 ns, 0 allocs |
-| `BenchmarkLoweringOnly` | schema → image, §7 example | 12.5 µs, 247 allocs |
-| `BenchmarkLoweringWideOnly` | schema → image, wide | 29.8 µs, 294 allocs |
-| `BenchmarkLowerSpecExample` | source → image, §7 | 41.7 µs, 1073 allocs |
-| `BenchmarkLoweringWide` | source → image, wide | 59.4 µs, 1213 allocs |
+| `BenchmarkPermResolve` | 51 slots, one role | 403 ns, 0 allocs |
+| `BenchmarkResolvePath` | caller text → a cell | 70 ns, 0 allocs |
+| `BenchmarkLoweringOnly` | schema → image, §7 | 12.6 µs, 248 allocs |
+| `BenchmarkLoweringWideOnly` | schema → image, wide | 30.3 µs, 295 allocs |
+| `BenchmarkLowerSpecExample` | source → image, §7 | 41.7 µs, 1074 allocs |
+| `BenchmarkLoweringWide` | source → image, wide | 61.0 µs, 1214 allocs |
 
 Three things follow. A condition is two memory reads and a compare, so
 §3.4's "no type dispatch inside a running condition" is a cost claim and
@@ -880,14 +950,21 @@ definition lowers in tens of microseconds, with the front end accounting
 for 3.3× the bill — which is §9's argument for rebuilding images rather
 than serializing them, stated in numbers.
 
-What is *not* measured yet, because the substrate to run it is not
-shipped: `BenchmarkViewWide`, `BenchmarkUpdateFanout` and
-`BenchmarkTransitionGuard` need the frame of §5.1 and arrive with the
-operations. Nor is any "× faster than the compiled tree" ratio: that
-would mean an interpreted-tree harness, and building one to prove a
-point the absolute numbers already make is a cost of its own. The
-multiples this section used to promise are dropped; the measured rows
-above are the facts, and a regression is now something a re-run shows.
+A path request joins those three at the cheap end: 70 ns to walk four
+segments, intern nothing, and hand back a slot, a row and a position —
+the §3.9 seam is not a tax on every read.
+
+What is *not* measured yet, because the operations that would drive it
+are not shipped: `BenchmarkViewWide`, `BenchmarkUpdateFanout` and
+`BenchmarkTransitionGuard`. The frame of §5.1 and §5.2's answers exist
+and are tested, but a benchmark that hand-builds a state and calls one
+internal function would measure the fixture, not a request; they arrive
+with `Update`, `View` and `Transition`. Nor is any "× faster than the
+compiled tree" ratio: that would mean an interpreted-tree harness, and
+building one to prove a point the absolute numbers already make is a
+cost of its own. The multiples this section used to promise are dropped;
+the measured rows above are the facts, and a regression is now something
+a re-run shows.
 
 ---
 
@@ -920,10 +997,11 @@ above are the facts, and a regression is now something a re-run shows.
 
 Milestone status (DESIGN §10): 1 is complete — the `schema` package,
 its tests and the two language documents. Milestone 2 (*pure case
-semantics*) is in progress: the image of §3, the lowering of §4, and the
-`Load` seam are in place, and what remains is the frame of §5.1 plus the
-operations that read it. This document defines the substrate milestones
-3–5 execute on.
+semantics*) is in progress: the image of §3, the lowering of §4, the
+`Load` seam, the frame and instance rows of §5.1, §5.2's presence and
+requiredness, and §3.9's resolution seam are in place and tested. What
+remains is the exported half — `Runtime` and `Case`, and the edit and
+transition operations that read a frame.
 
 Contract at the seam. The exported surface is deliberately tiny:
 
@@ -947,6 +1025,12 @@ store arrives; nothing in this package reads or resolves one.
 - `schema` remains the only consumer of source text and exports nothing
   beyond its diagnostics and resolved model (SYNTAX §5.8). `Load` calls it
   once and never re-runs it, whether or not lowering succeeds.
+- A host never imports `schema` to read a refusal. `Problem` mirrors the
+  checker's diagnostic — position, code, the name it singled out — and
+  carries the front end's own sentence in `Msg`, so codes are branched on
+  as the document spells them (`"UNKNOWN_TYPE"`) and text is displayed
+  without a second table. The conversion is field-by-field, which makes it
+  total: a code added to the front end cannot be forgotten at the seam.
 - Lowering reads only exported `Schema` fields and treats the §4
   invariants as assumptions. A violated assumption is an internal
   defect: reported through the `SCHEMA_MISMATCH` category with the
@@ -964,6 +1048,13 @@ store arrives; nothing in this package reads or resolves one.
   registry arrives with `Create`. Two `Load`s of one source yield two
   equivalent, independent definitions; naming them the same is the host's
   mistake to reject.
+- The ceilings are checked where the ordinal or mask they protect is
+  assigned — 64 roles, 64 top-level forms, 255 stages, 65535 types and
+  tags, four levels of `multiple` nesting (§3.5, §3.9) — and each is
+  reported as an internal defect, never as a widened word or a wrapped
+  index. A build that has already refused something skips §4's drift
+  checks: its arrays are short by design, and walking them would report
+  a second defect about the wrong node.
 - Conformance gate: the SYNTAX §7 example must (a) compile with zero
   diagnostics, (b) lower to the shape traced in Appendix A, and
   (c) execute Appendix A's runtime steps as a test once milestone 2
