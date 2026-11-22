@@ -1,8 +1,9 @@
 # Monshi — Design Specification
 
 **Status:** Implementation baseline
-**Companion:** [SYNTAX.md](SYNTAX.md) — normative DSL syntax and static
-semantics
+**Companions:** [SYNTAX.md](SYNTAX.md) — normative DSL syntax and
+static semantics; [RUNTIME.md](RUNTIME.md) — runtime representation,
+lowering and interpretation
 **Language:** Go
 **Scope:** Core library; an optional standalone service may be built on
 top of it.

@@ -1,7 +1,9 @@
 # Monshi — DSL Syntax Specification
 
 **Status:** Normative reference for the definition language
-**Companion:** [DESIGN.md](DESIGN.md) — authoritative for runtime behavior
+**Companions:** [DESIGN.md](DESIGN.md) — authoritative for runtime
+behavior; [RUNTIME.md](RUNTIME.md) — lowering and interpretation of the
+compiled definition
 **Scope:** Lexical structure, concrete syntax and static semantics of one
 Monshi case definition file
 
