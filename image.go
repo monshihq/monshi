@@ -292,6 +292,10 @@ func (img *image) tagName(t tagID) string { return img.name(img.tagNames[t]) }
 
 func (img *image) roleName(r roleID) string { return img.name(img.roleIdx[r]) }
 
+// stageName renders a stage's declared name. Index 0 is the "no stage"
+// answer and renders empty, the same way ordinal 0 means "none" elsewhere.
+func (img *image) stageName(s stageID) string { return img.name(img.stages[s].name) }
+
 func (img *image) path(n nodeID) string { return img.name(img.slots[n].path) }
 
 func (img *image) constOf(v valueID) slotValue { return img.consts[v] }
