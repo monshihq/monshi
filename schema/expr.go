@@ -14,6 +14,7 @@ import (
 type vt struct {
 	lit        string // "" | "string" | "number" | "bool"
 	text       string // literal text, for diagnostics and pairing
+	val        *Value // the literal's compiled value, for normalization
 	typ        *Type  // node or tag type; nil for literals
 	isBoolExpr bool   // usable where a boolean expression is required (E4)
 	bad        bool   // already reported; suppresses cascades
@@ -70,16 +71,18 @@ func (a *analyzer) checkOperandExpr(o *astOperand, st *site) (*Expr, vt) {
 	p := pos{o.line, o.col}
 	switch o.kind {
 	case "string":
-		return &Expr{Lit: &Value{Kind: "string", Str: o.text}}, vt{lit: "string", text: o.text}
+		v := &Value{Kind: "string", Str: o.text}
+		return &Expr{Lit: v}, vt{lit: "string", text: o.text, val: v}
 	case "number":
 		v := numberValue(o.text)
 		if v == nil {
 			a.errf(p, CodeInvalidOperand, o.text)
 			return nil, vt{bad: true}
 		}
-		return &Expr{Lit: v}, vt{lit: "number", text: o.text}
+		return &Expr{Lit: v}, vt{lit: "number", text: o.text, val: v}
 	case "bool":
-		return &Expr{Lit: &Value{Kind: "boolean", Bool: o.text == "true"}}, vt{lit: "bool", text: o.text}
+		v := &Value{Kind: "boolean", Bool: o.text == "true"}
+		return &Expr{Lit: v}, vt{lit: "bool", text: o.text, val: v}
 	}
 	joined := strings.Join(o.segs, ".")
 	switch {
@@ -169,9 +172,9 @@ func (a *analyzer) checkPair(op string, l, r vt, p pos) bool {
 		}
 		return true
 	case l.lit != "" || r.lit != "":
-		lit, text, typ := l.lit, l.text, r.typ
+		lit, text, typ, val := l.lit, l.text, r.typ, l.val
 		if l.typ != nil {
-			lit, text, typ = r.lit, r.text, l.typ
+			lit, text, typ, val = r.lit, r.text, l.typ, r.val
 		}
 		if typ == nil {
 			return false
@@ -215,6 +218,7 @@ func (a *analyzer) checkPair(op string, l, r vt, p pos) bool {
 		if order && !orderBases[typ.Base] {
 			return a.mismatch(p, op, typeName(typ))
 		}
+		normalizeLiteral(val, typ) // compiled literals are typed (SYNTAX §5.8)
 		return true
 	default:
 		if l.typ == nil || r.typ == nil {
@@ -233,6 +237,41 @@ func (a *analyzer) checkPair(op string, l, r vt, p pos) bool {
 func (a *analyzer) mismatch(p pos, l, r string) bool {
 	a.errf(p, CodeTypeMismatch, l+" vs "+r)
 	return false
+}
+
+// normalizeLiteral retypes a comparison literal to the operand type it
+// was paired with, once E3 has accepted the pairing: an ISO 8601 string
+// against a date/datetime operand becomes an ordered time value, and an
+// integer literal against a decimal operand becomes a decimal. The
+// compiled model therefore carries typed operands throughout, and
+// interpretation never parses a literal again (SYNTAX §5.8). A parse
+// failure here is impossible — E3 validated this exact text with these
+// exact layouts — so the value is left untouched rather than corrupted.
+func normalizeLiteral(v *Value, t *Type) {
+	if v == nil || t == nil {
+		return
+	}
+	switch t.Base {
+	case "date", "datetime":
+		if v.Kind != "string" {
+			return
+		}
+		var tm time.Time
+		var ok bool
+		if t.Base == "date" {
+			tm, ok = parseDateOnly(v.Str)
+		} else {
+			tm, ok = parseDateTimeOnly(v.Str)
+		}
+		if !ok {
+			return
+		}
+		v.Kind, v.Time = t.Base, tm
+	case "decimal":
+		if v.Kind == "integer" {
+			v.Dec, v.Kind = decimal.NewFromInt(v.Int), "decimal"
+		}
+	}
 }
 
 // decimalFits checks a literal against decimal(p, s) (T2/F5): the value

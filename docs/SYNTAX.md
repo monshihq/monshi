@@ -624,6 +624,14 @@ duplicate definition IDs are rejected at `Load` (DESIGN §3). The
 compiler performs no runtime data validation — current case data is
 checked by the engine at Update/Submit (DESIGN §4.5).
 
+Resolution is part of the output. Names, paths, types and signature
+references are settled, and every `default` and every comparison
+literal is a typed constant **normalized to the type of the operand it
+pairs with**: an ISO 8601 string compared against `date`/`datetime`
+becomes an ordered time value, and an integer literal compared against
+`decimal(p, s)` becomes a decimal. Interpretation compares typed values
+and never re-parses or re-widens definition text (RUNTIME §3.3).
+
 ---
 
 ## 6. Parsing notes

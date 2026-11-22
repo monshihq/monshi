@@ -290,6 +290,85 @@ func TestSpecExampleNodesAndAttributes(t *testing.T) {
 	}
 }
 
+// literalNormSrc pairs comparison literals with operands whose compiled
+// representation differs from the literal's surface shape: an integer
+// literal against decimal, quoted ISO 8601 against date/datetime.
+const literalNormSrc = `
+types {
+    money : decimal(8, 2);
+    day   : date;
+    stamp : datetime;
+}
+
+roles {
+    R { allow view all; }
+}
+
+forms {
+    f {
+        amount : money;
+        when   : day;
+        sent   : stamp;
+        level  : integer;
+        label  : string;
+
+        big   present[.amount >= 5]                  { b : integer; }
+        due   present[.when > "2026-01-01"]          { d : integer; }
+        late  present[.sent < "2026-06-01T10:00:00"] { l : integer; }
+        high  present[.level > 100]                  { n : integer; }
+        named present[.label >= "z"]                 { m : integer; }
+    }
+}
+
+stages {
+    s { allow R view all; }
+}
+`
+
+// condLiteral returns the literal operand of a group's present[cond],
+// which the checker always builds as a comparison with the literal on
+// the right (SYNTAX.md §5.7-E3).
+func condLiteral(t *testing.T, s *schema.Schema, path string) *schema.Value {
+	t.Helper()
+	x := nodeByPath(t, s, path).PresentCond
+	if x == nil {
+		t.Fatalf("%s has no present condition", path)
+	}
+	if x.Right == nil || x.Right.Lit == nil {
+		t.Fatalf("%s condition %+v: want a literal right operand", path, x)
+	}
+	return x.Right.Lit
+}
+
+// A compiled definition normalizes comparison literals to the type of
+// the operand they pair with, so interpretation never re-parses or
+// re-widens a literal (SYNTAX.md §5.8).
+func TestCompiledLiteralsAreNormalized(t *testing.T) {
+	s := mustParse(t, literalNormSrc)
+	requireClean(t, s)
+
+	if v := condLiteral(t, s, "f.big"); v.Kind != "decimal" ||
+		!v.Dec.Equal(decimal.RequireFromString("5")) {
+		t.Errorf(`.amount >= 5 literal = %+v, want decimal 5`, v)
+	}
+	if v := condLiteral(t, s, "f.due"); v.Kind != "date" ||
+		!v.Time.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) ||
+		v.Str != "2026-01-01" {
+		t.Errorf(`.when > "2026-01-01" literal = %+v, want date 2026-01-01`, v)
+	}
+	if v := condLiteral(t, s, "f.late"); v.Kind != "datetime" ||
+		!v.Time.Equal(time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)) ||
+		v.Str != "2026-06-01T10:00:00" {
+		t.Errorf(`.sent < "…" literal = %+v, want datetime 2026-06-01T10:00:00`, v)
+	}
+	if v := condLiteral(t, s, "f.high"); v.Kind != "integer" || v.Int != 100 {
+		t.Errorf(".level > 100 literal = %+v, want integer 100", v)
+	}
+	if v := condLiteral(t, s, "f.named"); v.Kind != "string" || v.Str != "z" {
+		t.Errorf(`.label >= "z" literal = %+v, want string "z"`, v)
+	}
+}
+
 func TestSpecExampleDefaults(t *testing.T) {
 	s := mustParse(t, specExample)
 	requireClean(t, s)
