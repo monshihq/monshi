@@ -616,6 +616,14 @@ Every rule below is checked by the semantic analyzer after parsing
   access on comparison results exist in the grammar; attempts to write
   them are lexer/parser or checker errors (DESIGN §4.4 — hooks do the
   rest).
+- **E6** Absence rule: an operand with no value makes the comparison it
+  appears in **unsatisfied** — for `!=` as for `==`. Negation does not
+  rescue absence: a negated condition is unsatisfied when any operand it
+  reads has no value, so `!` never manufactures structure or a
+  requirement out of missing data. Absence is not `Empty`: a defaulted
+  field has a value before any condition is evaluated (§4), and an
+  emptied field is present with an empty value. Existence operators
+  remain undefined (Appendix C).
 
 ### 5.8 Compilation output
 
