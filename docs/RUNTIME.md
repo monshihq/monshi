@@ -716,12 +716,14 @@ state lives in `slotValue.set`, tested by the comparator that reads it.
 
 Defaults are materialized into the row when data is created (§5.1), so
 "unset" means genuinely without a value: a defaulted field is never
-absent, and `Empty(path)` on a present field is an empty value, not
-absence — which is exactly why an emptied `required` field still fails
-(§5.4). That is also why `required` needs nothing but the emptiness
-test: the default is *in* the row, so there is no `|| n.def != 0` to
-consult, and a field a host cleared is not rescued by a default nobody
-re-applied. A definition change therefore never rewrites persisted data.
+absent, and `Empty(path)` clears a value without touching the structure.
+What the verb preserves is the *field*, not an empty payload — which is
+why an emptied `required` field still fails (§5.4): its requiredness is
+reached and answered, whereas a node `present` prunes is never asked.
+That is also why `required` needs nothing but the emptiness test: the
+default is *in* the row, so there is no `|| n.def != 0` to consult, and
+a field a host cleared is not rescued by a default nobody re-applied. A
+definition change therefore never rewrites persisted data.
 
 The last two branches are exclusive. `required` and `required[expr]`
 are mutually exclusive variants of one attribute (SYNTAX §4), kept
@@ -997,11 +999,17 @@ a re-run shows.
 
 Milestone status (DESIGN §10): 1 is complete — the `schema` package,
 its tests and the two language documents. Milestone 2 (*pure case
-semantics*) is in progress: the image of §3, the lowering of §4, the
+semantics*) is in progress. The image of §3, the lowering of §4, the
 `Load` seam, the frame and instance rows of §5.1, §5.2's presence and
-requiredness, and §3.9's resolution seam are in place and tested. What
-remains is the exported half — `Runtime` and `Case`, and the edit and
-transition operations that read a frame.
+requiredness and §3.9's resolution seam are in place and tested, and so
+is the exported half that reads them: `Runtime` and `Case` (DESIGN §6),
+the registry and the store seam, and §5.1's four working edits as one
+atomic `Update` (§6.2). What remains is the fanout that fills
+`ChangeResult`'s affected set (§5.3), `View`, §5.4's completeness
+guards at `Submit`, §5.5's transition checks, and the *registration*
+half of §6's hook contract: a declared `Validate` normalization runs
+today, and exporting its signature waits for the read-only context
+DESIGN §7 describes.
 
 Contract at the seam. The exported surface is deliberately tiny:
 

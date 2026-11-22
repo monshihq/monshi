@@ -220,7 +220,7 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 	// First access creates the copy from the committed state, at the case's
 	// current revision (DESIGN §5: a working state is created when the user
 	// opens the case).
-	first, err := st.working(open_, id, "dana")
+	first, err := st.working(open_, id, "dana", img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 		t.Fatal("application.note has no cell")
 	}
 	c.set(slotValue{set: true, s: "drafted by session one"})
-	unsaved, err := st.working(open_, id, "dana")
+	unsaved, err := st.working(open_, id, "dana", img)
 	if err != nil {
 		t.Fatalf("working for a second session: %v", err)
 	}
@@ -247,10 +247,10 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 
 	// Saving under the guard publishes it, and every later session of that
 	// actor gets the same copy: invariant 4 expressed as one stored value.
-	if err := st.saveWorking(update, id, "dana", 0, first); err != nil {
+	if _, err := st.saveWorking(update, id, "dana", 0, first); err != nil {
 		t.Fatalf("saveWorking: %v", err)
 	}
-	second, err := st.working(open_, id, "dana")
+	second, err := st.working(open_, id, "dana", img)
 	if err != nil {
 		t.Fatalf("working after a save: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 	}
 
 	// A different actor gets their own copy, which does not carry it.
-	other, err := st.working(open_, id, "elliot")
+	other, err := st.working(open_, id, "elliot", img)
 	if err != nil {
 		t.Fatalf("working for another actor: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 	// Writing to the value a caller holds after saving it cannot reach the
 	// store: what was stored is a copy of what was saved.
 	cell.set(slotValue{set: true, s: "edited after the save"})
-	again, err := st.working(open_, id, "dana")
+	again, err := st.working(open_, id, "dana", img)
 	if err != nil {
 		t.Fatalf("working after a post-save edit: %v", err)
 	}
@@ -288,17 +288,31 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	st := newCaseStore()
 	id := st.create(&Definition{img: img})
 
-	w, err := st.working(open_, id, "dana")
+	w, err := st.working(open_, id, "dana", img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
-	w.rev = 1
-	if err := st.saveWorking(update, id, "dana", 0, w); err != nil {
+	// The copy arrives at revision 0 and the store is what moves it: a save
+	// reports the number the copy now carries, and the fields the caller
+	// holds on the state it was handed are not authority (§3.1's division,
+	// drawn about a working revision rather than a case ID).
+	w.rev = 41
+	w.base = 41
+	rev, err := st.saveWorking(update, id, "dana", 0, w)
+	if err != nil {
 		t.Fatalf("first guarded save: %v", err)
+	}
+	if rev != 1 {
+		t.Errorf("save reported working revision %d, want 1", rev)
+	}
+	if back, err := st.working(open_, id, "dana", img); err != nil ||
+		back.rev != 1 || back.base != 0 {
+		t.Errorf("stored copy is rev %d base %d, want 1 and 0 (said %v)",
+			back.rev, back.base, err)
 	}
 	// Presenting the revision the copy was read at, after it moved, is what
 	// §6.2 refuses rather than resolving.
-	err = st.saveWorking(update, id, "dana", 0, w)
+	_, err = st.saveWorking(update, id, "dana", 0, w)
 	if !Failed(err, StaleRevision) {
 		t.Fatalf("stale working save = %v, want STALE_REVISION", err)
 	}
@@ -315,7 +329,8 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	}
 
 	// Writing to a copy nobody opened is a caller bug.
-	if err := st.saveWorking(update, id, "nobody", 0, w); !Failed(err, InvalidOp) {
+	if _, err := st.saveWorking(update, id, "nobody", 0, w); !Failed(err,
+		InvalidOp) {
 		t.Errorf("save to an unopened copy = %v, want INVALID_OPERATION", err)
 	}
 
@@ -357,13 +372,16 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	// number attached to a case that does not exist is NOT_FOUND, because
 	// the case is the thing that is missing.
 	for _, err := range []error{
-		st.saveWorking(update, 9999, "dana", 0, w),
+		func() error {
+			_, err := st.saveWorking(update, 9999, "dana", 0, w)
+			return err
+		}(),
 		func() error {
 			_, err := st.commitState(submit, 9999, 0, rec.commit)
 			return err
 		}(),
 		func() error {
-			_, err := st.working(open_, 9999, "dana")
+			_, err := st.working(open_, 9999, "dana", img)
 			return err
 		}(),
 		func() error { _, err := st.load(open_, 9999); return err }(),

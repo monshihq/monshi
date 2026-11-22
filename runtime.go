@@ -56,21 +56,24 @@ type Actor struct {
 	PrimaryRole string
 }
 
-// wiring is what a handle resolves through: the definition registry and
-// the store. It is immutable — its two fields are set once by NewRuntime
-// and never reassigned — which is what makes DESIGN §6's "no engine
-// pointer, no independently mutable state" literally true. A handle can
-// look things up and cannot write anything the runtime itself would not
-// see. The registry's *contents* change, and only through an explicit act
-// on Runtime, so a reloaded definition reaches handles opened before it.
+// wiring is what a handle resolves through: the definition registry, the
+// store, and the host's hook functions. It is immutable — the three fields
+// are set once by NewRuntime and never reassigned — which is what makes
+// DESIGN §6's "no engine pointer, no independently mutable state" literally
+// true. A handle can look things up and cannot write anything the runtime
+// itself would not see. Each field's *contents* change, through its own
+// lock and only through an explicit act, so a reloaded definition or a
+// newly registered hook reaches handles opened before it.
 type wiring struct {
 	defs  *registry
 	cases *caseStore
+	hooks *hookSet
 }
 
-// Runtime is one process's wiring: a definition registry (DESIGN §3) and
-// the case state its cases live in. It is safe for concurrent use by all
-// goroutines and actors.
+// Runtime is one process's wiring: a definition registry (DESIGN §3), the
+// case state its cases live in, and the host functions a definition binds
+// (RUNTIME §6). It is safe for concurrent use by all goroutines and
+// actors.
 //
 // A host needs exactly one, and more than one is legal: separate runtimes
 // share nothing, so a test gets a fresh case universe without a
@@ -84,9 +87,14 @@ type Runtime struct {
 	w *wiring
 }
 
-// NewRuntime assembles an empty runtime: no definitions, no cases.
+// NewRuntime assembles an empty runtime: no definitions, no cases, no
+// hooks.
 func NewRuntime() *Runtime {
-	return &Runtime{w: &wiring{defs: newRegistry(), cases: newCaseStore()}}
+	return &Runtime{w: &wiring{
+		defs:  newRegistry(),
+		cases: newCaseStore(),
+		hooks: newHookSet(),
+	}}
 }
 
 // Define compiles source and registers the result (DESIGN §3). It is Load
@@ -162,7 +170,15 @@ func (r *Runtime) Create(ctx context.Context, definition string,
 			"no definition is registered as "+quote(definition))
 	}
 	id := r.w.cases.create(d)
-	return Case{id: id, def: d.ID(), actor: actor, w: r.w}, nil
+	c := Case{id: id, def: d.ID(), actor: actor, w: r.w}
+	// The case is now open for this actor, which is DESIGN §5's trigger for a
+	// working state — the same act `Open` performs, for the same reason: an
+	// edit that gets refused afterwards must not leave behind a copy the
+	// caller never saw created (`Open` below says why that matters).
+	if _, err := r.w.cases.working("create", id, actor.User, d.img); err != nil {
+		return Case{}, err
+	}
+	return c, nil
 }
 
 // Open resolves a case through the definition ID its own record stores
@@ -172,7 +188,7 @@ func (r *Runtime) Create(ctx context.Context, definition string,
 // fails here rather than at first use.
 func (r *Runtime) Open(ctx context.Context, id CaseID, actor Actor) (Case, error) {
 	c := Case{id: id, actor: actor, w: r.w}
-	_, rec, err := c.look(ctx, "open")
+	d, rec, err := c.look(ctx, "open")
 	if err != nil {
 		return Case{}, err
 	}
@@ -181,6 +197,16 @@ func (r *Runtime) Open(ctx context.Context, id CaseID, actor Actor) (Case, error
 	// through the case record's stored definition ID", and it is why a host
 	// that lost track of which case is which still reads the right schema.
 	c.def = rec.def
+
+	// DESIGN §5 says a working state is first created when the user opens the
+	// case, so this is where the copy appears — not at the first edit. The
+	// difference is not bookkeeping: an operation that then *refuses* has
+	// changed nothing it was shown, because the copy it wrote on already
+	// existed (§9's no-persistent-effect guarantee, which an edit cannot make
+	// true for itself).
+	if _, err := r.w.cases.working("open", id, actor.User, d.img); err != nil {
+		return Case{}, err
+	}
 	return c, nil
 }
 

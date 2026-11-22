@@ -1,11 +1,12 @@
 package monshi
 
-// RUNTIME §8's harness. Two rows of that table are measurable today:
-// lowering, and the two hot reads the image exists to make cheap —
-// one condition closure, one permission resolve. The view, fanout and
-// transition benchmarks need the frame of §5.1, so they are not faked
-// here; the tree baseline §8 compares against needs the same
-// operations too, and arrives with them.
+// RUNTIME §8's harness. What is measured here is what is shipped:
+// lowering, the two hot reads the image exists to make cheap — one
+// condition closure, one permission resolve — path resolution, and one
+// accepted edit batch. The view, fanout and transition benchmarks need
+// operations that do not exist yet, so they are not faked here; the tree
+// baseline §8 compares against needs the same operations too, and
+// arrives with them.
 //
 // These are not pass/fail tests. They exist so the cost claims in §2.2
 // and §8 stay assertions someone re-runs rather than folklore.
@@ -16,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/monshihq/monshi/schema"
+	"github.com/shopspring/decimal"
 )
 
 // parse is the front end, measured separately so §8's "schema → image"
@@ -225,4 +227,41 @@ func findStage(img *image, name string) stageID {
 		}
 	}
 	panic("no stage " + name)
+}
+
+// BenchmarkUpdate is §8's request-level row: one accepted batch of three
+// edits through the exported operation, on the SYNTAX §7 definition and a
+// case create made. What it measures is what a host pays — resolve, the
+// permission fold, three settles, and the store's clone-and-guard — rather
+// than one internal function reached by a fixture.
+//
+// The three paths are one per payload shape that costs something to check: a
+// plain string, an enum tag resolved against its owning type, and a decimal
+// against its declared bounds. `Applicant` is the actor the §7 roles block
+// grants the form to, so the batch is accepted and the guard is the store's
+// own revision, threaded forward as a host would.
+func BenchmarkUpdate(b *testing.B) {
+	rt := NewRuntime()
+	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	if err := rt.Register(d); err != nil {
+		b.Fatalf("Register: %v", err)
+	}
+	c, err := rt.Create(ctx(), "bench",
+		Actor{User: "dana", PrimaryRole: "Applicant"})
+	if err != nil {
+		b.Fatalf("Create: %v", err)
+	}
+
+	base, fee := uint64(0), decimal.NewFromInt(1500)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		res, err := c.Update(ctx(), base,
+			Set("application.full_name", Text("Monshi Ltd")),
+			Set("application.kind", Tag("COMPANY")),
+			Set("application.fee", Decimal(fee)))
+		if err != nil {
+			b.Fatalf("Update: %v", err)
+		}
+		base = res.Working
+	}
 }

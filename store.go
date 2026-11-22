@@ -174,8 +174,16 @@ func (s *caseStore) load(op string, id CaseID) (storedCase, error) {
 // The three methods that follow take `op` for the reason `check` gives: a
 // working copy is read and written by whichever operation the host called,
 // and the store cannot know which one it was.
-func (s *caseStore) working(op string, id CaseID, user UserID) (
-	workingState, error) {
+//
+// `img` is the image the caller's definition just resolved to, and the copy
+// is handed out interpreted through it. The caller has proved the two images
+// agree on the ordinal space — `look` refuses before any caller of this
+// reaches it — so this is DESIGN §3's reinterpretation applied to a working
+// state rather than a committed one, and it is a field of a copy: nothing
+// here writes the record, which is the part of invariant 8 that matters to
+// a case nobody has re-read yet.
+func (s *caseStore) working(op string, id CaseID, user UserID,
+	img *image) (workingState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, err := s.check(op, id)
@@ -190,38 +198,61 @@ func (s *caseStore) working(op string, id CaseID, user UserID) (
 		// that reads a working copy to *check* something (Submit's
 		// completeness pass, §5.4) must not be able to write through what it
 		// read.
-		return w.clone(), nil
+		out := w.clone()
+		out.s.reinterpret(img)
+		return out, nil
 	}
 	w := &workingState{base: rec.revision, s: rec.commit.s.clone()}
+	w.s.reinterpret(img)
 	rec.work[user] = w
 	return w.clone(), nil
 }
 
-// saveWorking replaces an actor's working copy if it is still at expected.
-// A copy that does not exist is not created here: `working` creates it, and
-// writing over a copy nobody opened is a caller bug, refused as one rather
-// than guessed at.
+// saveWorking replaces an actor's working copy if it is still at expected,
+// and reports the revision it now carries. A copy that does not exist is not
+// created here: `working` creates it, and writing over a copy nobody opened
+// is a caller bug, refused as one rather than guessed at.
+//
+// What the caller does *not* get to choose is the revision. `next` arrives
+// with the fields the store set when it handed the copy out, and a save that
+// trusted them would let one session publish a revision number another
+// session had already taken — so the guard reads the stored copy, and the
+// stored copy's own base and rev are what land. The data is the caller's;
+// the numbering is the store's, the same division §3.1 makes of a case ID.
 func (s *caseStore) saveWorking(op string, id CaseID, user UserID,
-	expected uint64, next workingState) error {
+	expected uint64, next workingState) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, err := s.check(op, id)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	cur, have := rec.work[user]
 	if !have {
-		return refused(op, InvalidOp, id,
+		return 0, refused(op, InvalidOp, id,
 			"this actor has no working copy to write over")
 	}
 	if cur.rev != expected {
-		return refused(op, StaleRevision, id,
-			"the working copy is at revision "+dec(cur.rev)+", not "+dec(expected))
+		return 0, staleWorking(op, id, cur.rev, expected)
 	}
 	stored := next
 	stored.s = next.s.clone()
+	stored.base = cur.base
+	stored.rev = expected + 1
 	rec.work[user] = &stored
-	return nil
+	return stored.rev, nil
+}
+
+// staleWorking is the one sentence DESIGN §6.2's guard needs, stated twice
+// because the check is made twice: once when an operation reads the copy it
+// is about to write, so a caller whose view is out of date hears about it
+// before anything is resolved or checked against permissions, and once under
+// the store's lock, because a second session of the same actor can have saved
+// in between. Both say the same thing, which is the point: the race is not a
+// different error from the stale case, only a rarer one.
+func staleWorking(op string, id CaseID, cur, want uint64) error {
+	return refused(op, StaleRevision, id,
+		"the working copy is at revision "+dec(cur)+", not "+dec(want))
 }
 
 // commitState replaces a case's committed data if the case is still at
