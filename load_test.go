@@ -6,12 +6,12 @@ package monshi_test
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
 
 	"github.com/monshihq/monshi"
-	"github.com/monshihq/monshi/schema"
 )
 
 const tinyDef = `
@@ -43,8 +43,10 @@ func TestLoadBuildsDefinitionFromSource(t *testing.T) {
 }
 
 // A definition that does not compile is the author's problem, not the
-// runtime's: the front end's codes and positions come back unchanged, and
-// nothing was lowered (§1).
+// runtime's: the codes and positions come back through the boundary
+// unchanged, and nothing was lowered (§1). The code literals below are
+// spelled as strings on purpose: this file imports no `schema`, which is
+// what §10 claims about the seam.
 func TestLoadRefusesSourceThatDoesNotCompile(t *testing.T) {
 	const bad = tinyDef + `
 forms {
@@ -67,15 +69,15 @@ forms {
 	if len(verr.Problems) == 0 {
 		t.Fatal("no Problems; a refused definition must say why")
 	}
-	var codes []schema.Code
+	var codes []monshi.Code
 	for _, p := range verr.Problems {
 		codes = append(codes, p.Code)
 	}
-	if !containsCode(codes, schema.CodeDuplicateBlock) {
+	if !containsCode(codes, "DUPLICATE_BLOCK") {
 		t.Errorf("Problems = %v, want the duplicated forms block reported",
 			verr.Problems)
 	}
-	if !containsCode(codes, schema.CodeUnknownType) {
+	if !containsCode(codes, "UNKNOWN_TYPE") {
 		t.Errorf("Problems = %v, want every front-end diagnostic kept", verr.Problems)
 	}
 	for _, p := range verr.Problems {
@@ -83,12 +85,23 @@ forms {
 			t.Errorf("problem %v lost the position the author must fix", p)
 		}
 	}
-	if !strings.Contains(err.Error(), string(schema.CodeDuplicateBlock)) {
+	if !strings.Contains(err.Error(), "DUPLICATE_BLOCK") {
 		t.Errorf("message %q does not render the stable code", err)
+	}
+	// Msg is the front end's sentence, so a host can show a problem without
+	// owning a code-to-word table (problem.go).
+	for _, p := range verr.Problems {
+		if p.Msg == "" || !strings.Contains(p.Msg, p.Error()) {
+			t.Errorf("problem %v lost the rendering the author should read", p)
+		}
+		if !strings.Contains(p.Msg, fmt.Sprintf("%d:%d", p.Line, p.Col)) {
+			t.Errorf("Msg %q does not carry its %d:%d position", p.Msg, p.Line, p.Col)
+		}
+		break
 	}
 }
 
-func containsCode(cs []schema.Code, want schema.Code) bool {
+func containsCode(cs []monshi.Code, want monshi.Code) bool {
 	for _, c := range cs {
 		if c == want {
 			return true
@@ -121,7 +134,7 @@ stages {
 	}
 	var found bool
 	for _, w := range d.Warnings() {
-		if w.Code == schema.CodeUnusedRole && w.Context == "Auditor" {
+		if w.Code == "UNUSED_ROLE" && w.Context == "Auditor" {
 			found = true
 		}
 		if w.Line == 0 || w.Col == 0 {
@@ -137,7 +150,7 @@ stages {
 		t.Fatal("no warnings to check the copy against")
 	}
 	want := before[0].Code
-	before[0] = schema.Problem{}
+	before[0] = monshi.Problem{}
 	if got := d.Warnings()[0].Code; got != want {
 		t.Errorf("Warnings handed out the definition's own slice: %v then %v", want, got)
 	}

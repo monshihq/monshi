@@ -55,7 +55,7 @@ func compile(t *testing.T, src string) (*image, []schema.Problem) {
 		t.Fatalf("schema.Parse: %v", err)
 	}
 	if len(s.Errors) != 0 {
-		t.Fatalf("definition does not compile: %s", join(problems(s.Errors)))
+		t.Fatalf("definition does not compile: %s", join(diagnostics(s.Errors)))
 	}
 	img, err := lower("test", s)
 	if err != nil {
@@ -68,12 +68,12 @@ func lowerExample(t *testing.T) *image {
 	t.Helper()
 	img, warnings := compile(t, specExample(t))
 	if len(warnings) != 0 {
-		t.Fatalf("the §7 example must compile clean, got %s", join(problems(warnings)))
+		t.Fatalf("the §7 example must compile clean, got %s", join(diagnostics(warnings)))
 	}
 	return img
 }
 
-func problems(ps []schema.Problem) []string {
+func diagnostics(ps []schema.Problem) []string {
 	out := make([]string, 0, len(ps))
 	for _, p := range ps {
 		out = append(out, p.Error())
@@ -1375,7 +1375,7 @@ stages {
 	img, warnings := compile(t, src)
 	if len(warnings) != 1 {
 		t.Fatalf("%d warnings, want the contradiction reported once: %v",
-			len(warnings), problems(warnings))
+			len(warnings), diagnostics(warnings))
 	}
 	r := roleIDBy(t, img, "R")
 	s := stageIDBy(t, img, "s")

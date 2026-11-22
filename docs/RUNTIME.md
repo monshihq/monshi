@@ -930,9 +930,12 @@ Contract at the seam. The exported surface is deliberately tiny:
 ```go
 func Load(id string, src io.Reader) (*Definition, error)
 func (d *Definition) ID() string
-func (d *Definition) Warnings() []schema.Problem
+func (d *Definition) Warnings() []Problem
 
-type Error struct{ ID string; Problems []schema.Problem; Defects []string }
+type Problem struct { Line, Col int; Code Code; Context, Msg string }
+type Code string
+
+type Error struct{ ID string; Problems []Problem; Defects []string }
 func (e *Error) Mismatch() bool
 ```
 

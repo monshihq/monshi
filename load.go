@@ -23,7 +23,7 @@ import (
 // (DESIGN §3).
 type Definition struct {
 	img      *image
-	warnings []schema.Problem
+	warnings []Problem
 }
 
 // ID returns the definition identifier the host supplied. It is what
@@ -35,8 +35,8 @@ func (d *Definition) ID() string { return d.img.id }
 // allowed to have. They do not affect behavior — §4's table says what
 // each one becomes in the image — but they are what an author of this
 // source wants to see, so they are kept. The result is a copy.
-func (d *Definition) Warnings() []schema.Problem {
-	return append([]schema.Problem(nil), d.warnings...)
+func (d *Definition) Warnings() []Problem {
+	return append([]Problem(nil), d.warnings...)
 }
 
 // Load compiles definition source and lowers it into a Definition
@@ -61,11 +61,11 @@ func Load(id string, src io.Reader) (*Definition, error) {
 		return nil, fmt.Errorf("monshi: definition %q: %w", id, err)
 	}
 	if len(s.Errors) != 0 {
-		return nil, &Error{ID: id, Problems: s.Errors}
+		return nil, &Error{ID: id, Problems: problems(s.Errors)}
 	}
 	img, err := lower(id, s)
 	if err != nil {
 		return nil, err
 	}
-	return &Definition{img: img, warnings: s.Warnings}, nil
+	return &Definition{img: img, warnings: problems(s.Warnings)}, nil
 }

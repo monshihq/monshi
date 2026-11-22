@@ -16,8 +16,6 @@ package monshi
 import (
 	"fmt"
 	"strings"
-
-	"github.com/monshihq/monshi/schema"
 )
 
 // Error is a definition that Load refused. Hosts read it with errors.As:
@@ -30,7 +28,7 @@ type Error struct {
 	// Problems are the front end's diagnostics, in the order the checker
 	// reported them. Non-empty exactly when the source did not compile;
 	// a definition with problems never reaches lowering.
-	Problems []schema.Problem
+	Problems []Problem
 
 	// Defects lists the §4 invariants lowering found violated. Non-empty
 	// exactly when the front end accepted a definition the runtime could
