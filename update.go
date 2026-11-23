@@ -196,7 +196,7 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 		fan.wroteField(n)
 		return "", nil
 	case editSet:
-		v, err := c.w.settle(ctx, img, c.id, n, e.v)
+		v, err := c.w.settle(ctx, "update", img, c.id, n, e.v)
 		if err != nil {
 			return "", err
 		}

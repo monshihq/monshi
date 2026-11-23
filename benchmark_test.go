@@ -342,3 +342,89 @@ func walkAll(b *testing.B, img *image) {
 		}
 	}
 }
+
+// benchSpecCase is a runtime and one Applicant's handle on a case of the §7
+// corpus, which is what both commit benchmarks below drive. Built the way a
+// host builds it — `Create`, then operations on the handle — so the numbers
+// are a request's and not a fixture's.
+func benchSpecCase(b *testing.B) Case {
+	b.Helper()
+	rt := NewRuntime()
+	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	if err := rt.Register(d); err != nil {
+		b.Fatalf("Register: %v", err)
+	}
+	c, err := rt.Create(ctx(), "bench",
+		Actor{User: "dana", PrimaryRole: "Applicant"})
+	if err != nil {
+		b.Fatalf("Create: %v", err)
+	}
+	return c
+}
+
+// A complete `application` in three writes: the two required fields, and a
+// fee that differs every call so the diff has something to say. `PERSON`
+// keeps the conditional collection and the gated subtree out of the walk,
+// which is the cheap case — the completeness pass asks the §7 example's whole
+// preorder range either way, and pruning is what it declines to answer.
+func completeApplication(i int) []Edit {
+	return []Edit{
+		Set("application.kind", Tag("PERSON")),
+		Set("application.full_name", Text("Monshi Ltd")),
+		Set("application.fee",
+			Decimal(decimal.NewFromInt(1500+int64(i)%500))),
+	}
+}
+
+// BenchmarkSubmit measures the commit path (RUNTIME §5.4, DESIGN §6.3) as the
+// request a host actually makes: a batch that changes one form, then the
+// submit of that form. What it charges, in order, is the copy's read, the
+// completeness walk, `Validate` re-run over the subtree, the forward diff, and
+// then the store's three consistent writes — of which one is a clone of the
+// committed snapshot, because §5.1's state is materialized per case rather
+// than per revision and a commit has to leave the old one intact for whoever
+// is reading it.
+//
+// That clone is why the pair is not "an update plus a flag", and milestone 4
+// will not make it cheaper: the transaction changes how the three writes are
+// made durable, not how many bytes the new snapshot holds.
+func BenchmarkSubmit(b *testing.B) {
+	c := benchSpecCase(b)
+	base := uint64(0)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		res, err := c.Update(ctx(), base, completeApplication(i)...)
+		if err != nil {
+			b.Fatalf("Update: %v", err)
+		}
+		base = res.Working
+		if _, err := c.Submit(ctx(), "application", base); err != nil {
+			b.Fatalf("Submit: %v", err)
+		}
+	}
+}
+
+// BenchmarkSubmitNoOp measures the half of §5.4 that runs when the answer is
+// "nothing to write": every check passes, the diff is empty, and the case's
+// revision and history stay where they were. The gap between this and
+// `BenchmarkSubmit` minus an update is what a commit costs on top of deciding
+// that one is needed — the clone, the entry and the rebase.
+func BenchmarkSubmitNoOp(b *testing.B) {
+	c := benchSpecCase(b)
+	res, err := c.Update(ctx(), 0, completeApplication(0)...)
+	if err != nil {
+		b.Fatalf("Update: %v", err)
+	}
+	base := res.Working
+	// One accepted commit first, so every timed call is the one with nothing
+	// left to say.
+	if _, err := c.Submit(ctx(), "application", base); err != nil {
+		b.Fatalf("Submit: %v", err)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, err := c.Submit(ctx(), "application", base); err != nil {
+			b.Fatalf("Submit: %v", err)
+		}
+	}
+}

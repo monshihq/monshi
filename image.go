@@ -343,6 +343,33 @@ func (img *image) collOf(n nodeID) nodeID {
 	return inner
 }
 
+// rowsIn is the collection inside whose instance rows a collection's rows
+// live, and 0 when the state holds the set itself. It is `collOf` with the
+// collection's own range excluded, which is the difference §5.1 draws
+// between a repeated field's rows (its own) and a nested collection's (its
+// parent's): asked about a top-level repeated field, `collOf` answers that
+// field because its rows hold its values, and this answers nothing — the set
+// is in the state's own list. Asked about a repeated field nested inside a
+// collection, this answers the outer one, which is where its rows actually
+// are.
+//
+// The pair matters to any walk that asks "how many instances does this
+// collection have, and where do I look": answering it with `collOf` would
+// send a nested declaration to the state's top-level set, which is allocated
+// for every collection and used by none of the nested ones.
+func (img *image) rowsIn(coll nodeID) nodeID {
+	var inner nodeID
+	for _, c := range img.colls {
+		if c == coll {
+			continue
+		}
+		if coll >= img.rowLo(c) && coll < c+nodeID(img.slots[c].span) {
+			inner = c
+		}
+	}
+	return inner
+}
+
 // rowLo is the first slot an instance row covers. A repeated group's own slot
 // stays in the base row — what it "has" is instances — so its rows begin at
 // its first descendant. A repeated *field* has no descendants, and its

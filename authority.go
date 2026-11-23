@@ -93,3 +93,20 @@ func (img *image) canEdit(a Actor, s state, stage stageID, n nodeID) bool {
 func (img *image) mayEdit(roles []roleID, stage stageID, n nodeID) bool {
 	return img.effective(roles, stage, n)&permEdit != 0
 }
+
+// maySubmit is the question a `Submit` asks, and it is asked of the *form*
+// rather than of anything inside it. SYNTAX P3 is why: a `submit` grant's
+// target must be a top-level form, so there is no field-level submit to
+// reconcile and no member's mask to fold. The consequence is worth stating
+// because it reads as a hole: an actor with `submit` on a form can publish
+// every value in it, including fields they may not `edit` — and that is the
+// definition's own decision, since a draft can only have been written by
+// somebody with `edit` or come from a default the author declared.
+//
+// The masks are consulted at the *committed* stage, which is the only stage
+// a submit can act at: §4.4 keeps the stage where a transition put it, and
+// §5.1 makes the working copy's stage a reference rather than a field. A
+// draft that would satisfy some other stage's grant does not submit under it.
+func (img *image) maySubmit(roles []roleID, stage stageID, form nodeID) bool {
+	return img.effective(roles, stage, form)&permSubmit != 0
+}

@@ -366,6 +366,105 @@ func (s *state) defaults(r *instRow, coll nodeID) {
 	}
 }
 
+// list is a set's rows, nil-safely: a collection nobody has added to has no
+// set at all (§5.1), and "it has no instances" should not depend on whether
+// somebody happened to touch it first. The rows are returned in creation
+// order, which is the order §5.1 says they are kept in and therefore the
+// order a report reads as the list the user filled in.
+func (i *instances) list() []instRow {
+	if i == nil {
+		return nil
+	}
+	return i.rows
+}
+
+// instancesOf lists every instance of one collection as the path that
+// addresses it, outermost first.
+func (s *state) instancesOf(coll nodeID) []instPath {
+	var out []instPath
+	for _, host := range s.hostsOf(coll) {
+		for _, r := range s.rowsFor(coll, host).list() {
+			out = append(out,
+				append(host[:len(host):len(host)], instStep{coll: coll, id: r.id}))
+		}
+	}
+	return out
+}
+
+// hostsOf lists the instance paths at which a collection's row *set* lives:
+// the empty path for one the state holds itself, one per instance for one
+// declared inside another collection. `rowsIn` is what decides, and §5.1's
+// repeated-field rule is why it is not `collOf` — a repeated field's rows are
+// its own, not its parent's, even though its value lives in a row.
+func (s *state) hostsOf(coll nodeID) []instPath {
+	outer := s.img.rowsIn(coll)
+	if outer == 0 {
+		return []instPath{nil}
+	}
+	return s.instancesOf(outer)
+}
+
+// pathsOf lists the instance paths n's values live at: one empty path for a
+// slot the base row holds, one per instance for a member of a collection, and
+// one per own instance for a repeated field, whose rows hold its values.
+//
+// The recursion through the enclosing collection is what makes `multiple`
+// inside `multiple` honest: a slot two collections deep has one answer per
+// pair of instances, and stopping at the innermost row set would ask one of
+// them. The language puts no bound on the nesting (SYNTAX §4 allows
+// `multiple` on a field and on a group), so the walk does not assume one
+// either; §3.9's depth bound is a path-resolution limit, and an address built
+// here is one step per enclosing collection by construction.
+//
+// A path is built from its parent's with a bounded copy, so no two returned
+// paths share a tail a caller could write through. These states are read only
+// today, but `instPath` is a slice, and a walk that handed out aliased
+// addresses would be one append away from reporting a different field.
+func (s *state) pathsOf(n nodeID) []instPath {
+	switch c := s.img.collOf(n); {
+	case c == 0:
+		return []instPath{nil}
+	case c == n:
+		return s.instancesOf(n) // a repeated field: its own rows hold it
+	default:
+		return s.instancesOf(c)
+	}
+}
+
+// graft copies one subtree's committed content out of another state, in place:
+// the values the base row holds, and every top-level collection's rows whose
+// declaration is inside the range. A collection nested inside another comes
+// with its parent's rows, because it lives inside them (§5.1), so one pass
+// over the preorder range is the whole subtree.
+//
+// This is what makes a Submit commit one form of a working copy rather than
+// the whole copy: DESIGN §6.3 is explicit that other forms' unsubmitted edits
+// survive one form's submit, so the new snapshot is the *old* snapshot with
+// this subtree replaced — not the candidate, which may hold another form's
+// draft. The clone on the way in is what keeps the two states from sharing a
+// row the next edit could write.
+func (s *state) graft(from *state, lo, hi nodeID) {
+	for n := lo; n < hi; n++ {
+		sl := &s.img.slots[n]
+		if sl.coll != 0 {
+			// Only a set the state holds itself: the rows of a collection
+			// declared inside another one live *in* those rows, so grafting
+			// the outer set brought the inner content with it — which is why
+			// this is a replace and not a merge. An instance the candidate
+			// removed is gone from the committed content too.
+			if s.img.rowsIn(n) != 0 {
+				continue
+			}
+			*s.insts[sl.coll-1] = *from.insts[sl.coll-1].clone()
+			continue
+		}
+		if sl.kind != kindField || s.img.collOf(n) != 0 {
+			continue // structure, and a member's value belongs to a row
+		}
+		s.row[n] = from.row[n]
+	}
+}
+
 // removeAt drops one instance and everything nested inside it. path addresses
 // the enclosing rows, empty for a top-level collection. Stable IDs are not
 // reused, so the allocator never moves backwards (§5.1).

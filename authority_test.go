@@ -12,6 +12,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monshihq/monshi/schema"
 )
@@ -292,6 +293,12 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
+	// A second actor is reading the same case, so the commit below has
+	// somebody to be stale for. Opening is what records the base revision a
+	// copy descends from, and nothing else here touches this one.
+	if _, err := st.working(open_, id, "nina", img); err != nil {
+		t.Fatalf("working: %v", err)
+	}
 	// The copy arrives at revision 0 and the store is what moves it: a save
 	// reports the number the copy now carries, and the fields the caller
 	// holds on the state it was handed are not authority (§3.1's division,
@@ -344,18 +351,58 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	if rec.revision != 0 {
 		t.Fatalf("a created case is at revision %d, want 0", rec.revision)
 	}
-	_, err = st.commitState(submit, id, 7, rec.commit)
+	by := committedBy{by: "dana", op: opSubmit, changes: []commitChange{
+		{kind: chgValue, slot: 1, v: slotValue{set: true, s: "x"}},
+	}}
+	_, err = st.commit(submit, id, 7, rec.commit, by)
 	if !Failed(err, StaleRevision) {
 		t.Errorf("commit over revision 0 as revision 7 = %v, want STALE_REVISION", err)
 	} else if errors.As(err, &ce) && ce.Op != submit {
 		t.Errorf("a stale commit refused with op %q, want %q", ce.Op, submit)
 	}
-	next, err := st.commitState(submit, id, 0, rec.commit)
+	// A refused commit appended nothing: the history's length is what a
+	// revision *is*, so an entry written by an operation that did not happen
+	// would be a case counting a commit it never made.
+	if h, err := st.history(open_, id); err != nil || len(h) != 0 {
+		t.Errorf("history after a refused commit = %d entries (%v), want 0",
+			len(h), err)
+	}
+	next, err := st.commit(submit, id, 0, rec.commit, by)
 	if err != nil {
 		t.Fatalf("guarded commit: %v", err)
 	}
 	if next != 1 {
 		t.Errorf("committed revision = %d, want 1", next)
+	}
+
+	// The other two writes §6.3 requires to be consistent with the snapshot
+	// swap: the entry that says what landed, and the submitter's copy rebased
+	// onto it. The entry carries the caller's own diff and identity — the
+	// store numbers it, it does not invent it.
+	h, err := st.history(open_, id)
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(h) != 1 || h[0].revision != 1 || h[0].by != "dana" ||
+		h[0].op != opSubmit || len(h[0].changes) != 1 {
+		t.Errorf("history = %+v, want one entry at revision 1 by dana", h)
+	}
+	// The submitter's content is not rewritten by its own commit — §6.3 is
+	// explicit that a submit of one form leaves other drafts alone — so only
+	// `base` moves, and `rev` stays where the client left it.
+	if back, err := st.working(open_, id, "dana", img); err != nil ||
+		back.base != 1 || back.rev != 1 {
+		t.Errorf("submitter's copy is base %d rev %d, want 1 and 1 (said %v)",
+			back.base, back.rev, err)
+	}
+	// And a copy opened before the commit, and not submitted by it, is left
+	// at the revision it read — which is exactly what makes that actor's next
+	// submit a STALE_REVISION rather than a surprise (the exported half is
+	// TestSubmitRefusesACopyAnotherCommitLeftBehind).
+	if other, err := st.working(open_, id, "nina", img); err != nil ||
+		other.base != 0 {
+		t.Errorf("another actor's copy is based at %d, want 0 (said %v)",
+			other.base, err)
 	}
 
 	// A snapshot an operation already read never changed underneath it: the
@@ -377,7 +424,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 			return err
 		}(),
 		func() error {
-			_, err := st.commitState(submit, 9999, 0, rec.commit)
+			_, err := st.commit(submit, 9999, 0, rec.commit, by)
 			return err
 		}(),
 		func() error {
@@ -606,5 +653,91 @@ stages {
 	same := mustLowerSource(t, base)
 	if _, ok := dataDrift(same, same); !ok {
 		t.Error("two images of one source disagree with themselves")
+	}
+}
+
+func TestACommitRecordsTheMomentItHappened(t *testing.T) {
+	img := lowerExample(t)
+	st := newCaseStore()
+	id := st.create(&Definition{img: img})
+
+	// DESIGN §5.2's determinism rule in one field: a replay cannot ask what
+	// the clock said at the time, so the stamp belongs to the entry and is
+	// never recomputed from it. Making the clock a seam the store owns is also
+	// what lets a test say *when* a commit happened, which a `time.Now` call
+	// inside the store could only be asserted about by waiting for it to
+	// disagree with itself.
+	first := time.Date(2026, time.November, 23, 9, 0, 0, 0, time.UTC)
+	st.now = func() time.Time { return first }
+	rec, err := st.load(open_, id)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	by := committedBy{by: "dana", op: opSubmit}
+	if _, err := st.commit(submit, id, 0, rec.commit, by); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	// The entry carries the moment, the revision and the stage the caller
+	// committed *at*, because a history a replay cannot locate in a stage is a
+	// list of changes to the wrong rules. It carries no changes, and that is
+	// the store's half of the division: §5.4's operation decides what a commit
+	// means and hands the diff over, and the store records what it is given
+	// rather than re-deriving any of it.
+	h, err := st.history(open_, id)
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(h) != 1 || !h[0].at.Equal(first) {
+		t.Fatalf("history = %+v, want one entry stamped %s", h,
+			first.Format(time.RFC3339))
+	}
+	if h[0].stage != rec.commit.stage || h[0].revision != 1 {
+		t.Errorf("the entry says revision %d stage %d, want 1 at the stage "+
+			"the snapshot was at (%d)", h[0].revision, h[0].stage,
+			rec.commit.stage)
+	}
+
+	// A second commit under a moved clock gets its own moment, and the first
+	// entry keeps the one it was given: the history is a record and not a view
+	// recomputed at read time. The numbering is dense — index 0 is revision 1,
+	// index 1 is revision 2 — which is what makes "everything between 4 and 7"
+	// a slice rather than a search, and what §5.1's rule that a revision is
+	// the *count* of commits buys.
+	later := first.Add(time.Hour)
+	st.now = func() time.Time { return later }
+	rec, err = st.load(open_, id)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if _, err := st.commit(submit, id, 1, rec.commit, by); err != nil {
+		t.Fatalf("second commit: %v", err)
+	}
+	if h, err = st.history(open_, id); err != nil || len(h) != 2 {
+		t.Fatalf("history = %d entries (%v), want 2", len(h), err)
+	}
+	if !h[0].at.Equal(first) || !h[1].at.Equal(later) {
+		t.Errorf("the entries are stamped %s and %s, want the two moments "+
+			"the clock was set to", h[0].at.Format(time.RFC3339),
+			h[1].at.Format(time.RFC3339))
+	}
+	if h[0].revision != 1 || h[1].revision != 2 {
+		t.Errorf("the entries are numbered %d and %d, want 1 and 2",
+			h[0].revision, h[1].revision)
+	}
+
+	// A store that was never given a clock still stamps, from the system
+	// time: the field is a seam for a test and for a replay, not a
+	// requirement either operation has to satisfy.
+	plain := newCaseStore()
+	pid := plain.create(&Definition{img: img})
+	before := time.Now()
+	if _, err := plain.commit(submit, pid, 0, rec.commit, by); err != nil {
+		t.Fatalf("commit on a default clock: %v", err)
+	}
+	if h, err := plain.history(open_, pid); err != nil || len(h) != 1 ||
+		h[0].at.Before(before) {
+		t.Errorf("a store with no clock set stamped %v (%v), want the time "+
+			"the commit happened at", h, err)
 	}
 }

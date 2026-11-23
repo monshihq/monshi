@@ -1,14 +1,16 @@
 package monshi
 
-// The normalization seam (RUNTIME §6). A `Validate` hook is host code, and
-// what the image records about it is a *binding* — `hookKey` of two kinds,
-// interned at lowering from a custom type's name or a field's path — so
-// nothing in a definition can name a function, choose one by data, or reach
-// one it did not declare. The engine's job is the mapping §6 describes: key
-// to function, in a registry this package owns.
+// The hook execution contract (RUNTIME §6; DESIGN §7).
+//
+// A `Validate` hook is host code, and what the image records about it is a
+// *binding* — `hookKey` of two kinds, interned at lowering from a custom
+// type's name or a field's path — so nothing in a definition can name a
+// function, choose one by data, or reach one it did not declare. The
+// engine's job is the mapping §6 describes: key to function, in a registry
+// this package owns.
 //
 // Only the `Validate` half is mapped here. The `Options` binding arrives
-// with milestone 3's `View`, because the two differ in more than signature:
+// with the view, because the two differ in more than signature:
 // normalization runs inside an edit and its result is stored, while options
 // are fetched on demand for a view and gated by the same `view` permission
 // as the values beside them (§6). They join this table when that lands, and
@@ -18,11 +20,12 @@ package monshi
 // Registration itself is not exported yet. A hook's signature carries a
 // read-only `CaseContext` (DESIGN §7), and exporting the seam before that
 // type exists would fix a signature the next milestone has to break. Until
-// then this is an in-package registry, and the code that reads it — `settle`
-// below, which an edit calls per assignment — is written as the whole §6
-// contract: looked up by the binding the definition declared, run before the
-// value is stored, its output checked by the same test the input passed, and
-// a failure rejecting the batch.
+// then this is an in-package registry, and the code that reads it —
+// `settle` below, which an edit calls per assignment, and `validate`, which
+// Submit calls per stored value — is written as the whole §6 contract:
+// looked up by the binding the definition declared, run before the value is
+// stored, its output checked by the same test the input passed, and a
+// failure heard as a failure.
 
 import (
 	"context"
@@ -108,7 +111,7 @@ func (h *hookSet) normalizer(img *image, id hookID) (normFunc, bool) {
 // The binding consulted is the field's *type*'s — `Validate` by custom type
 // (DESIGN §7). A slot's own `hook` is deliberately not consulted here: an
 // options field's binding is `Options` by path, which answers "which values
-// may this hold" for a view and is milestone 3's to call. Conflating the two
+// may this hold" for a view and is the view's to call. Conflating the two
 // would mean a dropdown's option list being run as a normalizer, which is
 // not a thing any definition asked for.
 //
@@ -119,33 +122,140 @@ func (h *hookSet) normalizer(img *image, id hookID) (normFunc, bool) {
 // field's type cannot hold broke a rule the *host* was relying on, and gets
 // HOOK_FAILURE naming the binding: blaming the caller for a function it did
 // not write would send it to debug the wrong half of its own code.
-func (w *wiring) settle(ctx context.Context, img *image, id CaseID, n nodeID,
-	in Value) (slotValue, error) {
+//
+// `op` names the operation the refusal is about, for the reason store.go
+// gives its `op`: a host reads `CaseError.Op` to find the call, and a hook
+// failure heard during a submit that said "update" would send it to the wrong
+// line of its own code.
+func (w *wiring) settle(ctx context.Context, op string, img *image,
+	id CaseID, n nodeID, in Value) (slotValue, error) {
 	out, bad := img.store(n, in)
 	if bad != "" {
-		return slotValue{}, refused("update", InvalidOp, id, bad)
+		return slotValue{}, refused(op, InvalidOp, id, bad)
 	}
-	sl := &img.slots[n]
-	if sl.role != 0 {
-		return out, nil // a role-typed field has no type, so nothing to bind
-	}
-	hook := img.types[sl.typ].hook
-	fn, have := w.hooks.normalizer(img, hook)
-	if !have {
+	fn, hook := w.forType(img, n)
+	if fn == nil {
 		return out, nil
 	}
 	binding := quote(img.bindingName(hook))
 	normalized, err := fn(ctx, in)
 	if err != nil {
-		return slotValue{}, &CaseError{Op: "update", Reason: HookFailure,
+		return slotValue{}, &CaseError{Op: op, Reason: HookFailure,
 			Case: id, Detail: "the Validate hook for " + binding +
 				" refused the value", Cause: err}
 	}
 	out, bad = img.store(n, normalized)
 	if bad != "" {
-		return slotValue{}, &CaseError{Op: "update", Reason: HookFailure,
+		return slotValue{}, &CaseError{Op: op, Reason: HookFailure,
 			Case: id, Detail: "the Validate hook for " + binding +
 				" returned a value its type does not hold: " + bad}
+	}
+	return out, nil
+}
+
+// forType is the `Validate` binding a slot's type carries, resolved to a
+// function: the answer `settle` and `validate` both need, and the reason
+// they cannot disagree about which fields have a hook at all. A nil function
+// means identity — no binding, a binding with nothing registered (§6), or a
+// field with no type because it confers a role.
+func (w *wiring) forType(img *image, n nodeID) (normFunc, hookID) {
+	sl := &img.slots[n]
+	if sl.role != 0 {
+		return nil, 0
+	}
+	hook := img.types[sl.typ].hook
+	fn, have := w.hooks.normalizer(img, hook)
+	if !have {
+		return nil, hook
+	}
+	return fn, hook
+}
+
+// validate is §6.3's "final validation using current rules/hooks": the
+// reached fields of one subtree, each stored value run through the binding
+// its type declares, and every refusal collected as a problem about that
+// field.
+//
+// Why the engine asks a question it asked when the value was written: the
+// rules are host code and the host may have changed them, and DESIGN §3's
+// answer about a reloaded definition is that old content becomes *invalid*,
+// not incompatible. Submit is the operation entitled to find that out, and
+// the only one that acts on it — an edit that stored a value under a hook
+// that accepted it was not wrong, and §5.2's `required` still cannot see a
+// value a hook later came to refuse.
+//
+// Unset values are not asked about. `Empty` leaves a cell with no value, and
+// E6 makes a comparison over absent data unsatisfied rather than invalid, so
+// the hook's silence about nothing is the definition's: §5.4's completeness
+// pass is what reports an empty required field, and reporting it twice under
+// two different headings would make a host guess which one its UI shows.
+//
+// The two ways a hook can misbehave are refused rather than collected, and
+// they are §6's `HOOK_FAILURE` for the same reason `settle` gives it: a hook
+// that returns a value its type cannot hold, or one that rewrites a value the
+// row already holds, is host code breaking the contract the engine stores on.
+// The second is the one worth stating, because it is the alternative to
+// quietly committing something the actor never presented: §6's chain says a
+// normalized value is what "all later checks" see, and Submit *is* that later
+// check, so a hook that is not a fixed point on its own output has a bug to
+// fix, and a refusal naming the binding is where it learns so.
+func (w *wiring) validate(ctx context.Context, img *image, id CaseID,
+	s *state, root nodeID) ([]FieldProblem, error) {
+	var out []FieldProblem
+	lo, hi := img.subtree(root)
+	for n := lo; n < hi; n++ {
+		if !s.present(n) {
+			n += nodeID(img.slots[n].span) - 1 // §5.2's pruning, as §5.4's walk
+			continue
+		}
+		sl := &img.slots[n]
+		switch {
+		case sl.kind != kindField:
+			continue
+		case sl.coll != 0 && img.rowLo(n) != n:
+			// A repeated group's own slot holds rows, not a value; its
+			// members are walked as the slots they are. A repeated *field*
+			// does have a value per row (§5.1), so it is not skipped.
+			continue
+		case sl.typ != 0 && img.types[sl.typ].base == baseSignature:
+			// A signature's content is `sigEntry`'s story (§3.6) and the
+			// boundary has no class for it: milestone 5 asks a signature
+			// whether it is valid, and this walk does not guess at it.
+			continue
+		}
+		fn, hook := w.forType(img, n)
+		if fn == nil {
+			continue
+		}
+		binding := img.bindingName(hook)
+		for _, p := range s.pathsOf(n) {
+			v := s.cellValue(n, p)
+			if !v.set {
+				continue
+			}
+			in := img.load(n, v)
+			got, err := fn(ctx, in)
+			if err != nil {
+				out = append(out, FieldProblem{
+					Path: s.addr(n, p), Code: invalidValue,
+					Msg: "the Validate hook for " + quote(binding) +
+						" refused this value: " + err.Error()})
+				continue
+			}
+			back, bad := img.store(n, got)
+			if bad != "" {
+				return nil, &CaseError{Op: "submit", Reason: HookFailure,
+					Case: id, Detail: "the Validate hook for " +
+						quote(binding) +
+						" returned a value its type does not hold: " + bad}
+			}
+			if !img.same(n, v, back) {
+				return nil, &CaseError{Op: "submit", Reason: HookFailure,
+					Case: id, Detail: "the Validate hook for " +
+						quote(binding) + " rewrote a stored value, at " +
+						s.addr(n, p)}
+			}
+		}
 	}
 	return out, nil
 }

@@ -634,6 +634,17 @@ Keep initial milestones small and focused on runnable behavior:
 7. **Optional service:** API wrapper and WebSocket notifications, using
    the same Core semantics.
 
+Milestone 2 has taken one item above out of order, and the reason belongs
+here because the list is the contract's: `Submit` ships with the commit path
+it cannot be separated from — §6.3's two revision guards, completeness and
+validation against the candidate, the forward diff, and the history entry and
+snapshot swap that must be consistent with each other. None of it is
+reachable through `Update` alone, and a milestone that ended at a working
+copy would leave invariants 1, 2, 5 and 6 unexercised. What milestone 5 still
+owns is the half of a commit that has nothing to act on yet: `verif` resets
+and signature invalidation (§4.2), which arrive with `Review` and `Sign`.
+RUNTIME §10 states what exists today.
+
 ### Deliberately deferred
 
 Detailed Rebase conflict resolution, advanced binary garbage

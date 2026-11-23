@@ -821,15 +821,45 @@ that reason.
 
 ### 5.4 Submit completeness
 
-`Submit(form, workingRevision)` (DESIGN §6.3) checks the working copy's
-revision — the actor's copy the form lives in, one number per
-`(case, user)` (§5.1) — and `base_revision == current committed
-revision`, then walks the form's dense subtree: `present ∧ satisfied`
-over §5.2, with `Validate` clean at this candidate. Defaults count as
-satisfaction without implying prior commitment (DESIGN §4.1).
-Verification and signature requirements are evaluated through `verif`
-units and `sigEntry`, all index-based. An empty diff means no commit is
-written (DESIGN §6.3: no meaningless commits).
+`Submit(form, workingRevision)` (DESIGN §6.3) is the operation that
+publishes content, so it is the one that runs §5.2's whole answer. It walks
+the submitted form's dense subtree over the *candidate* — the actor's own
+copy — asking `present ∧ satisfied` per §5.2 and re-running `Validate` (§6)
+against the values it holds, then compares that subtree with the committed
+snapshot to get the forward diff §5.6 indexes. Defaults count as
+satisfaction without implying prior commitment (DESIGN §4.1), and the content
+questions are asked of the candidate rather than of the committed state:
+asking the case what it already says would report a form nobody presented.
+
+`base_revision == the committed revision` is *read* from the copy rather
+than presented by the caller — the store knows what the candidate descends
+from, and a guard the caller chooses is not a guard. The copy's own revision
+is the number the caller does present, one per `(case, user)` (§5.1), and a
+copy that has moved is refused rather than merged. The checks run in a fixed
+order, and the order is a decision. Authority comes first: an actor the
+definition refuses may not learn the case's revision traffic as a
+consolation, so a stale number attached to a forbidden form is
+`ACCESS_DENIED` (§7's "permission is enforced before anything is read",
+applied to what a *refusal* reveals). Then the two numbers, then content;
+and completeness before validation, because a field nobody filled in has no
+hook worth calling.
+
+An incomplete or invalid submit is `INVALID_OPERATION` *and* a result:
+`Missing` carries the §5.2 gaps and `Invalid` the values `Validate` refused,
+each addressed by stable instance ID so `Update` accepts it back. The
+categories stay coarse (DESIGN §9) because the lists are the machine-readable
+half, and a field is reported under one heading and not both — an empty
+required field is a gap, and its hook is not asked whether the absence is
+acceptable (E6). A hook that misbehaves instead of refusing — returns a class
+the type does not hold, or rewrites a stored value — is `HOOK_FAILURE` with
+no list, because no field the actor can fix is what broke.
+
+An empty diff is a success that writes nothing (DESIGN §6.3: no meaningless
+commits), reported with the revision it did not move. What this section
+does *not* pay yet is the `verif` reset and `sigEntry` invalidation half of
+DESIGN §6.3: nothing approves a unit or signs one until `Review` and `Sign`
+exist, so a commit has nothing to reset (DESIGN §10's milestone 5). §5.6's
+targets index the same diff, so that half arrives without changing this one.
 
 ### 5.5 Transition checking
 
@@ -874,6 +904,17 @@ slot, the commit diff maps to reset and invalidate targets by direct
 indexing: the whole question "what becomes stale when this field
 changes" is answered at lowering, in O(1) per changed slot.
 
+The diff being indexed is a forward one: which declarations moved, at which
+instance, and what each holds now — never the old value, which the previous
+entry already carries (§5.1). It has two entry kinds, and they are the same
+distinction §5.3 draws between a write and an `Add`. A value at a path,
+whose payload may be absent because a committed `Empty`, or a removed row,
+has something to say. And a collection's new instance count, because a row
+appearing or vanishing is a change to the declaration's rows rather than to
+any one value. Nesting needs no special case: the instances a comparison
+visits are the union of the two states' rows, which is what lets the removal
+of an outer row say anything at all about the rows that left inside it.
+
 ---
 
 ## 6. Hook execution contract
@@ -905,8 +946,17 @@ definition content, and hooks sit outside it, bound by the read-only
   client could act on.
 - **Re-evaluation order:** apply edits → normalize per field
   (`Validate`) → re-evaluate the §5.3 closure → report validation
-  errors against final values. Submit re-runs the whole chain against
-  current rules (DESIGN §7).
+  errors against final values. Submit re-asks `Validate` of the values the
+  submitted subtree holds, against the rules as they are today (DESIGN §7):
+  the rules are host code, a host may have tightened them, and DESIGN §3's
+  answer about old content is that it becomes *invalid* rather than
+  incompatible. Two things follow from asking a question the engine already
+  asked once. Only stored values are asked about — an unset cell is §5.4's
+  completeness question and not a hook's, so a field is reported under one
+  heading. And the stored value is a normalization's own output, so a hook
+  that is not a fixed point on it is `HOOK_FAILURE` rather than a quiet
+  rewrite of what the actor presented: §6's chain says the normalized value
+  is what later checks see, and Submit is that later check.
 - **Failures:** hook execution failures, structural errors and forbidden
   edits reject the whole `Update` atomically — the batch is one act, so a
   refused one leaves the working copy exactly as it was, at the revision
@@ -1024,6 +1074,20 @@ reading of what the walk costs a request: the render, plus the queue
 drain, not the reservation. `BenchmarkUpdate`'s absolute row waits for a
 clean run, for the reason in the next paragraph.
 
+The commit path is ratios too, and it has two because §5.4 has two answers.
+A submit that writes nothing — every check passes, the diff comes out empty —
+reads the copy, walks §5.2's completeness and §6's `Validate` over the form's
+subtree and compares it, for about 1.3× what an accepted three-write `Update`
+on the same corpus costs and one allocation more: the candidate's clone is
+the only structure a submit adds to what an edit already pays for. A submit
+that did commit, measured as the edit followed by the submit of what it
+changed, came to 2.8× the edit alone, and that pair splits about 3 : 1
+between deciding and writing. So the store's three consistent writes —
+including the copy of the committed snapshot §5.1's materialized state makes
+a commit pay — are the cheap part of a commit, and the walks are the bill:
+which is what §5.2's index-based answers and §5.6's direct indexing are for.
+(`BenchmarkSubmit`, `BenchmarkSubmitNoOp`.)
+
 Absolute rows here are only as good as the machine that printed them: a
 re-run under background load read some five times *every* figure in the
 table, the untouched ones too. So where the point is a proportion — the
@@ -1085,11 +1149,13 @@ semantics*) is in progress. The image of §3, the lowering of §4, the
 requiredness and §3.9's resolution seam are in place and tested, and so
 is the exported half that reads them: `Runtime` and `Case` (DESIGN §6),
 the registry and the store seam, §5.1's four working edits as one atomic
-`Update` (§6.2), and §5.3's fanout behind `ChangeResult.Affected`. What
-remains is `View`, §5.4's completeness guards at `Submit`, §5.5's
-transition checks, and the *registration* half of §6's hook contract: a
-declared `Validate` normalization runs today, and exporting its
-signature waits for the read-only context DESIGN §7 describes.
+`Update` (§6.2), §5.3's fanout behind `ChangeResult.Affected`, and §5.4's
+`Submit` with §5.6's forward diff and the store's history behind it. What
+remains is `View`, §5.5's transition checks, DESIGN §6.5's rebase, and the
+*registration* half of §6's hook contract: a declared `Validate`
+normalization runs today, once against a value as it arrives and once again
+against the stored one at commit, and exporting its signature waits for the
+read-only context DESIGN §7 describes.
 
 Contract at the seam. Two halves are exported: the definition seam this
 handoff was written for, and the case operations milestone 2 has grown
@@ -1127,6 +1193,7 @@ func (c Case) Definition() (*Definition, bool)
 func (c Case) Stage(ctx) (string, error)
 func (c Case) Revision(ctx) (uint64, error)
 func (c Case) Update(ctx, base uint64, edits ...Edit) (ChangeResult, error)
+func (c Case) Submit(ctx, form string, working uint64) (CommitResult, error)
 
 // Edits, values, and what an accepted batch says.
 type Edit struct{ /* unexported */ }  // Set · Empty · Add · Remove
@@ -1134,6 +1201,12 @@ type Value struct{ /* unexported */ } // Text · Int · Decimal · Bool · Date
                                       // · DateTime · Tag · Binary · User
 type BinaryRef []byte
 type ChangeResult struct{ Working uint64; Created, Affected []string }
+
+// What a submit reached, and — when it committed nothing — what stopped it.
+type CommitResult struct {
+    Revision uint64; Stage string; Missing []string; Invalid []FieldProblem
+}
+type FieldProblem struct { Path, Code, Msg string }
 
 // Refusals, by category.
 type Category string  // NOT_FOUND, ACCESS_DENIED, INVALID_OPERATION, …
@@ -1146,8 +1219,13 @@ func Failed(err error, want Category) bool
 `Definition`, `Case`, `Edit` and `Value` have no exported fields, which
 is what lets §5.1's class tagging and §6's hook contract stay decisions
 of this package rather than a struct literal a host assembles by hand.
-What §6 names and this list does not — `View`, `Submit`, `Review`,
-`Sign`, `Transition`, `Rebase`, `Discard` — does not exist yet.
+`Missing` and `Invalid` are the two lists DESIGN §9 keeps out of the error
+categories, and they arrive on a refusal as well as on a success: a host
+renders a form's gaps without parsing a message, and reads the revision it
+must reload at out of the same value. What §6 names and this list does not —
+`View`, `Review`, `Sign`, `Transition`, `Rebase`, `Discard` — does not exist
+yet; `Submit` commits content, and the `verif` and `sigEntry` effects that
+need something to reset arrive with `Review` and `Sign` (§5.4).
 
 `BinaryRef` is exported as a `[]byte` with no behavior. DESIGN §5.2 puts
 content handles in case *data*, and §5.1's value row reserves the field

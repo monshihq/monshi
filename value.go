@@ -259,3 +259,93 @@ func (img *image) storeRole(n nodeID, v Value) (slotValue, string) {
 	}
 	return slotValue{set: true, s: v.s}, ""
 }
+
+// load is store's other direction: the payload a row holds, back in the
+// boundary's class. It exists because a `Validate` hook speaks `Value` and
+// Submit asks the current hook about a value that is already stored (DESIGN
+// §6.3, RUNTIME §6), so the row's bytes have to become the host's type again
+// — and because a view shows what a case holds rather than what somebody
+// last sent.
+//
+// An unset payload loads as the zero Value, which no constructor makes:
+// every one of them sets a class, so "this field has no value" stays
+// tellable apart from a value that happens to be empty (SYNTAX E6) — the
+// same distinction `Set` and `Empty` draw at the other end of the seam.
+//
+// A signature slot has nothing to load. Its content is a `sigEntry`'s answer
+// about who signed what, milestone 5's to render (§3.6), and inventing a
+// class for it here would be the engine guessing at a type the language does
+// not have.
+func (img *image) load(n nodeID, v slotValue) Value {
+	if !v.set {
+		return Value{}
+	}
+	if sl := &img.slots[n]; sl.role != 0 {
+		return User(UserID(v.s))
+	}
+	switch img.baseOf(n) {
+	case baseString:
+		return Text(v.s)
+	case baseOptions:
+		// An options value is the chosen option's text (§3.3), and `Text` is
+		// the only spelling text has at the boundary — the same soft spot
+		// `carries` allows in the other direction.
+		return Text(v.s)
+	case baseInteger:
+		return Int(v.i)
+	case baseDecimal:
+		return Decimal(v.d)
+	case baseBoolean:
+		return Bool(v.i != 0)
+	case baseDate:
+		return Date(v.t)
+	case baseDatetime:
+		return DateTime(v.t)
+	case baseBinary:
+		return Binary(v.bin)
+	case baseEnum:
+		return Tag(img.tagName(tagID(v.i)))
+	}
+	return Value{}
+}
+
+// same is the equality a commit diff and a no-op submit are decided on: does
+// this slot hold the same value in these two payloads.
+//
+// Each class is compared by what it *means* rather than by its bytes, and
+// two of those choices are worth stating. A decimal compares by value, so
+// `1.0` over a stored `1.00` is not a content change — shopspring keeps the
+// written scale in the representation, and §5.1's diff records what the case
+// now says, not how a client typed it. A time compares by instant, so a
+// value that arrived through a different `*Location` is the same datetime;
+// `Date` and `DateTime` both drop to the wall clock here rather than to the
+// struct's pointer fields, which is the difference between a diff that means
+// something and one that reports a reformat.
+//
+// An unset payload equals another unset payload: `Empty` over a field that
+// was already empty is no change, which is §6.3's "no meaningless commit"
+// read at the level of one cell.
+func (img *image) same(n nodeID, a, b slotValue) bool {
+	if a.set != b.set {
+		return false
+	}
+	if !a.set {
+		return true
+	}
+	if img.slots[n].role != 0 {
+		return a.s == b.s
+	}
+	switch img.baseOf(n) {
+	case baseString, baseOptions:
+		return a.s == b.s
+	case baseInteger, baseBoolean, baseEnum:
+		return a.i == b.i
+	case baseDecimal:
+		return a.d.Equal(b.d)
+	case baseDate, baseDatetime:
+		return a.t.Equal(b.t)
+	case baseBinary:
+		return string(a.bin) == string(b.bin)
+	}
+	return false
+}

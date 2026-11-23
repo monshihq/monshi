@@ -47,14 +47,22 @@ package monshi
 // neither: the stage is the committed one, and the roles that answer for it fold
 // from committed data (§4.3). So the set of paths this actor may see is
 // identical before and after any batch, and "paths whose permission changed"
-// contributes nothing to an update's answer — where §5.5's transition and
-// §5.6's commit both change an input to that function and so carry that
-// component themselves. Options need no separate component either: a field's
-// list must be re-fetched exactly when the field becomes reachable or
-// unreachable, or when its own condition moved, and both of those are presence
-// answers, which is what the walk computes. See
+// contributes nothing to an update's answer — where §5.5's transition moves the
+// stage and so does carry that component. Options need no separate component
+// either: a field's list must be re-fetched exactly when the field becomes
+// reachable or unreachable, or when its own condition moved, and both of those
+// are presence answers, which is what the walk computes. See
 // TestAffectedReachesAFieldWhoseOptionsBindingWasTouched, the case §5.3 calls
 // out.
+//
+// A commit is the one case this walk does not serve as it stands, and it is
+// worth naming rather than leaving to inference: committing a role-typed
+// value moves an input to §3.5's function *for somebody else*, so the paths
+// whose view changed are a question about which actors gained or lost a role.
+// That is per-actor, and one list cannot answer it, so it belongs to whoever
+// decides whom to notify (DESIGN §6.5, §7's `OnCommit`) rather than to a
+// field of a commit result. What a commit does reuse from here is the closure
+// rule itself — see submit.go's diff, which feeds the same adjacency.
 //
 // The one place the walk is charged rather than free is the visited set: one
 // byte per slot and one `nodeID` per slot, both sized by the count lowering

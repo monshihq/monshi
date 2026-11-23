@@ -7,18 +7,20 @@ package monshi
 // Milestone 2's implementation is in-memory and process-lifetime, which is
 // what DESIGN §10 asks of this milestone ("in-memory state"). The *shape*
 // is milestone 4's: `create`, `load`, `working` and the revision-guarded
-// writes are the methods a persistent backend implements, and the guards
+// commit are the methods a persistent backend implements, and the guards
 // they enforce are what §6.4's stale-revision refusals and invariant 5
-// depend on. What milestone 4 adds is the atomic commit transaction that
-// appends history and replaces a snapshot in one step (DESIGN §8): a new
-// method here, not a changed one, and not a second place the guards live.
+// depend on. What milestone 4 changes is durability: `commit`'s three writes
+// become one transaction against a store that can fail halfway, and a
+// `context.Context` joins the signature so a stalled write can be cancelled
+// (DESIGN §8). The transaction is that one method's implementation, not a
+// second place the guards live.
 //
-// A `context.Context` reaches these methods with milestone 4 too. The seam
-// DESIGN §8 defines takes one and the exported operations already carry
-// the caller's, so the plumbing there is one parameter per method; an
-// in-memory store has nothing to cancel, and threading a context through
-// six methods that do no I/O would only invite the question of which of
-// them was supposed to honour it.
+// A context reaches these methods with milestone 4 too. The seam DESIGN §8
+// defines takes one and the exported operations already carry the caller's,
+// so the plumbing there is one parameter per method; an in-memory store has
+// nothing to cancel, and threading a context through six methods that do no
+// I/O would only invite the question of which of them was supposed to
+// honour it.
 //
 // One discipline makes reads safe without locking a caller out of a writer:
 // the store never mutates data it has handed out. A commit builds the next
@@ -27,7 +29,10 @@ package monshi
 // rule as invariant 3's immutable history, stated about the present rather
 // than the past, and it is why a `state` copy is a safe thing to hand out.
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // registry is the definition registry (DESIGN §3). Its contents change only
 // through an explicit act on Runtime, so the value a handle carries — a
@@ -65,18 +70,35 @@ func (g *registry) add(op string, d *Definition, replace bool) error {
 }
 
 // caseStore holds every case's data, of the three kinds DESIGN §5 names.
-// Milestone 2 has two of them — the materialized committed state and the
-// per-user working copies. History arrives with milestone 4's transaction:
-// it is append-only and derived from these same states, so nothing here
-// changes shape when it does.
+// Milestone 2 has all three: the materialized committed state, the per-user
+// working copies, and the append-only history. What milestone 4 adds is the
+// transaction that makes the history append, the snapshot swap and the
+// submitter's rebase one atomic durable step — a new method around the same
+// three fields, not a different shape for them.
 type caseStore struct {
 	mu    sync.RWMutex
 	next  CaseID
 	cases map[CaseID]*storedCase
+
+	// now is the clock a commit stamps. It is a field rather than a call to
+	// `time.Now` because a commit's timestamp is *data* — DESIGN §5.2's rule
+	// that replay is deterministic means the value has to be recorded, not
+	// recomputed, and a test that asserts on a history entry needs to be able
+	// to say when it happened. A store built any other way falls back to the
+	// system clock.
+	now func() time.Time
 }
 
 func newCaseStore() *caseStore {
-	return &caseStore{cases: map[CaseID]*storedCase{}}
+	return &caseStore{cases: map[CaseID]*storedCase{}, now: time.Now}
+}
+
+// stamp is the clock's answer for one commit.
+func (s *caseStore) stamp() time.Time {
+	if s.now == nil {
+		return time.Now()
+	}
+	return s.now()
 }
 
 // storedCase is one case as the store holds it. `load` hands out a *copy*
@@ -100,6 +122,91 @@ type storedCase struct {
 	// work is the per-actor working copy, keyed by identity and not by
 	// handle or session, which is invariant 4 expressed as a map key.
 	work map[UserID]*workingState
+
+	// hist is the commit history: ordered, immutable, one entry per
+	// successful committing operation (DESIGN §5's first kind of state, and
+	// invariant 2's count). It is dense by revision — the entry at index 0 is
+	// the commit that produced revision 1 — because a revision *is* the count
+	// of commits, so a cursor into history and a revision number are the same
+	// thing. That is what makes §6.5's rebase and the audit read of "what
+	// changed between revisions 4 and 7" a slice rather than a search, and it
+	// is why creating a case appends nothing: revision 0 has no entry.
+	hist []commitRecord
+}
+
+// commitOp names which operation produced a commit. DESIGN §5's `Commit`
+// carries an `Operation` because a history entry says more than "the data
+// moved": a review decision, a signature and a content change are different
+// acts on the same case, and §5.1 lists all three among the semantic
+// committed changes. Today only Submit commits, so only one value is
+// declared; the others join it as their operations land, and a stored history
+// that never had to be reshaped to hold them is the point of writing the word
+// now rather than in milestone 5.
+type commitOp uint8
+
+const (
+	opSubmit commitOp = iota + 1
+)
+
+// commitChange is one entry of a forward diff (DESIGN §5.1): which
+// declaration moved, at which instance, and what it holds now.
+//
+// There is no old value, and that is the rule rather than an omission. A
+// commit that recorded both would be a *patch* with a reversible half, and
+// DESIGN §5's model is a linear sequence of forward diffs replayed onto the
+// empty case — one direction, with the materialized snapshot answering what
+// the case looks like today. Rebase (§6.5) gets the "old" it needs from the
+// committed state it is rebasing against, not from the entry.
+//
+// The two kinds are the two things §5.1 counts as semantic content changes.
+// `chgValue` says one field's value is now what `v` holds — where an unset
+// `v` is §5.1's *removal* effect, the `Empty` of a field, and so is a change
+// rather than the absence of one. `chgRows` says a collection's instance set
+// is now `v.i` rows long, with `v.set` answering whether it has any: an
+// instance appearing or vanishing is a change to the declaration's rows
+// rather than to a value, which is the same distinction §5.3's fanout draws
+// between a write and an `Add`.
+//
+// `path` is empty for a value the base row holds. For a member of a
+// collection it names the instances outermost first, in the stable IDs §5.1
+// addresses instances by — which is what makes the entry replayable and,
+// later, mergeable: "the third holder's since changed" is not a fact a
+// renumbered row can state.
+type commitChange struct {
+	kind uint8
+	slot nodeID
+	path instPath
+	v    slotValue
+}
+
+const (
+	chgValue uint8 = iota + 1 // one field's value, at one instance path
+	chgRows                   // one collection's instance count
+)
+
+// commitRecord is one entry in a case's history: the revision it produced,
+// who and what produced it, and the content it committed.
+//
+// The stage is recorded per commit rather than left to the current snapshot
+// because §5.1 counts a stage change among the semantic committed changes:
+// replaying history onto an empty case has to land the case where it is, so
+// "revision 7 was at review" must be knowable from the entry. Today every
+// commit is a Submit, which never moves the stage (DESIGN §4.4, §6.3), so the
+// field is the same value each time — and that is exactly the check
+// history_test.go makes, because a Submit that *did* move the stage would
+// otherwise be invisible in the record it wrote.
+//
+// No separate list of the binary content a commit pinned (§5.2's retention
+// rule) because there is nothing to list: a binary value's immutable `
+// BinaryRef` *is* the diff entry's payload, so the references a commit made
+// live in `changes` and are as durable as the entry that holds them.
+type commitRecord struct {
+	revision uint64
+	at       time.Time
+	by       UserID
+	op       commitOp
+	stage    stageID
+	changes  []commitChange
 }
 
 // committedState is one materialized committed snapshot: the case's values
@@ -255,27 +362,97 @@ func staleWorking(op string, id CaseID, cur, want uint64) error {
 		"the working copy is at revision "+dec(cur)+", not "+dec(want))
 }
 
-// commitState replaces a case's committed data if the case is still at
-// fromRevision, and reports the revision it now carries. Milestone 5's
-// Submit and Transition call this; it lands now so the guard is a property
-// of the store rather than of an operation that has not, and milestone 4
-// wraps it and the history append in one transaction without changing what
-// it checks.
-func (s *caseStore) commitState(op string, id CaseID, fromRevision uint64,
-	next committedState) (uint64, error) {
+// committedBy is what a committing operation tells the store about itself and
+// the content it is publishing: who acted, which operation, and the forward
+// diff that says what the commit changed. The store supplies the timestamp and
+// the revision (§3.1's split, applied to history: the caller's words are data,
+// the numbering is the store's).
+type committedBy struct {
+	by      UserID
+	op      commitOp
+	changes []commitChange
+}
+
+// commit replaces a case's committed snapshot, appends the commit that says
+// why, and rebases the submitting actor's working copy onto the revision the
+// commit produced — the three writes DESIGN §6.3 requires to be consistent,
+// which in this store is one hold of the lock.
+//
+// `want` is the committed revision the caller observed; anything else is
+// refused rather than merged, which is §6.3's "if state changes concurrently,
+// reject rather than apply a stale prepared diff" and invariant 5's reason for
+// existing. The check is made here and not in the operation because this is
+// the only place the stored revision is both read and written, and a guard an
+// operation performed outside the lock it does not hold would be a check that
+// another commit could pass.
+//
+// The history append and the snapshot swap are the two halves of one act, and
+// the order inside the lock is worth stating because it is what makes
+// `revision` mean "the count of commits": the snapshot moves, the revision
+// moves with it, and only then does the entry get the number the two now
+// agree on. A reader of the record sees one consistent triple because every
+// field it reads is a value the record owns, not a pointer it can follow into
+// a state another goroutine is writing.
+//
+// The rebase touches only the submitter's copy, and only its `base`: the
+// content stays, because §6.3 is explicit that other forms' unsubmitted edits
+// survive one form's submit. Leaving `rev` where it was is what lets the same
+// client keep editing with the working revision it already holds, and what
+// keeps another session of that actor from getting a free pass at revision 0.
+func (s *caseStore) commit(op string, id CaseID, want uint64,
+	next committedState, by committedBy) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, err := s.check(op, id)
 	if err != nil {
 		return 0, err
 	}
-	if rec.revision != fromRevision {
+	if rec.revision != want {
 		return 0, refused(op, StaleRevision, id,
-			"the case is at revision "+dec(rec.revision)+", not "+dec(fromRevision))
+			"the case is at revision "+dec(rec.revision)+", not "+dec(want))
 	}
 	rec.commit = next
 	rec.revision++
+	rec.hist = append(rec.hist, commitRecord{
+		revision: rec.revision,
+		at:       s.stamp(),
+		by:       by.by,
+		op:       by.op,
+		stage:    next.stage,
+		changes:  by.changes,
+	})
+	if w, have := rec.work[by.by]; have {
+		rebased := *w
+		rebased.base = rec.revision
+		rec.work[by.by] = &rebased
+	}
 	return rec.revision, nil
+}
+
+// history is one case's commits, in the order they landed. It hands out a
+// copy of the entry list, never the record's own slice, for the reason
+// `load` gives: a reader must not be able to write through a pointer into
+// stored data. DESIGN §5's "ordered, immutable commits" is a claim about
+// what a reader can do as much as about what the store keeps, and this is
+// the only way in that is not the commit path itself.
+//
+// Today it has no caller outside the tests: a host reads history through the
+// audit view and the rebase, and both are later slices (DESIGN §6.5). It
+// exists now because the history is the store's third kind of state, and
+// because milestone 4's transaction needs the same read to replay from.
+func (s *caseStore) history(op string, id CaseID) ([]commitRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rec, err := s.check(op, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(rec.hist) == 0 {
+		return nil, nil
+	}
+	out := make([]commitRecord, len(rec.hist))
+	copy(out, rec.hist)
+	return out, nil
 }
 
 // at finds a case, and `check` is the same lookup as an error. Both assume
