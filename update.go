@@ -123,7 +123,7 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 	// reads no values, only the adjacency, so it needs nothing from here but
 	// the write set — and it waits for the save, because a batch the store
 	// refuses should not have paid for a closure nobody is told about.
-	rev, err := c.w.cases.saveWorking(refuse, c.actor.User, base, w)
+	rev, err := c.w.cases.saveWorking(refuse, c.actor.User, base, w, 0)
 	if err != nil {
 		return ChangeResult{}, err
 	}

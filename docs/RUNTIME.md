@@ -1130,9 +1130,185 @@ unit or signs one until `Review` and `Sign` exist, so the fields §6.1
 promises for §3.6's `verif` and `sigEntry` would report a constant
 (DESIGN §10's milestone 5). `CaseContext` is why an option key is a field
 path rather than a field instance, and why registration stays unexported
-(§6). And the rebase question §6.5 leaves open — what a view of a draft
-whose committed content moved should say — arrives with the operation
-that moves it.
+(§6). And the question §6.5 leaves open about a draft whose committed
+content moved is answered in §5.8, not here: `View` renders the draft it
+is handed, unchanged in shape whether or not that draft is behind the
+case, and `Rebase` is the operation that changes what the draft holds.
+
+### 5.8 Synchronization — `Rebase` and `Discard`
+
+DESIGN §6.5's rule is that committed change never rewrites a draft by
+itself, and that a draft the case has moved past cannot submit until
+somebody brings it forward. `Rebase` is the bringing-forward and
+`Discard` is the other exit, the draft given up rather than reconciled.
+Neither commits anything: invariant 2 counts commits, and what a rebase
+moves is a copy, whose number the caller already holds (§5.1's working
+revision). Both are the package's and not the host's, because the
+comparison they settle needs the case's history and every actor's draft,
+and a host holding those would be holding the store.
+
+**The third version.** Every operation before this one compares two
+states — a candidate against the committed snapshot, an edit against the
+draft — and a merge needs three, because "which side changed this" is a
+question about a starting point and not about a pair. The middle version,
+what the copy descended from, is stored nowhere: history records new values
+and never old (§5.1), and the store materializes two states — the case as it
+is, and each draft as it is — which is one short of what a merge asks. So
+the third is *read*, exactly and without a replay: a commit entry says what
+the case held immediately after that commit, so the newest entry at or below
+the copy's base is the base. The answer is that entry's last word and not
+the first word found, which is why the scan runs backwards. The window the
+copy has not seen needs no search either, because history is dense (§5.6):
+one binary search for the first revision past the copy's base divides the
+two halves, and the entries in the second are the case's newest word on
+every value and every row list.
+
+Three questions have no entry to read, and each has an answer that comes
+from the definition or the empty list rather than from the draft:
+
+- A collection no commit at or below the base moved had **no rows**. Rows
+  come only from a commit that makes them, so the ledger's silence is the
+  empty list, and §5.6's entry-side list of IDs is what makes that statement
+  about membership rather than about a count.
+- A cell the ledger never wrote, in a row the base did have, holds what
+  creating that row materialized: the **default the declaration states**
+  (§5.1). It is asked of the definition and not of the draft, because a
+  draft's own value read back as the base would make every edit the actor
+  typed look like no edit at all, and the merge would report a clean
+  synchronization of a draft it had never compared.
+- A cell in a row the base did **not** have has no value at the base, and
+  that is answered by the row's list rather than by a search. This is why
+  the walk is two passes, lists first: membership is what says which cells
+  may be asked about at all, and a cell in a row the case did not yet have
+  is not a question the ledger can hold the answer to.
+
+What makes the answer right is neither of the walk's two stops. It runs
+backwards, and each branch refuses a second word about a question it has
+already answered, so the newest entry at or below the base is what stands:
+history holds forward diffs (§5.1), and writing an older entry over a key a
+newer one already answered is that diff read backwards. Stopping when no
+question is open is only the cost bound, and the ordering above is what
+makes the bound hold. Without it, a case whose rows churn — one row issued
+and one removed in every commit — leaves one cell permanently unanswerable,
+and every rebase rereads the case's whole past to prove none of it holds
+the answer; §8 runs the merge in both orders and prices that reading at
+roughly seven times the cost of the merge itself. What no ordering can
+bound is a collection the case has never moved at all: its answer is the
+ledger's silence, and silence is only established at the beginning of the
+ledger. Those are the few questions, and this walk answers them exactly
+rather than approximately.
+
+**The merge.** Mechanical, three-way, and never a combination: where one
+side did not move, the other is taken, and where both moved the operation
+refuses by name. Values and row lists are asked the same four things in the
+same order — did the commits move it at all, did the draft, both the same
+way, or both differently.
+
+- Commits moved nothing: the draft's content stands, including a value that
+  went away and came back, which is the net effect §5.1's forward diffs
+  record and the only one a merge has to honour.
+- The draft moved nothing: the committed answer is written in — a poured
+  value, or a whole list adopted by ID so the entries after it can find
+  their rows. A committed value whose address is gone from the merged data
+  is not written and not reported: its row was removed by the commits, and
+  that is the change §6.5 says to integrate.
+- Both sides wrote the same thing: nothing to tell anybody.
+- Both sides moved it differently: a clash naming the address. For a
+  collection that means the draft keeps its own rows, the set is marked
+  dropped, and every value entry writing under that address is dropped with
+  it — a field merged into a list nobody reconciled would be a decision
+  smuggled in through a row.
+
+Two row cases are worth naming, because a comparison of two lists cannot
+see either. A row this draft deleted while the unseen commits changed what
+was inside it is a loss of committed work, and the deletion winning quietly
+is the thing §6.5 exists to prevent: it is reported *once*, at the
+collection, and the nested lists and the fields under the deleted row are
+suppressed as the same decision, so one removed holder does not name sixty
+addresses (§5.7 renders a container as one node, and a refusal follows the
+container for the same reason). And a row the case deleted that this draft
+also deleted is agreement, and the converged branch says so without asking
+whether either side meant it.
+
+A merge that adopts a row takes the case's ID with it (§5.1's stable paths)
+and hands the draft the case's allocator along with its content — the same
+reconciliation §5.4 makes going the other way, and the reason a post-rebase
+`Add` cannot issue a number the case already published.
+
+**What a rebase writes.** Nothing, unless the whole merge is clean. The
+merge builds on a clone and the save is reached only with an empty clash
+list, so §6.5's "a failed/conflicting rebase leaves the previous working
+state intact" is the shape of the call rather than a rollback, and
+`RebaseResult.Base` keeps reporting the revision the copy is actually at:
+a result implying a synchronization that did not happen would be a lie
+about the one number this operation exists to fix. A clean one moves two
+numbers. The copy's revision moves because a second session of the same
+actor holding the old one could otherwise save a batch built against the
+*unsynchronized* draft over the merge — invariant 4's failure with a nicer
+name — and the base moves inside the lineage the store owns: `saveWorking`
+accepts a base no lower than the copy's own and no higher than the case's
+revision, and anything else is `SCHEMA_MISMATCH`, which is §4's drift
+question asked where a snapshot is written rather than where it is read.
+A rebase of a copy already at the case's newest revision is not a merge and
+not a write: it answers with the numbers the caller has, and §8's floor row
+prices that as the read of a draft.
+
+The word carries two meanings here, and the difference is worth stating
+once. §5.4's "rebase" at submit is the lineage move by itself: the commit
+sets its author's copy to the revision it just made, and §5.4's condition
+on that move — the copy must descend from the revision the commit replaces
+— holds there by construction, because submit's own guard compared the two
+a moment before. `Rebase` is the move asked where nothing has been compared
+yet: a copy whose content is not the case's, which is the only kind that
+needs a merge and the only kind that can refuse one.
+
+**What a refusal says.** `Conflicts` arrives beside the `CONFLICT` refusal
+and never beside a success, so a host reads one source of truth about
+whether work is left; the paths are §5.1's addresses, in the order the merge
+found them. `CONFLICT` is DESIGN §9's category that no earlier operation had
+a reason to produce — a stale submit is `STALE_REVISION`, a forbidden one is
+`ACCESS_DENIED`, and nothing else in the engine had two authors to disagree
+about — so this is the call where the host learns which fields it must show
+a human. The mask decides what may be *said* as well as what may be
+shown: a clash at a slot the actor may not view is counted and named by the
+form alone, never by the collection, row and field inside it, because §7's
+property 7 is a claim about refusals as much as about renders, and a message
+printing `application.holders.17.who` has just told a caller that row 17
+exists and that somebody changed a value in it. The count of hidden clashes
+does appear in the message, with the one exit that needs no grant — to
+`Discard`, which throws this work away without describing it.
+
+`Discard` is that exit, and it is a small one: the number the caller was
+shown, and a delete. It is not a commit, not a revert, and not a reset in
+place: the copy is removed, so the next access clones the committed state
+and starts clean. That is §5.1's rule for how a draft comes to exist at
+all, stated by §5.7's `working` with a creation verb, and the promise holds
+here because there is nothing left to reset rather than because this
+operation undertook to keep it. Beside no copy the number decides the
+answer: `0` is success, because there is no draft and §6.5's requirement is
+already satisfied, and anything else is `INVALID_OPERATION`, because a
+caller reporting edits it never held is this package's bug to hear about
+and not the case's state to report. Beside a copy that has moved the answer
+is `STALE_REVISION` naming both numbers, the same guard `Update` and
+`Submit` give and for the same reason: the draft this call would destroy
+may be the one another session of this actor wrote a moment ago
+(invariant 4).
+
+Deferred, all of it on the record. Reconciling two row orders is §6.5's
+"not part of the initial implementation contract", and a merge that picked
+one would be inventing a policy no document states: the union of two lists
+needs an order, and order is which user is looking at the screen. Conflict
+*presentation* is deferred beside it — the paths are the whole offer, and a
+side-by-side editor is a host's. No operation calls `Rebase`: `Submit`
+refuses a copy that has fallen behind with the revision to reload at (§5.4),
+which is §6.5's "no implicit merge occurs during Submit" kept literally. And
+a merge asks no hook (§6): it moves committed values into a draft that has
+never been normalized or checked by host code, and the two calls that would
+notice — §5.4's completeness at submit, §5.7's masked report at view — are
+the caller's next request. `OnCommit` notification, which §6.5 says a host
+may use to tell a user the case moved, waits for milestone 6's observers,
+and the verification and signature effects a moved value would want to
+reset (§5.6) wait for `Review` and `Sign` with it.
 ---
 
 ## 6. Hook execution contract
@@ -1283,7 +1459,16 @@ produced, one per distinct binding.
    that it is withheld. Update, Submit and Transition put the permission
    test before the revision compare for the same reason (§5.4): a
    forbidden operation must not leak the case's revision traffic as a
-   consolation.
+   consolation. The merge is held to the same rule in the opposite
+   direction (§5.8): `Rebase` grants nothing, because the only state it
+   writes is the caller's own draft, but every clash it reports is a
+   statement about content, so a clash at a slot the actor may not view
+   is counted and named by its form rather than by the row and field
+   inside it. `Discard` asks no permission at all, and the reason is the
+   same fold: the copy it destroys belongs to the actor asking (invariant
+   4), and the only numbers its refusals name are that copy's own working
+   revision and the one the caller held — no case fact, no other actor's
+   draft.
 
 ---
 
@@ -1313,6 +1498,11 @@ an `Update` on it impossible.
 | `BenchmarkLoweringWideOnly` | schema → image, wide | 30.3 µs, 295 allocs |
 | `BenchmarkLowerSpecExample` | source → image, §7 | 41.7 µs, 1074 allocs |
 | `BenchmarkLoweringWide` | source → image, wide | 61.0 µs, 1214 allocs |
+| `BenchmarkRebaseClean` | an unseen commit and its merge | 3.3 µs, 61 allocs |
+| `BenchmarkRebaseSynced` | `Rebase` with nothing to merge | 288 ns, 6 allocs |
+| `BenchmarkRebaseRows` | the merge over churned rows | 8.6 µs, 186 allocs |
+| `BenchmarkDiscard/draft` | a batch, then the drop of it | 920 ns, 20 allocs |
+| `BenchmarkDiscard/absent` | `Discard(0)` beside no copy | 33 ns, 0 allocs |
 
 Three things follow. A condition is two memory reads and a compare, so
 §3.4's "no type dispatch inside a running condition" is a cost claim and
@@ -1425,6 +1615,43 @@ is what §5.2's indexed answers and §5.6's direct indexing are for.
 reject-to-`correction` and accept-to-`draft` loop so that each call is one
 commit and neither destination asks a `require`.)
 
+Synchronization is priced as a difference, because the loop that measures
+it contains the commit the merge is reconciling. `BenchmarkRebaseClean`
+runs one unseen `Update` and `Submit` and then the `Rebase`; the same pair
+alone is `BenchmarkSubmit`'s 2.3 µs and 42 allocations, measured in the
+same process, so the merge is about a microsecond and nineteen
+allocations: two clones of the §7 case's state — the copy as it is read,
+the draft the merge writes into — beside the walk over a window of one
+commit. `BenchmarkRebaseSynced` is that same call with no window at all,
+and its 288 ns is what §5.8's "not a merge and not a write" costs: the
+look-up, the fold, and the one clone `draft` performs before anybody asks
+whether the copy has moved. A synchronized rebase that skipped that clone
+would be cheaper than the row here, and the row is the floor the other two
+synchronization numbers sit on.
+
+`BenchmarkRebaseRows` is the merge over a case whose rows churn — a
+shareholder issued and one removed every iteration — and it is the row that
+states §5.8's bound rather than the one that reads well. Each iteration
+commits, so a second of timing leaves the case with some hundred thousand
+revisions behind it and the call still costs 8.6 µs: the walk stops inside
+the window's own keys,
+because a list is answered by the first entry at or below the base, and a
+value in a row the base did not have is answered by that list instead of by
+the ledger. The same merge with the two passes in the other order — cells
+asked of history before membership is known — measured 75 to 90 µs and
+3,796 allocations in a scratch copy of the package run at 1,000 iterations,
+a figure that grows with the case's past rather than with its changes. That
+is the failure mode the ordering exists to avoid, and it is why §5.8 states
+the walk as lists first.
+
+`BenchmarkDiscard`'s two sub-rows are the guard, and nothing but the guard.
+The drop of a draft that holds work, in the same loop as the batch that made
+it, costs 920 ns against that batch's 864; the same call beside no copy costs
+33 ns and allocates nothing, which is the read of a case record and a
+comparison. So §6.5's cheaper exit is free in the engine and its price in a
+host is the work it throws away — which is the claim the row is here to make
+legible rather than impressive.
+
 Nor is any "× faster than the compiled tree" ratio measured: that would
 mean an interpreted-tree harness, and building one to prove a point the
 absolute numbers already make is a cost of its own. The multiples this
@@ -1452,15 +1679,25 @@ a re-run shows.
   check refuses a definition whose ordinal space moved rather than
   reinterpreting the data into nonsense, and a case nobody opens again is
   never asked.
-- **No automatic `Rebase` merging** (DESIGN §6.5 deferral stands).
+- **No synchronization nobody asked for, and no merge that decides.**
+  Committed change never rewrites a draft by itself, and `Submit` still
+  refuses a copy that has fallen behind rather than reconciling it first —
+  DESIGN §6.5's "no implicit merge occurs during Submit" is kept literally
+  (§5.8). What the merge that does exist will not do is choose: it takes a
+  side nobody moved, and two row lists both sides moved are refused and not
+  joined, because ordering them is a policy no document states. That half of
+  §6.5's deferral stands.
 - **No abstracted commit ladder.** `Update`, `Submit` and `Transition`
   share a shape — look the case up, resolve what was named, ask
   permission, ask the numbers, ask the content, then save — but the
   interleaving of those questions is the per-operation decision §5.4 and
   §5.5 exist to state, and §5.5's conditional rebase is what a shared step
   costs when one operation cannot rely on the reason the other had it
-  pass. Extract the skeleton when `Review` and `Sign` make it five
-  instances, not while it is three.
+  pass. §5.8's two operations join the shape without joining the commits:
+  they look the case up, ask the numbers, read the content, and then save
+  the copy or delete it, with nothing resolved and no permission asked
+  beyond the mask that decides what may be named. Extract the skeleton when
+  `Review` and `Sign` make it seven instances, not while it is five.
 - **One `Affected` policy is a milestone 5–6 decision.** DESIGN §6.4
   promises an affected set for every committing operation; `Submit`
   ships without one and `Transition` with the §5.5 definition walk,
@@ -1494,8 +1731,13 @@ commits, and the first whose affected set is about masks rather than values.
 §5.7's view walk is behind `View`, milestone 3's first item: the mask folded
 once per call, the draft read without a copy being made, the selections merged
 on address, and `Options` fetched and `Validate` re-asked through that mask.
-What remains is DESIGN §6.5's rebase, and the
-*registration* half of §6's hook contract: a declared `Validate`
+DESIGN §10's milestone 6 has landed in part, and early: `Rebase` and
+`Discard` are here (§5.8) — the third version read out of the store's own
+history rather than replayed, a merge that takes an unchanged side and
+refuses to choose between two moved ones, nothing saved when it cannot, and
+a refusal that counts the clashes it may not address. Its other half, the
+observers, waits for `OnCommit`. What remains of milestone 2's semantics is
+the *registration* half of §6's hook contract: a declared `Validate`
 normalization runs three times today — against a value as it arrives,
 against the stored one at commit, and against what a view renders — and
 exporting its signature waits for the read-only context DESIGN §7
@@ -1577,6 +1819,16 @@ type ViewNode struct {
     Children   []*ViewNode
 }
 
+// Bringing a draft forward to the commits it has not seen, and giving it up
+// instead (§5.8, DESIGN §6.5). Neither commits: the case's revision is not
+// what these move.
+func (c Case) Rebase(ctx) (RebaseResult, error)
+func (c Case) Discard(ctx, expected uint64) error
+type RebaseResult struct {
+    Working, Base uint64   // the copy's number, and the revision behind it
+    Conflicts     []string // on a `CONFLICT` refusal, never on a success
+}
+
 // What a stored value is, and what it holds. The getters answer a value of
 // the wrong class with its zero rather than a panic or an error: a client
 // rendering a form asks the declared shape first, and a field whose type a
@@ -1606,7 +1858,7 @@ func Failed(err error, want Category) bool
 `Definition`, `Case`, `Edit` and `Value` have no exported fields, which
 is what lets §5.1's class tagging and §6's hook contract stay decisions
 of this package rather than a struct literal a host assembles by hand.
-The results — `ChangeResult` and the three that read like it — have the
+The results — `ChangeResult` and the four that read like it — have the
 opposite shape, and `ViewNode` follows them for the same reason §5.1
 gives: a *write* a caller assembles is a value to be validated, so it
 stays a constructor, while a *read* the engine assembles is data to be
@@ -1618,12 +1870,14 @@ categories, and they arrive on a refusal as well as on a success: a host
 renders a form's gaps without parsing a message, and reads the revision it
 must reload at out of the same value.
 
-What §6 names and this list does not — `Review`, `Sign`, `Rebase`,
-`Discard` — does not exist yet. `Submit` commits content, `Transition`
-commits a stage, and `View` reads both of those beside an actor's own
-draft; the `verif` and `sigEntry` effects that need something to reset or
-re-ask arrive with `Review` and `Sign` (§5.4, §5.5, §5.7), and the rebase
-question with §6.5.
+What §6 names and this list still does not — `Review` and `Sign` — waits for
+the milestone that approves and signs content. `Submit` commits content,
+`Transition` commits a stage, `View` reads both of those beside an actor's
+own draft, and §5.8's two operations settle a draft against what the case
+committed after it was made; the `verif` and `sigEntry` effects that need
+something to reset or re-ask arrive with the operations that do the resetting
+(§5.4, §5.5, §5.7), and `OnCommit`, §6.5's way of telling a user the case
+moved, with milestone 6's observers.
 
 `BinaryRef` is exported as a `[]byte` with no behavior. DESIGN §5.2 puts
 content handles in case *data*, and §5.1's value row reserves the field
@@ -1683,6 +1937,9 @@ in this package reads or resolves one.
   checks the two `permTables` answers the trace ends on. Its step 5's
   approval and signature conjuncts and step 7's `OnCommit` are the parts
   that wait for milestones 5 and 6, and the test says so where it stops.
+  §6.5's synchronization has no step in this trace, because the trace is one
+  actor moving one case forward: it is tested as the two actors §6.5
+  describes, against the exported surface, in `rebase_test.go` (§5.8).
 
 ---
 

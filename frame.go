@@ -148,6 +148,19 @@ func (s *state) materialize(n nodeID) {
 	}
 }
 
+// defaultOf is the value one slot holds when a case or an instance is created
+// and nothing writes to it — the same answer `materialize` and `defaults`
+// write, reached without a state to write it into. §5.8's merge needs it
+// because the version a rebase compares against is not always in history: a
+// cell no commit ever wrote holds its default, and treating that as absence
+// would make an untouched defaulted field look like the draft's own edit.
+func (img *image) defaultOf(n nodeID) slotValue {
+	if def := img.slots[n].def; def != 0 {
+		return img.constOf(def)
+	}
+	return slotValue{}
+}
+
 // clone copies a state deeply enough that editing one cannot reach the other.
 // Rows are value slices, so a copy is a copy; the payloads inside are scalars
 // or values the language treats as immutable — a decimal, a string, and an

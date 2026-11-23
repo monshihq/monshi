@@ -156,17 +156,24 @@ const (
 // commit that recorded both would be a *patch* with a reversible half, and
 // DESIGN §5's model is a linear sequence of forward diffs replayed onto the
 // empty case — one direction, with the materialized snapshot answering what
-// the case looks like today. Rebase (§6.5) gets the "old" it needs from the
-// committed state it is rebasing against, not from the entry.
+// the case looks like today. What §6.5's rebase needs from the past is not
+// the old value but the *set* a collection's rows formed at the revision a
+// draft descended from, and no forward diff can state that: a count says how
+// many rows a commit left and not which ones, so a removed ID cannot be
+// recovered from what follows it. `ids` is the one place an entry carries
+// more than the changed fact — the committed list, in creation order, spelled
+// by the same stable IDs §5.1 addresses rows with — and RUNTIME §5.8 states
+// why the alternative is a reconstructed snapshot this engine does not keep.
 //
 // The two kinds are the two things §5.1 counts as semantic content changes.
 // `chgValue` says one field's value is now what `v` holds — where an unset
 // `v` is §5.1's *removal* effect, the `Empty` of a field, and so is a change
 // rather than the absence of one. `chgRows` says a collection's instance set
-// is now `v.i` rows long, with `v.set` answering whether it has any: an
-// instance appearing or vanishing is a change to the declaration's rows
-// rather than to a value, which is the same distinction §5.3's fanout draws
-// between a write and an `Add`.
+// is now the `ids` list, whose length `v.i` repeats and whose emptiness
+// `v.set` answers: an instance appearing or vanishing is a change to the
+// declaration's rows rather than to a value, which is the same distinction
+// §5.3's fanout draws between a write and an `Add`. `ids` is empty for the
+// other kind, and a value payload is zero for this one.
 //
 // `path` is empty for a value the base row holds. For a member of a
 // collection it names the instances outermost first, in the stable IDs §5.1
@@ -178,6 +185,7 @@ type commitChange struct {
 	slot nodeID
 	path instPath
 	v    slotValue
+	ids  []instanceID // chgRows: the committed set, in creation order
 }
 
 const (
@@ -322,41 +330,55 @@ func (s *caseStore) working(refuse refuser, user UserID,
 	return w.clone(), nil
 }
 
-// viewed answers the question a read asks and `working` cannot: what does this
-// actor's draft hold, *without giving them one*. The distinction is not
-// tidiness. `working` creates a copy on first use, because an edit is about to
-// write into it; a method that allocated per-user state for every request would
-// let reads grow the case, which is DESIGN §9's "no persistent effect" for an
-// operation that changes nothing — and a host that renders a form for ten
-// thousand viewers would pay ten thousand rows for nothing.
+// draft returns an actor's working copy with its *lineage* — the committed
+// revision it descends from, which is the whole question §6.5's rebase asks —
+// and says whether a copy exists at all.
+//
+// It is `viewed`'s more exact sibling, and both answer without creating what
+// they report. The distinction is not tidiness. `working` creates a copy on
+// first use, because an edit is about to write into it; a method that
+// allocated per-user state for every request would let reads grow the case,
+// which is DESIGN §9's "no persistent effect" for an operation that changes
+// nothing — and a host that renders a form for ten thousand viewers, or polls
+// for synchronization, would pay ten thousand rows for nothing.
 //
 // So an actor with no draft is answered from the committed snapshot, which is
-// what their draft would have been cloned from, and the revision reported is
-// 0 — the same number §6.2 tells that actor to pass as `base` when they do
-// write, because the copy they then get is a fresh one. The two answers agree
-// because both are derived from the same rule: no copy exists until an edit.
+// what their draft would have been cloned from: `base` is the case's own
+// revision and `rev` is 0, the same number §6.2 tells that actor to pass as
+// `base` when they do write, because the copy they then get is a fresh one.
+// The two answers agree because both follow the same rule: no copy exists
+// until an edit.
 //
 // The state is cloned anyway. That is the store's clone-on-the-way-out rule
 // applied without exception, and the exception is the dangerous half: a walk
 // that "only reads" today is one memoization away from writing through a window
 // into stored data. Milestone 4 replaces this with the read transaction DESIGN
 // §8 describes, which hands back a snapshot that cannot be written at all.
-func (s *caseStore) viewed(refuse refuser, user UserID,
-	img *image) (state, uint64, error) {
+func (s *caseStore) draft(refuse refuser, user UserID,
+	img *image) (workingState, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, err := s.check(refuse)
 	if err != nil {
-		return state{}, 0, err
+		return workingState{}, false, err
 	}
 	if w, have := rec.work[user]; have {
 		out := w.clone()
 		out.s.reinterpret(img)
-		return out.s, out.rev, nil
+		return out, true, nil
 	}
 	out := rec.commit.s.clone()
 	out.reinterpret(img)
-	return out, 0, nil
+	return workingState{base: rec.revision, s: out}, false, nil
+}
+
+// viewed is `draft` asked by an operation that renders values and never needs
+// to know what they descend from. It exists because §5.7's walk wants exactly
+// two things, and a caller handed the third would be tempted to use it.
+func (s *caseStore) viewed(refuse refuser, user UserID,
+	img *image) (state, uint64, error) {
+	w, _, err := s.draft(refuse, user, img)
+	return w.s, w.rev, err
 }
 
 // saveWorking replaces an actor's working copy if it is still at expected,
@@ -368,10 +390,20 @@ func (s *caseStore) viewed(refuse refuser, user UserID,
 // with the fields the store set when it handed the copy out, and a save that
 // trusted them would let one session publish a revision number another
 // session had already taken — so the guard reads the stored copy, and the
-// stored copy's own base and rev are what land. The data is the caller's;
-// the numbering is the store's, the same division §3.1 makes of a case ID.
-func (s *caseStore) saveWorking(refuse refuser, user UserID,
-	expected uint64, next workingState) (uint64, error) {
+// stored copy's own rev is what lands, advanced by one. The data is the
+// caller's; the numbering is the store's, the same division §3.1 makes of a
+// case ID.
+//
+// `onto` is the one exception, and it is narrow: an operation that leaves the
+// base alone passes 0, and `Rebase` passes the committed revision it has just
+// folded in — a rebase's whole purpose is to move a draft to a revision the
+// case already reached, which §5.4's submit guard reads and `commit` cannot
+// help with because that step only advances the committer's own lineage. The
+// value is checked against the case rather than trusted, because a lineage a
+// caller could set anywhere would be a lineage that skips a commit and lies
+// about what the draft descends from.
+func (s *caseStore) saveWorking(refuse refuser, user UserID, expected uint64,
+	next workingState, onto uint64) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, err := s.check(refuse)
@@ -386,12 +418,64 @@ func (s *caseStore) saveWorking(refuse refuser, user UserID,
 	if cur.rev != expected {
 		return 0, refuse.staleCopy(cur.rev, expected)
 	}
+	if onto != 0 && (onto < cur.base || onto > rec.revision) {
+		// A defect and not a request: no caller of this package can reach it
+		// by asking for a number, because §5.8 hands over the revision it
+		// just read from this record under the same lock. §10's rule against
+		// laundering a runtime bug into a refusal is why this is not reported
+		// as a stale copy.
+		return 0, refuse.now(SchemaMismatch, "a rebase would move the copy's"+
+			" lineage to revision "+dec(onto)+", which is not between "+
+			dec(cur.base)+" and the case's "+dec(rec.revision))
+	}
 	stored := next
 	stored.s = next.s.clone()
-	stored.base = cur.base
-	stored.rev = expected + 1
+	stored.base, stored.rev = cur.base, expected+1
+	if onto != 0 {
+		stored.base = onto
+	}
 	rec.work[user] = &stored
 	return stored.rev, nil
+}
+
+// discard removes an actor's working copy, guarded by the working revision
+// the caller observed. The guard is not ceremony: §6.5's reason for it is that
+// another session of the same actor may have written the copy since, and the
+// thing this call destroys is unsaved work that nobody else has a copy of.
+// So a caller presenting 0 for a copy that has moved hears the same
+// STALE_REVISION `Update` and `Submit` give for it — one sentence, three
+// places, and the caller learns the newest edits are somebody else's to
+// resolve rather than being deleted quietly.
+//
+// A copy that does not exist is a success, not a NOT_FOUND: §6.5 says a new
+// copy starts from the latest committed state on next access, which is exactly
+// the state an actor with no copy is already in, so the caller's wish — "drop
+// my draft" — is true whether or not there was one to drop. What is *not*
+// true of that actor is a belief that they held edits, which is why 0 is the
+// only expected number a missing copy answers, and a copy the store has never
+// heard of is refused as the caller bug it is rather than confirmed as a
+// discard.
+func (s *caseStore) discard(refuse refuser, user UserID,
+	expected uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, err := s.check(refuse)
+	if err != nil {
+		return err
+	}
+	cur, have := rec.work[user]
+	if !have {
+		if expected != 0 {
+			return refuse.now(InvalidOp, "this actor has no working copy, so"+
+				" revision "+dec(expected)+" was never a number they held")
+		}
+		return nil
+	}
+	if cur.rev != expected {
+		return refuse.staleCopy(cur.rev, expected)
+	}
+	delete(rec.work, user)
+	return nil
 }
 
 // staleCopy is the one sentence DESIGN §6.2's guard needs, stated twice

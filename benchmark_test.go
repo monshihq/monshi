@@ -604,3 +604,202 @@ func countNodes(nodes []*ViewNode) int {
 	}
 	return n
 }
+
+// benchSyncPair is one §7 case seen by two Applicant sessions of two
+// different users: the shape DESIGN §6.5 exists for, where one holds a draft
+// and the other has just committed past it. The role is Applicant because
+// §7 grants it `view, edit, submit application` at `draft` and `correction`,
+// and the loop below submits rather than transitions.
+func benchSyncPair(tb testing.TB) (dana, elliot Case) {
+	tb.Helper()
+	rt := NewRuntime()
+	d := &Definition{img: mustLower(tb, "bench", specExample(tb))}
+	if err := rt.Register(d); err != nil {
+		tb.Fatalf("Register: %v", err)
+	}
+	dana, err := rt.Create(ctx(), "bench",
+		Actor{User: "dana", PrimaryRole: "Applicant"})
+	if err != nil {
+		tb.Fatalf("Create: %v", err)
+	}
+	elliot, err = rt.Open(ctx(), dana.ID(),
+		Actor{User: "elliot", PrimaryRole: "Applicant"})
+	if err != nil {
+		tb.Fatalf("Open: %v", err)
+	}
+	return dana, elliot
+}
+
+// BenchmarkRebaseClean measures §5.8's merge when the answer is silence: a
+// draft holding an edit in a field the commits never touch, against a case
+// that has moved by exactly one value commit. Every cell in the window is
+// taken and nothing is asked of the user, which is the shape §6.5 promises
+// will not need a human. The comparison is `BenchmarkRebaseSynced` below, and
+// the honest further subtraction is `BenchmarkSubmit`: this row is that plus
+// the walk over the unseen record, the clone the merge runs on, the cell
+// comparisons, and the guarded save that moves the lineage.
+//
+// The per-iteration commit is not padding. A rebase with no window is the
+// synchronized row, and a rebase measured against a history that never moves
+// would be measuring a cache hit.
+func BenchmarkRebaseClean(b *testing.B) {
+	dana, elliot := benchSyncPair(b)
+	// One complete application, committed before the draft exists, so the
+	// first timed window is a one-field change on top of a real case.
+	res, err := elliot.Update(ctx(), 0, completeApplication(3)...)
+	if err != nil {
+		b.Fatalf("the committed batch: %v", err)
+	}
+	if _, err := elliot.Submit(ctx(), "application", res.Working); err != nil {
+		b.Fatalf("the first commit: %v", err)
+	}
+	eW := res.Working
+	if _, err := dana.Update(ctx(), 0,
+		Set("application.note", Text("half-finished"))); err != nil {
+		b.Fatalf("the draft's batch: %v", err)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		res, err := elliot.Update(ctx(), eW, Set("application.fee",
+			Decimal(decimal.NewFromInt(1000+int64(i)%500))))
+		if err != nil {
+			b.Fatalf("Update: %v", err)
+		}
+		eW = res.Working
+		if _, err := elliot.Submit(ctx(), "application", eW); err != nil {
+			b.Fatalf("Submit: %v", err)
+		}
+		if _, err := dana.Rebase(ctx()); err != nil {
+			b.Fatalf("Rebase: %v", err)
+		}
+	}
+}
+
+// BenchmarkRebaseSynced measures the same call when the copy already descends
+// from the case's newest revision: no merge, no save, and §5.8's claim that a
+// redundant rebase writes nothing. What remains is the read of the draft —
+// the look-up, the fold, and the snapshot clone — which is why this is the
+// floor the rows above and below it are stated against.
+func BenchmarkRebaseSynced(b *testing.B) {
+	dana, _ := benchSyncPair(b)
+	if _, err := dana.Update(ctx(), 0,
+		Set("application.note", Text("half-finished"))); err != nil {
+		b.Fatalf("the draft's batch: %v", err)
+	}
+	if _, err := dana.Rebase(ctx()); err != nil {
+		b.Fatalf("the rebase that makes the copy synchronized: %v", err)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, err := dana.Rebase(ctx()); err != nil {
+			b.Fatalf("Rebase: %v", err)
+		}
+	}
+}
+
+// BenchmarkRebaseRows is the same merge with the window's commit moving a row
+// list: one shareholder in and one out every iteration, so the case's work
+// churns while its count — and the clone the merge pays for — stays the same
+// size. The draft has not touched the rows, which puts every call on the
+// branch that adopts the committed list, the only row policy in §5.8 that
+// copies content rather than comparing it. The comparison is
+// `BenchmarkRebaseClean`, whose window holds one value and no rows: the gap
+// is the set entry's base resolution, the list comparison, and the row copies
+// that `apply` makes behind it.
+func BenchmarkRebaseRows(b *testing.B) {
+	dana, elliot := benchSyncPair(b)
+	res, err := elliot.Update(ctx(), 0,
+		Set("application.kind", Tag("COMPANY")),
+		Set("application.full_name", Text("Monshi Ltd")),
+		Set("application.fee", Decimal(decimal.NewFromInt(1500))))
+	if err != nil {
+		b.Fatalf("the COMPANY batch: %v", err)
+	}
+	eW := res.Working
+	first := ""
+	for r := 0; r < 2; r++ {
+		res, err = elliot.Update(ctx(), eW, Add("application.shareholders"))
+		if err != nil {
+			b.Fatalf("the committed row: %v", err)
+		}
+		eW = res.Working
+		row := res.Created[0]
+		if r == 0 {
+			first = row
+		}
+		res, err = elliot.Update(ctx(), eW,
+			Set(row+".holder_name", Text("Holder")),
+			Set(row+".shares", Decimal(decimal.NewFromInt(1))))
+		if err != nil {
+			b.Fatalf("the committed row's fields: %v", err)
+		}
+		eW = res.Working
+	}
+	if _, err := elliot.Submit(ctx(), "application", eW); err != nil {
+		b.Fatalf("the first commit: %v", err)
+	}
+	if _, err := dana.Update(ctx(), 0,
+		Set("application.note", Text("half-finished"))); err != nil {
+		b.Fatalf("the draft's batch: %v", err)
+	}
+	drop := first
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		// One row in and one out: the list changes by membership, and the
+		// draft's own claim on it stays exactly as thin as it started.
+		res, err := elliot.Update(ctx(), eW,
+			Add("application.shareholders"), Remove(drop))
+		if err != nil {
+			b.Fatalf("the row batch: %v", err)
+		}
+		eW = res.Working
+		drop = res.Created[0]
+		res, err = elliot.Update(ctx(), eW,
+			Set(drop+".holder_name", Text("Holder")),
+			Set(drop+".shares", Decimal(decimal.NewFromInt(1))))
+		if err != nil {
+			b.Fatalf("the new row's fields: %v", err)
+		}
+		eW = res.Working
+		if _, err := elliot.Submit(ctx(), "application", eW); err != nil {
+			b.Fatalf("Submit: %v", err)
+		}
+		if _, err := dana.Rebase(ctx()); err != nil {
+			b.Fatalf("Rebase: %v", err)
+		}
+	}
+}
+
+// BenchmarkDiscard is §6.5's other exit: the drop of a draft that holds work.
+// The pair is the shape of the same call with nothing behind it — an actor
+// with no copy, which is the one discard §5.8 says is already true — so the
+// gap is the guarded delete, and what the loop's batch costs is charged to
+// `BenchmarkUpdate` by comparison rather than hidden here.
+func BenchmarkDiscard(b *testing.B) {
+	b.Run("draft", func(b *testing.B) {
+		dana, _ := benchSyncPair(b)
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			res, err := dana.Update(ctx(), 0, Set("application.note",
+				Text("unfinished work "+strconv.Itoa(i))))
+			if err != nil {
+				b.Fatalf("the batch that makes a draft: %v", err)
+			}
+			if err := dana.Discard(ctx(), res.Working); err != nil {
+				b.Fatalf("Discard: %v", err)
+			}
+		}
+	})
+	b.Run("absent", func(b *testing.B) {
+		dana, _ := benchSyncPair(b)
+		if err := dana.Discard(ctx(), 0); err != nil {
+			b.Fatalf("the warm-up discard: %v", err)
+		}
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if err := dana.Discard(ctx(), 0); err != nil {
+				b.Fatalf("Discard: %v", err)
+			}
+		}
+	})
+}

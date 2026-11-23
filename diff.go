@@ -94,12 +94,17 @@ func (d *differ) set(coll nodeID) {
 		before := d.old.rowsFor(coll, host).list()
 		after := d.next.rowsFor(coll, host).list()
 		if !sameRows(before, after) {
-			// The count is the forward fact about a set. Which instances
-			// exist is answerable from the paths the entries below name, and
-			// §5.1's diff has no room for a list of IDs that are gone.
+			// The count is the forward fact about a set, and the ID list is
+			// the same fact spelled far enough to be *used*: §6.5's rebase
+			// compares a draft's rows against the set as it stood at the
+			// copy's base, and a count cannot say which rows those were. RUNTIME
+			// §5.6's reset and invalidate indexing does not read the list — it
+			// is per-slot, not per-row — so this costs a commit only what its
+			// own diff already knows.
 			d.out = append(d.out, commitChange{
 				kind: chgRows, slot: coll, path: host,
-				v: slotValue{set: len(after) > 0, i: int64(len(after))},
+				v:   slotValue{set: len(after) > 0, i: int64(len(after))},
+				ids: rowIDs(after),
 			})
 		}
 		lo, hi := img.rowLo(coll), coll+nodeID(img.slots[coll].span)
@@ -164,6 +169,21 @@ func unionRows(now, was []instRow) []instanceID {
 		if !slices.Contains(out, r.id) {
 			out = append(out, r.id)
 		}
+	}
+	return out
+}
+
+// rowIDs lists a set's instance IDs in order, or nil when it has none: an
+// empty list and no list mean the same thing to the reader, and keeping them
+// the same is what lets §5.8 compare a set without a nil check beside every
+// comparison.
+func rowIDs(rows []instRow) []instanceID {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]instanceID, len(rows))
+	for i, r := range rows {
+		out[i] = r.id
 	}
 	return out
 }

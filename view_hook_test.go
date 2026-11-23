@@ -718,8 +718,7 @@ func TestVisibleMarksAContainerByWhatItHolds(t *testing.T) {
 	// below is the descendant half of the rule: the path to content is
 	// rendered because content is on the other side of it, and nothing else
 	// is.
-	vis := (&viewWalk{img: img, roles: img.rolesHeld(viewAuditor, s),
-		stage: stage}).visible()
+	vis := viewable(img, img.rolesHeld(viewAuditor, s), stage)
 	on := func(path string) bool {
 		return vis[slotByPath(t, img, path)]
 	}
@@ -743,9 +742,8 @@ func TestVisibleMarksAContainerByWhatItHolds(t *testing.T) {
 	// An actor with no grant anywhere has no visible slot at all, including
 	// the root — which is what lets a view of nothing be an empty answer
 	// rather than a walk that asks a host about content nobody will see.
-	for i, ok := range (&viewWalk{img: img,
-		roles: img.rolesHeld(Actor{User: "nobody"}, s),
-		stage: stage}).visible() {
+	for i, ok := range viewable(img,
+		img.rolesHeld(Actor{User: "nobody"}, s), stage) {
 		if ok {
 			t.Fatalf("slot %d is visible to an actor with no role", i)
 		}

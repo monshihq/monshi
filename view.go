@@ -269,7 +269,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 		problems: map[string][]FieldProblem{},
 		opts:     map[hookID][]string{},
 	}
-	v.vis = v.visible()
+	v.vis = viewable(img, v.roles, v.stage)
 
 	if len(paths) == 0 {
 		// The whole case is one scope, so it gets one validation walk over the
@@ -451,12 +451,17 @@ type viewWalk struct {
 // which the caller's definition already has. This is the same reading §4.3
 // gives an ancestor's deny: the mask is asked at the node, never at its
 // parent.
-func (v *viewWalk) visible() []bool {
-	img := v.img
+//
+// `Rebase` folds the same array (§5.8) because a conflict report is a
+// disclosure of the same kind as a rendered node: the two operations are
+// required to answer "may this actor see this slot" identically, and one
+// function is what makes that true rather than two walkers agreeing by
+// luck.
+func viewable(img *image, roles []roleID, stage stageID) []bool {
 	vis := make([]bool, len(img.slots))
 	for i := len(img.slots) - 1; i >= 0; i-- {
 		n := nodeID(i)
-		if img.effective(v.roles, v.stage, n)&permView != 0 {
+		if img.effective(roles, stage, n)&permView != 0 {
 			vis[i] = true
 			continue
 		}

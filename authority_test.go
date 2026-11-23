@@ -248,7 +248,8 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 
 	// Saving under the guard publishes it, and every later session of that
 	// actor gets the same copy: invariant 4 expressed as one stored value.
-	if _, err := st.saveWorking(newRefuser(update, id), "dana", 0, first); err != nil {
+	_, err = st.saveWorking(newRefuser(update, id), "dana", 0, first, 0)
+	if err != nil {
 		t.Fatalf("saveWorking: %v", err)
 	}
 	second, err := st.working(newRefuser(open_, id), "dana", img)
@@ -305,7 +306,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	// drawn about a working revision rather than a case ID).
 	w.rev = 41
 	w.base = 41
-	rev, err := st.saveWorking(newRefuser(update, id), "dana", 0, w)
+	rev, err := st.saveWorking(newRefuser(update, id), "dana", 0, w, 0)
 	if err != nil {
 		t.Fatalf("first guarded save: %v", err)
 	}
@@ -319,7 +320,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	}
 	// Presenting the revision the copy was read at, after it moved, is what
 	// §6.2 refuses rather than resolving.
-	_, err = st.saveWorking(newRefuser(update, id), "dana", 0, w)
+	_, err = st.saveWorking(newRefuser(update, id), "dana", 0, w, 0)
 	if !Failed(err, StaleRevision) {
 		t.Fatalf("stale working save = %v, want STALE_REVISION", err)
 	}
@@ -336,7 +337,8 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	}
 
 	// Writing to a copy nobody opened is a caller bug.
-	if _, err := st.saveWorking(newRefuser(update, id), "nobody", 0, w); !Failed(err,
+	if _, err := st.saveWorking(newRefuser(update, id), "nobody", 0, w,
+		0); !Failed(err,
 		InvalidOp) {
 		t.Errorf("save to an unopened copy = %v, want INVALID_OPERATION", err)
 	}
@@ -420,7 +422,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	// the case is the thing that is missing.
 	for _, err := range []error{
 		func() error {
-			_, err := st.saveWorking(newRefuser(update, 9999), "dana", 0, w)
+			_, err := st.saveWorking(newRefuser(update, 9999), "dana", 0, w, 0)
 			return err
 		}(),
 		func() error {

@@ -338,6 +338,17 @@ func (img *image) subtree(n nodeID) (lo, hi nodeID) {
 	return n, n + nodeID(img.slots[n].span)
 }
 
+// owner is the top-level declaration a slot descends from — the form whose
+// name a report uses when it may not name the slot itself (§5.8's veiled
+// clash). The walk is up `parent` to the case root, which §3.2's preorder
+// makes one pointer per level and no search.
+func (img *image) owner(n nodeID) nodeID {
+	for img.slots[n].parent != 0 {
+		n = img.slots[n].parent
+	}
+	return n
+}
+
 // baseOf is a slot's value class, or 0 for a role-typed field, which has no
 // value class at all (§3.3).
 func (img *image) baseOf(n nodeID) uint8 {

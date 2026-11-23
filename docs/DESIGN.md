@@ -522,6 +522,9 @@ Detailed automatic merge rules and conflict presentation are **not**
 part of the initial implementation contract; no implicit merge occurs
 during Submit.
 
+The shipped shape of both verbs — what the merge takes, what it refuses to
+decide, and what a conflict may say — is RUNTIME §5.8.
+
 ## 7. CaseContext and hooks
 
 `CaseContext` is a **read-only, stable snapshot view** used by hooks. It
@@ -666,12 +669,13 @@ Keep initial milestones small and focused on runnable behavior:
 7. **Optional service:** API wrapper and WebSocket notifications, using
    the same Core semantics.
 
-Milestone 2 has taken one item above out of order, and the reason belongs
-here because the list is the contract's: `Submit` ships with the commit path
-it cannot be separated from — §6.3's two revision guards, completeness and
-validation against the candidate, the forward diff, and the history entry and
-snapshot swap that must be consistent with each other. None of it is
-reachable through `Update` alone, and a milestone that ended at a working
+Milestone 2 has taken four items out of the order above, and the reason
+belongs here because the list is the contract's. `Submit` ships with the
+commit path it cannot be separated from — §6.3's two revision guards,
+completeness and validation against the candidate, the forward diff, and
+the history entry and snapshot swap that must be consistent with each
+other. None of it is reachable through `Update` alone, and a milestone that
+ended at a working
 copy would leave invariants 1, 2, 5 and 6 unexercised. What milestone 5 still
 owns is the half of a commit that has nothing to act on yet: `verif` resets
 and signature invalidation (§4.2), which arrive with `Review` and `Sign`.
@@ -711,6 +715,21 @@ pruning rather than flagging, and presence is reported in the data
 rather than as a second flag. The one line with nothing to read yet is
 verification and signature state, and it waits with the rest of
 milestone 5.
+
+`Rebase` and `Discard` are the fourth item taken out of order, and the
+reason is the one the other three had: everything they need is already
+required to exist. The pair reads the commit history, the committed snapshot
+and the per-user copies invariant 4 forces the store to keep, so it adds no
+state of its own, and invariant 5's "stale working states cannot Submit" has
+been a rule with no operation that could make a state fresh. What stays with
+milestone 6 is the half that needs a host: `OnCommit`, its observers and
+their delivery, because §6.5's "hosts may notify users via post-commit
+hooks" is hook work and `CaseContext` is not shipped yet. The deferral at the
+end of §6.5 survives its own implementation — the merge takes a side nobody
+moved and refuses to choose between two sides that did, so the detailed
+automatic merge rules and conflict presentation this section leaves out are
+still left out, and the policy that would decide them is a rule no document
+here has written.
 
 ### Deliberately deferred
 
