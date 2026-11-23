@@ -384,7 +384,9 @@ requirement to expose stateful receiver methods.
 `View(paths...)` accepts **multiple paths**, returns each selected
 subtree (including descendants), merges overlapping selections, and uses
 one consistent working snapshot. With no paths, it returns the entire
-permission-filtered case view.
+permission-filtered case view. The shipped result carries the case's
+committed revision, its stage, the revision of the draft the values came
+from, and the merged roots (RUNTIME §10).
 
 A unified view contains both structural/form metadata and dynamic data:
 effective permissions, values, presence, requiredness,
@@ -392,8 +394,38 @@ verification/signature state, validation errors, dynamic options and
 children. View rendering must enforce `view` permissions at every node.
 Clients need no copy of the DSL.
 
+Enforcement is *pruning*, not flagging: content the actor may not see,
+and content the effective state does not include (a closed `present`
+guard), is absent from the answer rather than present and marked. The
+rule is about what a view is allowed to *do* while answering, not only
+about what it returns: a node built and then filtered would still have
+had its dynamic options fetched and its validation hook run, which are
+two ways to disclose a field the mask withholds — the first as work the
+caller's own rule performed on withheld data, the second as a message
+naming it. A selection that prunes away entirely returns no nodes, which
+is not an error; only a path the actor has no permission for refuses.
+
+Values, conditions and requiredness are read from the actor's draft;
+roles and stage from the committed case, so a draft cannot grant the
+actor anything (invariant 6). The two revision numbers a view reports are
+therefore the case's and the copy's, and reading a case never creates a
+working copy for the reader. Presence is stated per node — an empty
+collection is distinguishable from an empty optional group, and an unset
+cell from a cell holding `""` — because a client that cannot tell those
+apart cannot offer the right action.
+
+Verification and signature state is the one part of the list above that
+has no shipped source: nothing approves a unit or signs one until
+`Review` and `Sign` exist, so the fields that would carry §4.2's reset
+and invalidation state wait for milestone 5 (RUNTIME §5.7). A view today
+is complete about content and permissions and silent about that pair.
+
 Dynamic `Options` hooks are called by the engine when a requested view
-needs the options—not through a separate client `GetOptions` API.
+needs the options—not through a separate client `GetOptions` API. One
+binding answers for a field rather than for each of its instances, so a
+collection costs one call, and a declared `options` field with no
+registered provider is an execution failure for the whole view: an empty
+choice list would be a silent version of the same bug.
 
 ### 6.2 Update
 
@@ -659,6 +691,26 @@ is the fanout `Update` already reported; and the number the call takes is
 named for the thing it is, the observed committed revision, since invariant
 5's refusal is about what the caller was shown rather than what it holds.
 Invariant 5's second half is now enforced by code rather than by intent.
+
+`View` is the third item taken out of order, and its reason is the one
+the other two lacked: it is not an operation that can be deferred past
+the two that already shipped. `Update` answers with an affected set and
+`Submit` with missing and invalid lists, and both are actionable only by
+a client that can render the paths they name — so without a read there
+is no way to observe half of what milestone 2 built, and no place for
+invariant 7 or for §7's hook contract to be tested at all. Milestone 3's
+*views* half is therefore paid here, and its `CaseContext` half is not:
+exporting a hook's signature means giving the host a read-only context
+to pass into it, and the registry seam stays unexported one slice longer
+rather than shipping an `Options` binding a commit could invalidate
+behind a caller's back. Milestone 3's last item, affected-path
+calculation, arrived with the fanout (RUNTIME §5.3).
+
+Two of §6.1's lines are refined by the shipping shape: enforcement is
+pruning rather than flagging, and presence is reported in the data
+rather than as a second flag. The one line with nothing to read yet is
+verification and signature state, and it waits with the rest of
+milestone 5.
 
 ### Deliberately deferred
 

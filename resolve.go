@@ -11,11 +11,13 @@ import (
 	"strings"
 )
 
-// resolved is what a path names. slot is always the declaration; cell is the
-// value it holds in the state the path was read from, and hasValue is false
-// when the declaration has no single value there — a form or group (structure,
-// not data), a collection (which has rows), or a member of a collection named
-// without saying which instance (§5.1).
+// resolved is what a path names. slot is always the declaration — and on a
+// failed walk, the last declaration the path did reach, which is the node a
+// refusal about it is asked of; cell is the value it holds in the state the
+// path was read from, and hasValue is false when the declaration has no single
+// value there — a form or group (structure, not data), a collection (which has
+// rows), or a member of a collection named without saying which instance
+// (§5.1).
 //
 // The instance path lives in an array of the lowering's own depth bound, which
 // is what keeps resolution free of allocation: an answer is one value, copied
@@ -43,6 +45,14 @@ func (r *resolved) path() instPath { return r.steps[:r.depth] }
 // An unmatched or mistyped path answers false. There is no near miss and no
 // partial answer to interpret: that is DESIGN §9's unknown-path error, decided
 // here rather than deep inside an operation.
+//
+// A false answer still reports how far the walk got in `slot`, because the
+// view (§6.1) has to decide which of two refusals a failed path deserves and
+// the two differ by whether case data was consulted. A segment that is not a
+// name fails against the definition alone, and a numeric segment that is not a
+// row fails against somebody's draft — so the refusal is only safe to spell
+// when the caller may see the node the walk stopped at. Every other caller
+// checks the flag first and ignores the value, as it always has.
 func (s *state) resolve(path string) (resolved, bool) {
 	img := s.img
 	cur := nodeID(0) // the case root: every path is absolute (§3.6)
@@ -56,7 +66,7 @@ func (s *state) resolve(path string) (resolved, bool) {
 			seg = path[i : i+cut]
 		}
 		if seg == "" {
-			return resolved{}, false // an empty segment is nobody's name
+			return out.stoppedAt(cur), false // an empty segment is nobody's name
 		}
 		if child, ok := img.child(cur, seg); ok {
 			cur = child
@@ -65,12 +75,12 @@ func (s *state) resolve(path string) (resolved, bool) {
 			// every instance are the same slots, so cur stays where it is.
 			id, ok := s.instanceAt(cur, seg, out.path())
 			if !ok {
-				return resolved{}, false
+				return out.stoppedAt(cur), false
 			}
 			out.steps[out.depth] = instStep{cur, id}
 			out.depth++
 		} else {
-			return resolved{}, false
+			return out.stoppedAt(cur), false
 		}
 		if !more {
 			break
@@ -85,6 +95,13 @@ func (s *state) resolve(path string) (resolved, bool) {
 		out.cell, out.hasValue = s.cellAt(cur, out.path())
 	}
 	return out, true
+}
+
+// stoppedAt is the failure answer: the walk went no further than n, which is
+// the node a permission test about this path has to be asked of.
+func (r resolved) stoppedAt(n nodeID) resolved {
+	r.slot = n
+	return r
 }
 
 // instanceAt accepts a segment as an instance ID only when cur is a collection

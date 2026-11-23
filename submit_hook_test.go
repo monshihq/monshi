@@ -90,7 +90,7 @@ var floor = errors.New("below the floor")
 // every other one, which is the shape of the real thing: a rule the host can
 // tighten without touching a definition.
 func refuses(rt *Runtime, min int64) {
-	rt.w.hooks.bind(hookByType, "money",
+	rt.w.hooks.bindType("money",
 		func(_ context.Context, v Value) (Value, error) {
 			if v.d.LessThan(decimal.NewFromInt(min)) {
 				return Value{}, floor
@@ -101,7 +101,7 @@ func refuses(rt *Runtime, min int64) {
 
 // acceptsBinds a hook that records how often it was called and never refuses.
 func accepts(rt *Runtime, seen *int) {
-	rt.w.hooks.bind(hookByType, "money",
+	rt.w.hooks.bindType("money",
 		func(_ context.Context, v Value) (Value, error) {
 			*seen++
 			return v, nil
@@ -234,7 +234,7 @@ func TestSubmitRefusesAHookThatRewroteAStoredValue(t *testing.T) {
 	// must say the same thing: a hook that adds one every time it is asked
 	// has a bug, and the alternative to refusing it is committing a value the
 	// actor never presented.
-	rt.w.hooks.bind(hookByType, "money",
+	rt.w.hooks.bindType("money",
 		func(_ context.Context, v Value) (Value, error) {
 			return Decimal(v.d.Add(decimal.NewFromInt(1))), nil
 		})
@@ -269,7 +269,7 @@ func TestSubmitRefusesAHookThatReturnedAnotherType(t *testing.T) {
 	// so the type is the last word about a payload whoever produced it — and
 	// the blame is the host's rather than the caller's, which is why this is
 	// HOOK_FAILURE and not the INVALID_OPERATION a refused value gets.
-	rt.w.hooks.bind(hookByType, "money",
+	rt.w.hooks.bindType("money",
 		func(_ context.Context, _ Value) (Value, error) {
 			return Text("an option list is not an amount"), nil
 		})

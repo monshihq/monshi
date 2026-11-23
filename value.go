@@ -110,6 +110,148 @@ func Binary(ref BinaryRef) Value { return Value{class: classBin, bin: ref} }
 // question, and authority reads the committed snapshot (DESIGN §4.3).
 func User(id UserID) Value { return Value{class: classUser, s: string(id)} }
 
+// The read side of the boundary.
+//
+// Constructors are how a host says what a field should hold; `Kind` and the
+// getters below are how it reads what one does. The pair is what makes the
+// view (§6.1) host-usable rather than a pointer at data it cannot name: a
+// `ViewNode` carries a `Value`, and without a read seam the only way to find
+// out what a case says is to be the package that stored it.
+//
+// The shape mirrors the write side deliberately. `Kind` answers with one of a
+// closed set of words — the same classes `Set` dispatches on — and each
+// getter reads exactly the class its constructor wrote, answering zero for
+// every other one. `any` is not on offer in either direction, for value.go's
+// header reason: a host that type-asserts a `float64` out of a JSON decoder
+// has made the same mistake in both directions, and the closed set catches it
+// in one. A wrong getter is not a failure but a zero, because the switch on
+// `Kind` that prevents it is already a total function over a closed set; this
+// is `reflect.Value`'s discipline, not a map's.
+
+// ValueKind names the class a `Value` carries. The words are the boundary's
+// — the classes a host chose constructors from — and one is missing from the
+// list on purpose: `options`. An options field's value is the chosen option's
+// *text* (§3.3), so it reads as `KindText`; what distinguishes it from a
+// string field is the view's `Options` list, not its value's class.
+type ValueKind string
+
+const (
+	// KindNone is a zero `Value`: no class, nothing carried. `Empty` leaves
+	// a cell with no value and the view renders that cell with a `KindNone`
+	// `Value` — the same distinction value.go's header draws between an
+	// empty string and no string at all.
+	KindNone     ValueKind = "none"
+	KindText     ValueKind = "text"
+	KindInteger  ValueKind = "integer"
+	KindDecimal  ValueKind = "decimal"
+	KindBoolean  ValueKind = "boolean"
+	KindDate     ValueKind = "date"
+	KindDatetime ValueKind = "datetime"
+	KindBinary   ValueKind = "binary"
+	KindTag      ValueKind = "tag"
+	KindUser     ValueKind = "user"
+)
+
+// Kind is the switch a read starts at: which getter returns something, and
+// which word a log line should use.
+func (v Value) Kind() ValueKind {
+	switch v.class {
+	case classText:
+		return KindText
+	case classInt:
+		return KindInteger
+	case classDec:
+		return KindDecimal
+	case classBool:
+		return KindBoolean
+	case classDate:
+		return KindDate
+	case classDT:
+		return KindDatetime
+	case classBin:
+		return KindBinary
+	case classTag:
+		return KindTag
+	case classUser:
+		return KindUser
+	}
+	return KindNone
+}
+
+// Text reads a `Text` value; it is also how an options field's stored choice
+// reads, since that is the class `load` gives it (§3.3).
+func (v Value) Text() string {
+	if v.class == classText {
+		return v.s
+	}
+	return ""
+}
+
+// Int reads an `Int` value.
+func (v Value) Int() int64 {
+	if v.class == classInt {
+		return v.i
+	}
+	return 0
+}
+
+// Decimal reads a `Decimal` value, at the scale the row kept it at.
+func (v Value) Decimal() decimal.Decimal {
+	if v.class == classDec {
+		return v.d
+	}
+	return decimal.Decimal{}
+}
+
+// Bool reads a `Bool` value. A zero `Value` answers false, which is why a
+// host that must tell a stored `false` from no value at all switches on Kind
+// first — the distinction `Set` and `Empty` draw, held open on this side too.
+func (v Value) Bool() bool {
+	return v.class == classBool && v.i != 0
+}
+
+// Date reads a `Date` value.
+func (v Value) Date() time.Time {
+	if v.class == classDate {
+		return v.t
+	}
+	return time.Time{}
+}
+
+// DateTime reads a `DateTime` value.
+func (v Value) DateTime() time.Time {
+	if v.class == classDT {
+		return v.t
+	}
+	return time.Time{}
+}
+
+// Binary reads a `Binary` handle. Nothing resolves it yet (DESIGN §5.2); the
+// value is opaque content identity, which is all the language says it is.
+func (v Value) Binary() BinaryRef {
+	if v.class == classBin {
+		return v.bin
+	}
+	return nil
+}
+
+// Tag reads a `Tag` value's declared name — the enum member's text, which is
+// what both sides of the seam agree on (§5.2's E3 pairing).
+func (v Value) Tag() string {
+	if v.class == classTag {
+		return v.s
+	}
+	return ""
+}
+
+// User reads a `User` identity.
+func (v Value) User() UserID {
+	if v.class == classUser {
+		return UserID(v.s)
+	}
+	return ""
+}
+
 // b2i is the boolean class's storage convention: the payload lives in the
 // row's integer field, 1 or 0, which is what `nonEmpty`'s default branch and
 // §3.4's `boolCmp` already assume — a stored false is a value, not an

@@ -158,7 +158,7 @@ func (c Case) Submit(ctx context.Context, form string,
 	if len(gaps) > 0 {
 		res.Missing = gapPaths(gaps)
 	}
-	problems, err := c.w.validate(ctx, refuse, img, &w.s, n)
+	problems, err := c.w.validate(ctx, refuse, img, &w.s, n, nil)
 	if err != nil {
 		// A hook that misbehaved rather than refused: HOOK_FAILURE, and no
 		// list to render, because the defect is in host code and not in any

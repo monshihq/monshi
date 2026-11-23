@@ -322,6 +322,43 @@ func (s *caseStore) working(refuse refuser, user UserID,
 	return w.clone(), nil
 }
 
+// viewed answers the question a read asks and `working` cannot: what does this
+// actor's draft hold, *without giving them one*. The distinction is not
+// tidiness. `working` creates a copy on first use, because an edit is about to
+// write into it; a method that allocated per-user state for every request would
+// let reads grow the case, which is DESIGN §9's "no persistent effect" for an
+// operation that changes nothing — and a host that renders a form for ten
+// thousand viewers would pay ten thousand rows for nothing.
+//
+// So an actor with no draft is answered from the committed snapshot, which is
+// what their draft would have been cloned from, and the revision reported is
+// 0 — the same number §6.2 tells that actor to pass as `base` when they do
+// write, because the copy they then get is a fresh one. The two answers agree
+// because both are derived from the same rule: no copy exists until an edit.
+//
+// The state is cloned anyway. That is the store's clone-on-the-way-out rule
+// applied without exception, and the exception is the dangerous half: a walk
+// that "only reads" today is one memoization away from writing through a window
+// into stored data. Milestone 4 replaces this with the read transaction DESIGN
+// §8 describes, which hands back a snapshot that cannot be written at all.
+func (s *caseStore) viewed(refuse refuser, user UserID,
+	img *image) (state, uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, err := s.check(refuse)
+	if err != nil {
+		return state{}, 0, err
+	}
+	if w, have := rec.work[user]; have {
+		out := w.clone()
+		out.s.reinterpret(img)
+		return out.s, out.rev, nil
+	}
+	out := rec.commit.s.clone()
+	out.reinterpret(img)
+	return out, 0, nil
+}
+
 // saveWorking replaces an actor's working copy if it is still at expected,
 // and reports the revision it now carries. A copy that does not exist is not
 // created here: `working` creates it, and writing over a copy nobody opened

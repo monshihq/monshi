@@ -9,23 +9,26 @@ package monshi
 // engine's job is the mapping §6 describes: key to function, in a registry
 // this package owns.
 //
-// Only the `Validate` half is mapped here. The `Options` binding arrives
-// with the view, because the two differ in more than signature:
-// normalization runs inside an edit and its result is stored, while options
-// are fetched on demand for a view and gated by the same `view` permission
-// as the values beside them (§6). They join this table when that lands, and
-// the lookup below is already keyed by kind, so a path binding can never be
-// mistaken for a type one.
+// Only the `Validate` half ran inside an edit until the view arrived; the
+// `Options` binding it fetches through is mapped here too now, because
+// DESIGN §6.1 gives the engine the option fetch and RUNTIME §6 makes it the
+// view's, gated by the same `view` permission as the values beside it. The
+// two kinds share nothing but this file: a normalizer is keyed by a custom
+// type's name and its output is stored, a provider is keyed by a field path
+// and its output is shown, and the maps below are separate so neither
+// lookup can ever answer for the other (§6's "never mistaken" rule, held by
+// structure rather than by discipline).
 //
 // Registration itself is not exported yet. A hook's signature carries a
 // read-only `CaseContext` (DESIGN §7), and exporting the seam before that
 // type exists would fix a signature the next milestone has to break. Until
 // then this is an in-package registry, and the code that reads it —
-// `settle` below, which an edit calls per assignment, and `validate`, which
-// Submit calls per stored value — is written as the whole §6 contract:
-// looked up by the binding the definition declared, run before the value is
-// stored, its output checked by the same test the input passed, and a
-// failure heard as a failure.
+// `settle` below, which an edit calls per assignment, `validate`, which
+// Submit calls per stored value, and the view walk, which asks `provider`
+// per visible options field and `normalizer` per visible stored value — is
+// written as the whole §6 contract: looked up by the binding the definition
+// declared, run before the value is stored, its output checked by the same
+// test the input passed, and a failure heard as a failure.
 
 import (
 	"context"
@@ -43,34 +46,48 @@ import (
 // check*, never instead of it.
 type normFunc func(ctx context.Context, v Value) (Value, error)
 
-// hookBinding is the key a host would register against, spelled in text
-// rather than in ordinals. Interning is per definition — two files that both
-// declare `money` give it different `stringID`s — so a table keyed by the
-// interned id would need one entry per compilation of the same name. The
-// name is what the host has, and §3.9's rule that a name is a key only at
-// the seam is exactly what this is.
-type hookBinding struct {
-	kind uint8 // hookByType or hookByPath
-	name string
-}
+// optsFunc is an `Options` hook's choice list: what a declared `options`
+// field may hold, as the texts the field stores (§3.3 — an options value is
+// the chosen option's text, so the list that answers "which values may this
+// hold" is a list of texts too). It takes the declared path it is bound at,
+// which is the question the definition asked in the only words the host
+// registered it with; the list it returns is display data, never stored and
+// never asked by a condition (E2). A failure is heard as `HOOK_FAILURE`
+// about the binding, and a *missing* provider refuses the same way: SYNTAX
+// Appendix A says a missing hook is a runtime error and not silent success,
+// and DESIGN §7 says an options field with nobody to ask has no list to
+// invent.
+type optsFunc func(ctx context.Context, path string) ([]string, error)
 
 type hookSet struct {
-	mu    sync.RWMutex
-	byKey map[hookBinding]normFunc
+	mu     sync.RWMutex
+	byType map[string]normFunc
+	byPath map[string]optsFunc
 }
 
 func newHookSet() *hookSet {
-	return &hookSet{byKey: map[hookBinding]normFunc{}}
+	return &hookSet{
+		byType: map[string]normFunc{},
+		byPath: map[string]optsFunc{},
+	}
 }
 
-// bind installs a normalizer for one binding, replacing whatever was there.
-// Replacing rather than refusing a duplicate is the host's convenience: a
-// registry that could not be pointed at a new function would leave no way to
-// fix a hook without a new runtime.
-func (h *hookSet) bind(kind uint8, name string, fn normFunc) {
+// bindType installs a normalizer for one custom type's name, replacing
+// whatever was there. Replacing rather than refusing a duplicate is the
+// host's convenience: a registry that could not be pointed at a new function
+// would leave no way to fix a hook without a new runtime.
+func (h *hookSet) bindType(name string, fn normFunc) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.byKey[hookBinding{kind: kind, name: name}] = fn
+	h.byType[name] = fn
+}
+
+// bindPath installs a choice provider for one field path, with the same
+// replace-not-refuse rule.
+func (h *hookSet) bindPath(name string, fn optsFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.byPath[name] = fn
 }
 
 // bindingName renders what a definition declared a hook against — a custom
@@ -84,20 +101,49 @@ func (img *image) bindingName(id hookID) string {
 	return img.name(img.hooks[id].name)
 }
 
+// bindingText resolves the image's key for a hookID to the (kind, name) pair
+// a host registers against, or false for no binding at all. One place reads
+// `img.hooks`, so `normalizer` and `provider` cannot disagree about what a
+// binding id means the way two hand-written lookups could.
+func (img *image) bindingText(id hookID) (uint8, string, bool) {
+	if id == 0 || int(id) >= len(img.hooks) {
+		return 0, "", false
+	}
+	key := img.hooks[id]
+	return key.kind, img.name(key.name), true
+}
+
 // normalizer answers for one binding the image carries. A binding with no
 // registered function is not an error: a custom type is a name for a type
 // expression (SYNTAX §2), and `money : decimal(14, 2)` obliges nobody to
 // write a hook. §6's "missing required hooks reject the update" is about a
 // hook the definition *requires*, and in this language an attribute names no
 // function, so nothing does — which is why the unbound case is identity and
-// not a refusal.
+// not a refusal. A binding of the wrong kind — a field path, which belongs
+// to `provider` — answers not-found the same way, because the two vocabularies
+// address different questions and the split maps hold that by structure.
 func (h *hookSet) normalizer(img *image, id hookID) (normFunc, bool) {
-	if id == 0 || int(id) >= len(img.hooks) {
+	kind, name, bound := img.bindingText(id)
+	if !bound || kind != hookByType {
 		return nil, false
 	}
-	key := img.hooks[id]
 	h.mu.RLock()
-	fn := h.byKey[hookBinding{kind: key.kind, name: img.name(key.name)}]
+	fn := h.byType[name]
+	h.mu.RUnlock()
+	return fn, fn != nil
+}
+
+// provider answers for an `options` field's path binding. The missing case
+// is *not* identity: DESIGN §7's rule is per kind precisely because an
+// options field with no provider has no answer, so the caller refuses (the
+// refusal is `view`'s to build, from the binding's own name).
+func (h *hookSet) provider(img *image, id hookID) (optsFunc, bool) {
+	kind, name, bound := img.bindingText(id)
+	if !bound || kind != hookByPath {
+		return nil, false
+	}
+	h.mu.RLock()
+	fn := h.byPath[name]
 	h.mu.RUnlock()
 	return fn, fn != nil
 }
@@ -198,14 +244,28 @@ func (w *wiring) forType(img *image, n nodeID) (normFunc, hookID) {
 // normalized value is what "all later checks" see, and Submit *is* that later
 // check, so a hook that is not a fixed point on its own output has a bug to
 // fix, and a refusal naming the binding is where it learns so.
+//
+// `only` is the caller's filter on that walk, and the two callers differ for
+// one reason. Submit passes nil: the actor presenting a form has the grant the
+// rules are being asked about, so every reached field of that subtree is its
+// business. The view passes the slots this actor may see, because a host's
+// rule is not entitled to run over content the caller could not render — both
+// as work and as disclosure. A problem about a withheld field would be a
+// message naming a value the caller may not see, and a hook that broke the
+// fixed-point rule there would refuse the whole view with that path in the
+// sentence. Neither is a fact about what the caller is allowed to know, so
+// neither is computed.
 func (w *wiring) validate(ctx context.Context, refuse refuser, img *image,
-	s *state, root nodeID) ([]FieldProblem, error) {
+	s *state, root nodeID, only []bool) ([]FieldProblem, error) {
 	var out []FieldProblem
 	lo, hi := img.subtree(root)
 	for n := lo; n < hi; n++ {
 		if !s.present(n) {
 			n += nodeID(img.slots[n].span) - 1 // §5.2's pruning, as §5.4's walk
 			continue
+		}
+		if only != nil && !only[n] {
+			continue // §6.1's "validation errors" line is a per-actor answer
 		}
 		sl := &img.slots[n]
 		switch {

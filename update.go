@@ -172,7 +172,7 @@ func (c Case) apply(ctx context.Context, refuse refuser, img *image,
 				quote(e.path)+" "+whyNoValue(img, n))
 		}
 	case editAdd:
-		if bad := whyNotInstance(img, sl); bad != "" {
+		if bad := whyNotInstance(sl); bad != "" {
 			return "", refuse.now(InvalidOp, quote(e.path)+" "+bad)
 		}
 	case editRemove:
@@ -273,17 +273,19 @@ func whyNoValue(img *image, n nodeID) string {
 
 // whyNotInstance is the same idea for `Add`: which shape cannot take a new
 // instance, in the words that say what to do instead.
-func whyNotInstance(img *image, sl *nodeSlot) string {
-	switch {
-	case sl.coll == 0:
+//
+// Both shapes `multiple` is legal on take one (SYNTAX §4), and that is not an
+// extension of anything: a repeated *field*'s instances are values of that
+// field, held in rows of its own, which is why §5.1's row range begins at the
+// slot itself for a field and at its first descendant for a group. So `Add` is
+// the only door to a multi-valued field's first value. What an earlier version
+// of this sentence offered instead — `Set` at a path naming a fresh ID — cannot
+// work: §3.9's walk refuses an instance ID with no row behind it, so a host
+// told to do that holds a remedy it can never use. One test and one message is
+// the honest shape, and `value_test.go` keeps the two addable shapes beside it.
+func whyNotInstance(sl *nodeSlot) string {
+	if sl.coll == 0 {
 		return "is not a multiple declaration, so it has no instances to add"
-	case sl.kind != kindGroup:
-		// A repeated *field* is its own row: §5.1's instances of it are
-		// values of that field, so the way to make one is `Set` on a path
-		// naming an instance, and `Add` on the collection of a repeated group
-		// is the verb that creates the row a repeated field lives in.
-		return "is a repeated field, whose instances are values: set one at " +
-			"an instance path rather than adding one here"
 	}
 	return ""
 }

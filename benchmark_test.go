@@ -3,10 +3,11 @@ package monshi
 // RUNTIME §8's harness. What is measured here is what is shipped:
 // lowering, the two hot reads the image exists to make cheap — one
 // condition closure, one permission resolve — path resolution, the
-// fanout on its own, and one accepted edit batch. The view and transition
-// benchmarks need operations that do not exist yet, so they are not faked
-// here; the tree baseline §8 compares against needs the same operations
-// too, and arrives with them.
+// fanout on its own, one accepted edit batch, the two operations that
+// commit, and the read that renders them. Nothing is faked: a benchmark
+// that hand-builds a state and calls one internal function measures the
+// fixture rather than a request, which is the one claim §8's rows have
+// to be able to survive.
 //
 // A row is measured against something. Where the pair is not obvious from
 // the name, the benchmark's own comment says what its sub-benchmarks are
@@ -27,24 +28,25 @@ import (
 
 // parse is the front end, measured separately so §8's "schema → image"
 // row is not silently charged the lexer.
-func parse(b *testing.B, src string) *schema.Schema {
-	b.Helper()
+func parse(tb testing.TB, src string) *schema.Schema {
+	tb.Helper()
 	s, err := schema.Parse(strings.NewReader(src))
 	if err != nil {
-		b.Fatalf("schema.Parse: %v", err)
+		tb.Fatalf("schema.Parse: %v", err)
 	}
 	if len(s.Errors) != 0 {
-		b.Fatalf("definition does not compile: %v", s.Errors)
+		tb.Fatalf("definition does not compile: %v", s.Errors)
 	}
 	return s
 }
 
-// mustLower is compile() without a *testing.T to insist on.
-func mustLower(b *testing.B, id, src string) *image {
-	b.Helper()
-	img, err := lower(id, parse(b, src))
+// mustLower is compile() without a *testing.T to insist on, and a TB so a
+// test can build the same fixture a benchmark times.
+func mustLower(tb testing.TB, id, src string) *image {
+	tb.Helper()
+	img, err := lower(id, parse(tb, src))
 	if err != nil {
-		b.Fatalf("lower: %v", err)
+		tb.Fatalf("lower: %v", err)
 	}
 	return img
 }
@@ -87,14 +89,17 @@ func BenchmarkLoweringOnly(b *testing.B) {
 }
 
 // wideSrc is §8's generated corpus: one form, 40 fields, 6 roles, 5
-// stages, and one collection whose instances a request would carry.
+// stages, and one collection whose instances a request would carry. The
+// roles carry `view, edit all` rather than view alone so a benchmark on
+// this corpus can hold content: an empty frame makes a `View` traversal
+// cheaper than the profile §8 describes, and an `Update` on it impossible.
 func wideSrc(tb testing.TB) string {
 	tb.Helper()
 	var w strings.Builder
 	w.WriteString("roles {\n")
 	for r := 0; r < 6; r++ {
 		name := "R" + strconv.Itoa(r)
-		w.WriteString("    " + name + " { allow view all; }\n")
+		w.WriteString("    " + name + " { allow view, edit all; }\n")
 	}
 	w.WriteString("}\n\nforms {\n    f {\n")
 	for i := 0; i < 40; i++ {
@@ -493,4 +498,109 @@ func BenchmarkTransitionGuard(b *testing.B) {
 				err)
 		}
 	}
+}
+
+// benchWideCase is §8's corpus as a live case: a role that sees the whole
+// definition, a draft with content in it, and rows in the collection, so the
+// walk below is asked about data and not about an empty frame. Everything is
+// prepared outside the timed loop — the batch, the rows and the values are the
+// fixture, the way a host's own state would be.
+func benchWideCase(tb testing.TB, rows int) Case {
+	tb.Helper()
+	rt := NewRuntime()
+	d := &Definition{img: mustLower(tb, "wide", wideSrc(tb))}
+	if err := rt.Register(d); err != nil {
+		tb.Fatalf("Register: %v", err)
+	}
+	c, err := rt.Create(ctx(), "wide",
+		Actor{User: "dana", PrimaryRole: "R1"})
+	if err != nil {
+		tb.Fatalf("Create: %v", err)
+	}
+	edits := []Edit{
+		Set("f.i0", Int(1)),
+		Set("f.s1", Text("Monshi Ltd")),
+		Set("f.d2", Decimal(decimal.NewFromInt(1500))),
+		Set("f.b3", Bool(true)),
+	}
+	for i := 0; i < rows; i++ {
+		edits = append(edits, Add("f.rows"))
+	}
+	if _, err := c.Update(ctx(), 0, edits...); err != nil {
+		tb.Fatalf("Update: %v", err)
+	}
+	// The warm-up read is not decoration: it is the one proof that the
+	// fixture is a case the operation can answer at all, which a timed loop
+	// would otherwise learn by failing in a way that looks like a number.
+	if _, err := c.View(ctx()); err != nil {
+		tb.Fatalf("View: %v", err)
+	}
+	return c
+}
+
+// BenchmarkViewWide is §8's last request-level row: the whole visible case read
+// at once, on the corpus §8 calls the worst locality profile a traversal can
+// have. Every one of the 51 slots is visible to this actor, so `visible()` pays
+// its full scan; four fields hold values and the collection holds rows, so the
+// walk reads the draft at instance addresses rather than answering from
+// declaration cells alone.
+//
+// The second sub-case is the comparison that makes the number mean something:
+// one field asked for by path, which is the same operation with a selection of
+// one and a subtree walk of one. The gap is what the *walk* costs — the
+// visibility pass, the permission fold and the snapshot clone are per call and
+// not per node, so they appear in both rows and the difference is the nodes.
+func BenchmarkViewWide(b *testing.B) {
+	b.Run("all", func(b *testing.B) {
+		slots := len(mustLower(b, "wide", wideSrc(b)).slots)
+		c := benchWideCase(b, 4)
+		pre, err := c.View(ctx())
+		if err != nil {
+			b.Fatalf("View: %v", err)
+		}
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			res, err := c.View(ctx())
+			if err != nil {
+				b.Fatalf("View: %v", err)
+			}
+			if len(res.Roots) != 1 {
+				b.Fatalf("the wide corpus has %d roots", len(res.Roots))
+			}
+		}
+		// Nodes and slots are both reported because §8's per-node figures
+		// divide by the former and the corpus is described in the latter:
+		// instances multiply a group's members into more nodes than the
+		// definition has slots, and a row that reads well against the wrong
+		// denominator is how a cost claim becomes folklore.
+		b.StopTimer()
+		b.ReportMetric(float64(slots), "slots/op")
+		b.ReportMetric(float64(countNodes(pre.Roots)), "nodes/op")
+	})
+	b.Run("one", func(b *testing.B) {
+		c := benchWideCase(b, 4)
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			res, err := c.View(ctx(), "f.i0")
+			if err != nil {
+				b.Fatalf("View: %v", err)
+			}
+			if len(res.Roots) != 1 {
+				b.Fatalf("one path returned %d roots", len(res.Roots))
+			}
+		}
+	})
+}
+
+// countNodes counts the nodes a view rendered, which is the denominator §8's
+// per-node cost is stated against. It is a helper rather than an assertion:
+// the number changes with the corpus's row count, and a benchmark that failed
+// on it would be a benchmark that cannot be re-run after a fixture edit.
+func countNodes(nodes []*ViewNode) int {
+	n := 0
+	for _, x := range nodes {
+		n++
+		n += countNodes(x.Children)
+	}
+	return n
 }

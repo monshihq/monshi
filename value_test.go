@@ -328,17 +328,23 @@ func TestStructuralSentencesNameTheShape(t *testing.T) {
 	}{
 		{"application.text", "not a multiple declaration"},
 		{"application.sub", "not a multiple declaration"},
-		{"application.tags", "repeated field"},
+		{"application.count", "not a multiple declaration"},
 	} {
 		sl := &img.slots[slotByPath(t, img, tc.path)]
-		if got := whyNotInstance(img, sl); !strings.Contains(got, tc.says) {
+		if got := whyNotInstance(sl); !strings.Contains(got, tc.says) {
 			t.Errorf("add to %s is described as %q, want %q", tc.path, got,
 				tc.says)
 		}
 	}
-	// The one shape with nothing to complain about.
-	if got := whyNotInstance(img, &img.slots[rows]); got != "" {
-		t.Errorf("add to a repeated group was described as %q, want nothing",
-			got)
+	// Both shapes `multiple` is legal on have instances to add, and say
+	// nothing about it — including the repeated field, whose rows are values
+	// rather than containers of them (DESIGN §5.1). A message here would be
+	// the bug this table exists to keep: the verb refused for the shape that
+	// needs it.
+	for _, path := range []string{"application.rows", "application.tags"} {
+		sl := &img.slots[slotByPath(t, img, path)]
+		if got := whyNotInstance(sl); got != "" {
+			t.Errorf("add to %s was described as %q, want nothing", path, got)
+		}
 	}
 }

@@ -57,10 +57,11 @@ type FieldProblem struct {
 // invalidValue is the code a value the host's `Validate` hook refused carries
 // (DESIGN §9's field-level list). It says "this value is not acceptable here"
 // and nothing more, because *why* is the hook's sentence rather than the
-// engine's, and a host that wants machine-readable reasons gets them by
-// giving its hook a code of its own — which needs a hook signature that can
-// return one, and that is the view and hook slice's to settle rather than
-// something to invent by wrapping a string here.
+// engine's, and a code invented here would be the engine guessing at what a
+// host meant. Machine-readable reasons therefore need a hook signature that
+// can *return* a code, which is DESIGN §7's `CaseContext` slice to settle:
+// the view is the first caller to report these problems, and it reports the
+// one code the engine honestly owns.
 const invalidValue = "INVALID_VALUE"
 
 // String renders one field problem the way a log line wants it: where, then

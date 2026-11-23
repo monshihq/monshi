@@ -974,6 +974,165 @@ any one value. Nesting needs no special case: the instances a comparison
 visits are the union of the two states' rows, which is what lets the removal
 of an outer row say anything at all about the rows that left inside it.
 
+### 5.7 The view walk
+
+`View(paths...)` (DESIGN §6.1) is the read of §5.1's frame and §5.2's
+answers, shaped for a client: one snapshot, the selections the caller
+named, and the mask of the actor asking. It is the operation the other
+three exist to serve, so it is where most of the rules above become
+observable — and the only one that runs *host* code while changing
+nothing, which is what §6's contract and §7's last property are for.
+
+```text
+View(actor A, paths P, case at stage s, committed frame F):
+  vis[n] = mayView(A's roles from F, s, n)  // O(slots), folded once
+           || any descendant of n is granted            // §3.5, §6.1
+  if P == {}:                             // the whole visible case
+      if vis[root]: validate(root, filter = vis)
+      one node per top-level form still standing
+  else:
+      kept = {}
+      for p in P:
+          r = resolve(p)                          // §3.9
+          if !r.ok && vis[r.slot]: NOT_FOUND      // no such path
+          if !vis[r.slot]:         ACCESS_DENIED  // not yours to see
+          kept = merge(kept, r)     // containment, caller order
+      for sel in kept:
+          validate(sel.slot, filter = vis)        // once per scope
+          node(sel.slot, sel.prefix)
+  node(n, p):
+      if !vis[n] || !reached(n): return nil       // both prunes, at the top
+      path = addr(n, p);  kind = the declaration's word
+      value = cellValue(n, p)                     // fields only
+      options = fetch(n)                          // once per hook per call
+      children = n's rows, in data order, or n's declaration children
+```
+
+`vis` is computed before any path is resolved: an actor's view is a
+property of the definition and their roles, not of what they asked for,
+and the fold is the one `BenchmarkPermResolve` measures. Containers are
+marked by what they hold rather than only by their own grant — a form the
+caller may not `view` by name is still rendered when something inside it
+is granted, because §6.1's answer is a tree and the path to content is
+part of it. An actor with no grant anywhere is answered with nothing
+rather than refused: invariant 7 is about *content*, and an empty result
+discloses less than a message about a form they were never in.
+
+Then both prune rules live at the top of `node`, before anything is read,
+fetched or built — §5.2's absence, and the mask `vis` just computed. The
+engine prunes rather than flags, and the difference is not cosmetic. A
+flagged node would be built and filtered by its caller, so an options
+provider would be consulted and a host rule would run about content the
+caller may not see: the fetch and the rule are two ways a view leaks even
+when its output does not. Pruning costs nothing the walk would not
+otherwise pay, because the answer at a node is what stops its subtree —
+and `children` therefore filters nothing, which keeps the one place the
+rules are stated the one place they can be forgotten about.
+
+The consequence worth stating for its own sake is what a *selection* of
+absent content means. `View("application.internal")`, while the guard
+holding `internal` is closed, is not a refusal and not an error: the
+subtree is not part of the effective state (§5.2), so the honest answer
+is no roots. A client that named a path it may see, in data that does not
+currently include it, is told nothing — the same sentence the form itself
+says. Only a path with no permission behind it refuses, and §7's last
+property fixes which of `ACCESS_DENIED` and `NOT_FOUND` a probe hears, so
+that grant status and row existence each stay unobservable through the
+other.
+
+The snapshot is read through `viewed` and not `working`. The two differ
+by one verb: `working` *creates* a per-user copy on first use, because an
+edit is about to write into it, and a view must not — a read that
+allocated state would let rendering a form grow the case, which is
+DESIGN §9's no-persistent-effect rule applied to an operation that
+changes nothing, and at ten thousand viewers it is ten thousand rows for
+nothing. So an actor with no copy is answered from the committed
+snapshot, and the number reported for it is 0: the same one §6.2 tells
+that actor to present as `base` when they do write, because the copy they
+then get is a fresh one. The state is cloned on the way out regardless —
+the store's clone rule stated without exception, since a walk that "only
+reads" today is one memoization away from writing through a window into
+stored data.
+
+What the read is *of* splits two ways, and the split is invariant 6.
+Values, conditions and requiredness come from the actor's own draft: a
+form is completed before it is filed, and the client rendering it needs
+the answers that decide what to ask for next, not the ones that held
+before the actor typed. Roles and stage come from the committed case, so
+a draft that assigns a reviewer grants that reviewer nothing, and the two
+revision numbers one result reports are deliberately two different things
+— the case's and this copy's.
+
+Two node fields are read at the node they are printed on, and both are
+worth the sentence they cost. `CanEdit` is true of a form or a group
+granted `edit`, because that is where the grant was written: the mask
+belongs to the declaration and not to a widget, and a client that wants
+to know whether it may send a batch naming a container asks the
+container. `CanSubmit` is read the same way even though P3 (SYNTAX §5)
+lets a `submit` grant be *written* only at a top-level form, so no field,
+no group and no `deny` at either can carry a submit bit of its own; the
+fold of §3.5 is total, which is what makes a member's mask carry its
+form's bit and nothing else. That equivalence is what
+`TestSubmitMaskIsTheFormsMaskEverywhere` holds open, because the cheap
+reading of P3 depends on it. The value is on every node rather than only
+the root because the node a client holds is usually a field and the
+question it is asking is about a button.
+
+`Kind` and `Value` are two vocabularies and the node carries both,
+because the client needs both. `Kind` is the *declaration's* word:
+`form`, `group`, `role`, or the class name of a field's base type — so a
+`money` field reports `decimal`, and the custom type's own name stays in
+source the host already has instead of becoming a second table a client
+must ship. `Value` is the *row's*, typed, and for an `options` field the
+two disagree on purpose: the kind is `options`, the value is the chosen
+option's text (§3.3). A form, a group and a collection as declared hold
+no value and answer that with `KindNone` rather than with a zero.
+
+That is also why `Multiple` exists. A view that reports an empty group
+and an empty collection identically tells a client "there is nothing
+here" when the sentence it means is "add a row", and the distinction
+cannot be recovered from the data, because §5.1's rows are the only
+evidence of it. `Value.Kind() == KindNone` is the absence test: an unset
+cell stays distinguishable from one holding the empty string, and no
+`HasValue` flag is needed to state the same fact twice. Requiredness is
+asked per node through §5.2's `asked`, which reads the draft, so a
+`required[cond]` field's demand appears and disappears as the actor's own
+values move.
+
+`Options` is fetched once per binding per call, keyed by `hookID`, and the
+cache is what keeps a collection honest: a field with two hundred rows is one
+host call and two hundred renderings of the same list, because the binding is
+by field path and the provider was never offered a row. A missing provider is
+`HOOK_FAILURE` naming the binding rather than an empty list, and a provider
+that errors is the same with its cause attached; both refuse the whole view,
+because the alternative is a form on screen with a dropdown that cannot open.
+The cache is one call and not one case, so a host that changes its catalogue is
+asked again rather than showing a stale answer until something else invalidates
+it.
+
+The scope's validation report is asked once per selected root as a subtree
+walk, before its first node is built, and it is asked *through the mask*:
+`validate` takes the visibility array as its filter, so a host rule never runs
+over content the caller may not see. Two leaks close that way — a
+`FieldProblem` whose path names a withheld field, and a `HOOK_FAILURE` that
+refuses one actor's view because another actor's unviewable value happens to
+break §6's fixed-point contract. Submit's walk is unfiltered, and the asymmetry
+is the point: the actor committing content holds the grant for it, and the
+operation entitled to discover a broken hook is the one about to publish what
+the hook touched. A selection addressed to one instance therefore does hear the
+rule about its siblings, because the report is a subtree answer indexed by
+address and not a per-row question; the answers about rows nobody selected are
+dropped by never being looked up.
+
+Deferred, all of it on the record so the shape of the gap is known.
+`ViewNode` carries no verification or signature state: nothing approves a
+unit or signs one until `Review` and `Sign` exist, so the fields §6.1
+promises for §3.6's `verif` and `sigEntry` would report a constant
+(DESIGN §10's milestone 5). `CaseContext` is why an option key is a field
+path rather than a field instance, and why registration stays unexported
+(§6). And the rebase question §6.5 leaves open — what a view of a draft
+whose committed content moved should say — arrives with the operation
+that moves it.
 ---
 
 ## 6. Hook execution contract
@@ -995,14 +1154,32 @@ definition content, and hooks sit outside it, bound by the read-only
   code, and code that misbehaves is heard as a failure rather than
   absorbed as data.
 - **`Options` is bound by field path.** Lowering attaches the binding to
-  `options`-typed slots, and that is all the image does with it today:
-  the fetch belongs to the view layer, which asks when a requested view
-  needs options (DESIGN §6.1), so `view` permission gates option sets
-  exactly as it gates values. There is no separate client `GetOptions`
-  call, and E2 is what keeps `options` values out of conditions
-  entirely. What §5.3 owes an options field it cannot yet fetch is
-  already paid: the walk reports the field, which is the only thing a
-  client could act on.
+  `options`-typed slots, and §5.7's walk is its only caller: the view
+  asks when the subtree it is building needs a list (DESIGN §6.1), so
+  `view` permission gates option sets exactly as it gates values, and a
+  pruned node costs no call at all. There is no separate client
+  `GetOptions` call, and E2 is what keeps `options` values out of
+  conditions entirely.
+- **The two bindings' absence rules disagree on purpose.** An
+  unregistered `Validate` is identity, because the job it was hired for
+  was to change the value and the unchanged value is what the type
+  checker accepted. An unregistered `Options` provider is `HOOK_FAILURE`,
+  naming the binding, because the job it was hired for was to answer and
+  there is no value to fall back to: SYNTAX Appendix A's line that a
+  missing hook is a runtime error and not silent success is the front
+  end's promise about a dropdown, and inventing an empty list is how it
+  breaks in production. The same distinction means a missing provider
+  refuses the whole view rather than rendering the other fields beside a
+  gap, and a selection that never reaches an `options` field asks nobody
+  anything — a definition with a broken half still answers about the
+  other.
+- **`Options` is asked once per binding per call**, keyed by `hookID`, so
+  a repeated field with two hundred rows costs one fetch and two hundred
+  renderings of the list (§5.7). The key is the field path and not the
+  instance, which is what `CaseContext` changes (DESIGN §7): a provider
+  cannot see a row until the context carries one, so pretending it could
+  would be asking one question two hundred times and calling the answers
+  independent.
 - **Re-evaluation order:** apply edits → normalize per field
   (`Validate`) → re-evaluate the §5.3 closure → report validation
   errors against final values. Submit re-asks `Validate` of the values the
@@ -1016,6 +1193,14 @@ definition content, and hooks sit outside it, bound by the read-only
   that is not a fixed point on it is `HOOK_FAILURE` rather than a quiet
   rewrite of what the actor presented: §6's chain says the normalized value
   is what later checks see, and Submit is that later check.
+- **Who the re-ask is allowed to reach.** Submit's walk is over every
+  reached field of the submitted subtree, because the actor presenting it
+  holds the grant for it. §5.7's is the same walk through the caller's
+  visibility array, because a host rule is not entitled to run over
+  content the caller could not render: neither its `FieldProblem` nor a
+  `HOOK_FAILURE` naming the path may say something the mask withholds.
+  The two are the same code with one argument different, which is the
+  cheapest way to keep a view's report and a commit's from disagreeing.
 - **Failures:** hook execution failures, structural errors and forbidden
   edits reject the whole `Update` atomically — the batch is one act, so a
   refused one leaves the working copy exactly as it was, at the revision
@@ -1079,6 +1264,26 @@ produced, one per distinct binding.
    through hook errors. The image has no string-parsing code path
    reachable from case data — the only ISO 8601 parsing in the system
    is the compiler's, on literals inside definitions.
+7. **Permission is enforced before anything is read.** The mask of the
+   actor asking is folded over the whole image, or checked at the door of
+   the operation, before a cell is loaded, a path is resolved past a
+   denial, or host code is called. `View` is where that is load-bearing,
+   because it is the one operation that calls host code out and writes
+   nothing back (§5.7, §6): a node the caller may not see is pruned
+   rather than rendered and filtered, so its options provider is never
+   fetched and its `Validate` hook never runs. That closes the two
+   channels a filtered output would leave open — work performed on
+   withheld content, and a refusal whose message names it. The same rule
+   decides what a *refusal* discloses: a path with no permission behind
+   it is `ACCESS_DENIED`, decided by the mask alone and never by whether
+   a row exists, and `NOT_FOUND` is answered only where the caller may
+   see the node the walk stopped at — so an unseen instance of a
+   collection in the caller's scope reads the same as a mistyped name,
+   and probing the IDs of a withheld collection learns nothing except
+   that it is withheld. Update, Submit and Transition put the permission
+   test before the revision compare for the same reason (§5.4): a
+   forbidden operation must not leak the case's revision traffic as a
+   consolation.
 
 ---
 
@@ -1089,7 +1294,11 @@ an Apple M4 (Go 1.27.4, darwin/arm64). `benchmark_test.go` is the
 harness; a number here without a benchmark in that file is a target, not
 a result. The reference corpus is the SYNTAX §7 example (20 slots) plus
 §8's generated wide case: one form, 40 fields, one 8-field `multiple`
-group, 6 roles, 5 stages — 51 slots.
+group, 6 roles, 5 stages — 51 slots. Its roles carry `view, edit all`
+rather than `view` alone, because a fixture an operation can put content
+in is the only kind a read can be measured against: an empty frame makes
+a `View` traversal cheaper than the profile this section describes, and
+an `Update` on it impossible.
 
 | Benchmark | Measures | Result |
 | --- | --- | --- |
@@ -1098,6 +1307,8 @@ group, 6 roles, 5 stages — 51 slots.
 | `BenchmarkResolvePath` | caller text → a cell | 70 ns, 0 allocs |
 | `BenchmarkTransition` | one committed stage move | 190 ns, 2 allocs |
 | `BenchmarkTransitionGuard` | one refused stage move | 187 ns, 5 allocs |
+| `BenchmarkViewWide/all` | whole visible case, wide | 7.9 µs, 230 allocs |
+| `BenchmarkViewWide/one` | one field by path, wide | 1.3 µs, 21 allocs |
 | `BenchmarkLoweringOnly` | schema → image, §7 | 12.6 µs, 248 allocs |
 | `BenchmarkLoweringWideOnly` | schema → image, wide | 30.3 µs, 295 allocs |
 | `BenchmarkLowerSpecExample` | source → image, §7 | 41.7 µs, 1074 allocs |
@@ -1133,7 +1344,7 @@ closure and its render, leaving the arrays in place, came out two
 allocations and about a tenth of the time cheaper, which is the honest
 reading of what the walk costs a request: the render, plus the queue
 drain, not the reservation. `BenchmarkUpdate`'s absolute row waits for a
-clean run, for the reason in the next paragraph.
+clean run, for the reason stated below about absolute rows in general.
 
 The commit path is ratios too, and it has two because §5.4 has two answers.
 A submit that writes nothing — every check passes, the diff comes out empty —
@@ -1148,6 +1359,40 @@ including the copy of the committed snapshot §5.1's materialized state makes
 a commit pay — are the cheap part of a commit, and the walks are the bill:
 which is what §5.2's index-based answers and §5.6's direct indexing are for.
 (`BenchmarkSubmit`, `BenchmarkSubmitNoOp`.)
+
+The view is the expensive read, and its two sub-rows are the comparison
+that says where the expense is. Whole-case at 7.9 µs against one field at
+1.3 µs: 6.6 µs and 209 of the 230 allocations is the *walk* — the 51
+slots whose mask was just folded, rendered as 78 nodes because four
+instance rows multiply the group's eight members, a node struct and a
+rendered path apiece, and the `validate` subtree pass beside it: about
+85 ns and under three allocations per node. What the 1.3 µs floor is made
+of is the other half of the answer, and it is not small: `visible()` is
+the same 390 ns fold `BenchmarkPermResolve` prints, and the snapshot
+clone `viewed` performs for a read that changes nothing is most of the
+rest — a one-field view allocates 10.2 KB, against a submit's 10.7 KB for
+two whole walks and three consistent writes.
+
+So a client that renders one field at a time pays the per-call costs once
+per field, and the arithmetic is why §6.1's contract asks for *several*
+paths and one snapshot: the fold and the clone are charged per call, a
+resolution per path it is handed, and the nodes per node — so a subtree
+selection is the cheap shape of the same question, and a form refreshed a
+field at a time pays for the same content twice over. That is also why
+`viewed` refuses to create a working copy (§5.7): a read that allocated
+per-user state would add a cost of a different kind to this row, one
+that grows with the audience rather than with the form.
+
+Charged against the other operations, a whole-case view is about 9× an
+accepted three-write `Update` and about 3.3× a `Submit` — of course it
+is, it builds an object per declaration while an edit writes one cell —
+and the useful ratio is the inverse of §5.4's: a submit's walks are what
+a view's report is *for*, so the engine pays to render what the commit
+paid to decide. A walk up the slot table to find a node's form, which an
+earlier draft of §5.7 carried for `CanSubmit`, was deleted rather than
+measured: §3.5's fold is total, so the node answers its own question
+exactly as its form would, and paying a parent chain per node to ask it
+twice is the kind of cost a benchmark only finds after the fact.
 
 Absolute rows here are only as good as the machine that printed them: a
 re-run under background load read some five times *every* figure in the
@@ -1179,12 +1424,6 @@ is what §5.2's indexed answers and §5.6's direct indexing are for.
 (`BenchmarkTransitionGuard`, driven by the SYNTAX §7 example's
 reject-to-`correction` and accept-to-`draft` loop so that each call is one
 commit and neither destination asks a `require`.)
-
-What is *not* measured yet, because the operation that would drive it is
-not shipped: `BenchmarkViewWide`. The frame of §5.1 and §5.2's answers
-exist and are tested, but a benchmark that hand-builds a state and calls
-one internal function would measure the fixture, not a request; it arrives
-with `View`.
 
 Nor is any "× faster than the compiled tree" ratio measured: that would
 mean an interpreted-tree harness, and building one to prove a point the
@@ -1252,11 +1491,15 @@ the registry and the store seam, §5.1's four working edits as one atomic
 `Submit` with §5.6's forward diff and the store's history behind it, and
 §5.5's transition checks behind `Transition` — the second operation that
 commits, and the first whose affected set is about masks rather than values.
-What remains is `View`, DESIGN §6.5's rebase, and the
+§5.7's view walk is behind `View`, milestone 3's first item: the mask folded
+once per call, the draft read without a copy being made, the selections merged
+on address, and `Options` fetched and `Validate` re-asked through that mask.
+What remains is DESIGN §6.5's rebase, and the
 *registration* half of §6's hook contract: a declared `Validate`
-normalization runs today, once against a value as it arrives and once again
-against the stored one at commit, and exporting its signature waits for the
-read-only context DESIGN §7 describes.
+normalization runs three times today — against a value as it arrives,
+against the stored one at commit, and against what a view renders — and
+exporting its signature waits for the read-only context DESIGN §7
+describes.
 
 Contract at the seam. Two halves are exported: the definition seam this
 handoff was written for, and the case operations milestone 2 has grown
@@ -1318,6 +1561,40 @@ type TransitionResult struct {
     Revision uint64; Stage string; Affected, Missing []string
 }
 
+// The read a client renders from: one snapshot, the selections named, the
+// mask of the actor asking (§5.7).
+func (c Case) View(ctx, paths ...string) (ViewResult, error)
+type ViewResult struct {
+    Revision uint64; Stage string; Working uint64; Roots []*ViewNode
+}
+type ViewNode struct {
+    Path, Kind string              // address, declaration's word
+    Multiple   bool                // a collection: children are rows
+    Value      Value               // KindNone when the cell is unset
+    Required, CanEdit, CanSubmit bool
+    Options    []string            // fetched once per binding per call
+    Problems   []FieldProblem      // reports about this node's own value
+    Children   []*ViewNode
+}
+
+// What a stored value is, and what it holds. The getters answer a value of
+// the wrong class with its zero rather than a panic or an error: a client
+// rendering a form asks the declared shape first, and a field whose type a
+// definition changed mid-request is a worse bug than an empty cell.
+type ValueKind string // KindNone · KindText · KindInteger · KindDecimal
+                      // · KindBoolean · KindDate · KindDatetime · KindBinary
+                      // · KindTag · KindUser
+func (v Value) Kind() ValueKind
+func (v Value) Text() string
+func (v Value) Int() int64
+func (v Value) Decimal() decimal.Decimal
+func (v Value) Bool() bool
+func (v Value) Date() time.Time
+func (v Value) DateTime() time.Time
+func (v Value) Binary() BinaryRef
+func (v Value) Tag() string
+func (v Value) User() UserID
+
 // Refusals, by category.
 type Category string  // NOT_FOUND, ACCESS_DENIED, INVALID_OPERATION, …
 type CaseError struct {
@@ -1329,14 +1606,24 @@ func Failed(err error, want Category) bool
 `Definition`, `Case`, `Edit` and `Value` have no exported fields, which
 is what lets §5.1's class tagging and §6's hook contract stay decisions
 of this package rather than a struct literal a host assembles by hand.
+The results — `ChangeResult` and the three that read like it — have the
+opposite shape, and `ViewNode` follows them for the same reason §5.1
+gives: a *write* a caller assembles is a value to be validated, so it
+stays a constructor, while a *read* the engine assembles is data to be
+rendered, so it is a struct a host may walk, marshal and diff by `Path`.
+`Value` inside it keeps the rule intact: the node carries the cell, and
+only this package knows what the cell's tag byte means.
 `Missing` and `Invalid` are the two lists DESIGN §9 keeps out of the error
 categories, and they arrive on a refusal as well as on a success: a host
 renders a form's gaps without parsing a message, and reads the revision it
-must reload at out of the same value. What §6 names and this list does not —
-`View`, `Review`, `Sign`, `Rebase`, `Discard` — does not exist yet; `Submit`
-commits content and `Transition` commits a stage, and the `verif` and
-`sigEntry` effects that need something to reset or re-ask arrive with
-`Review` and `Sign` (§5.4, §5.5).
+must reload at out of the same value.
+
+What §6 names and this list does not — `Review`, `Sign`, `Rebase`,
+`Discard` — does not exist yet. `Submit` commits content, `Transition`
+commits a stage, and `View` reads both of those beside an actor's own
+draft; the `verif` and `sigEntry` effects that need something to reset or
+re-ask arrive with `Review` and `Sign` (§5.4, §5.5, §5.7), and the rebase
+question with §6.5.
 
 `BinaryRef` is exported as a `[]byte` with no behavior. DESIGN §5.2 puts
 content handles in case *data*, and §5.1's value row reserves the field
