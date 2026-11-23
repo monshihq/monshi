@@ -31,13 +31,14 @@ package monshi
 //     with the revision it did not move, so a host comparing numbers learns
 //     what happened without a second field saying so.
 //
-// What this file does *not* do is ask about a decision. A submit's diff can
-// erase one — that is §4.2's reset, and §5.9's `resetVerifs` applies it to
-// whatever this call wrote, inside the store and not here — but `Submit`
-// itself neither reads the review table nor refuses for want of an approval,
-// because a form is complete before anybody agrees with it. The half still
-// unpaid is `sigEntry` invalidation, which waits for `Sign` with the
-// signature conjunct of §5.5's `require` (DESIGN §10's milestone 5).
+// What this file does *not* do is ask about a verdict. A submit's diff erases
+// both kinds — that is §4.2's rule, and §5.6's effects apply it inside the
+// store to whatever this call wrote, which is why nothing here mentions a
+// table — but `Submit` itself neither reads the review table nor refuses for
+// want of an approval, because a form is complete before anybody agrees with
+// it, and it neither reads the signature table nor waits for one, because a
+// signature is a statement *about* a submitted form and not a condition of
+// submitting one (§5.10's gate runs the other way).
 
 import (
 	"context"
@@ -203,7 +204,8 @@ func (c Case) Submit(ctx context.Context, form string,
 
 	rev, err := c.w.cases.commit(refuse, img, rec.revision,
 		committedState{s: next, stage: rec.commit.stage,
-			reviews: rec.commit.reviews},
+			reviews: rec.commit.reviews,
+			sigs:    rec.commit.sigs},
 		committedBy{by: c.actor.User, op: opSubmit, changes: changes})
 	if err != nil {
 		// Reachable only through a concurrent commit between the guard above

@@ -57,13 +57,16 @@ package monshi
 //     invent a third place a commit can fail for a reason no field the actor
 //     can reach explains.
 //
-// What this file does not do is §5.5's third conjunct: signatures valid for
-// current content. Nothing signs until `Sign` exists (DESIGN §10's milestone
-// 5), so a signature slot holds nothing to check; `Review`'s conjunct — every
-// `verifiable` unit in a required form APPROVED — is paid here, and RUNTIME
-// §5.5 states the rule it enforces.
+// What §5.5's third conjunct costs this file is listed in `requireSentence`:
+// a span of slot ids per required form, one table index per signature field
+// among them, and no name comparison anywhere — the range was answered at
+// lowering (§3.6), which is why the check is bounded by the definition and
+// not by the case.
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // TransitionResult is what a transition reports: the revision the case
 // reached, the stage it is at now, the paths this actor's view of the case is
@@ -113,13 +116,15 @@ type TransitionResult struct {
 	// Missing holds what the destination's `require` still wants, in the same
 	// shape and with the same meaning as `CommitResult.Missing`: paths in
 	// declaration order, one entry per gap, empty on a transition that
-	// committed. An entry is usually a field that needs a value, and one kind
-	// is not: a `verifiable` declaration the case has not APPROVED arrives
-	// here too (DESIGN §4.4's `require`), named at the unit rather than at
-	// anything inside it, because the remedy is a `Review` and not an edit.
-	// The two kinds are told apart by asking the definition — the path names a
-	// `verifiable` declaration — and a host that renders one sentence says
-	// which is wanted, which is what `requireSentence` exists for.
+	// committed. An entry is usually a field that needs a value, and two kinds
+	// are not: a `verifiable` declaration the case has not APPROVED, and a
+	// `required signature` field no hand stands behind (DESIGN §4.4's
+	// `require`). Both arrive named at the declaration rather than at anything
+	// inside it, because the remedy for one is a `Review` and for the other a
+	// `Sign`, and neither is an edit. The kinds are told apart by asking the
+	// definition — the path names a `verifiable` declaration, or it names a
+	// signature slot — and a host that renders one sentence says which is
+	// wanted, which is what `requireSentence` exists for.
 	Missing []string
 }
 
@@ -228,23 +233,33 @@ func (c Case) Transition(ctx context.Context, dest string,
 			// their form's fields, so one form's answer arrives together.
 			gaps = append(gaps, pendingUnits(&rec.commit.s,
 				rec.commit.reviews, form)...)
+			// §5.5's third conjunct, and the one only `Sign` can answer: of a
+			// required form's signature fields, the ones its declaration marks
+			// `required` must hold an attestation standing for this content
+			// (SYNTAX §5.6's "its required signatures are valid"). Same list,
+			// same reason, third kind of entry — and the scan reads the range
+			// §3.2's grouping built, so a definition that declares no
+			// signature field answers with an empty slice and one loop that
+			// runs zero times.
+			gaps = append(gaps, unsignedSigs(&rec.commit.s,
+				rec.commit.sigs, form)...)
 		}
 		if len(gaps) > 0 {
-			var fields, units int
+			var fields, units, sigs int
 			for _, g := range gaps {
-				if g.kind == gapVerif {
+				switch g.kind {
+				case gapVerif:
 					units++
-					continue
+				case gapSig:
+					sigs++
+				default:
+					fields++
 				}
-				fields++
 			}
 			res.Missing = gapPaths(gaps)
 			return res, refuse.now(InvalidOp,
-				requireSentence(dest, fields, units))
+				requireSentence(dest, fields, units, sigs))
 		}
-		// §5.5's third conjunct — every signature valid for current content —
-		// is `Sign`'s, and has nothing to act on until a signature exists to
-		// check (DESIGN §10). It joins this same list when it lands.
 	}
 
 	// The commit. Nothing is grafted, because nothing moved: the new snapshot
@@ -259,7 +274,8 @@ func (c Case) Transition(ctx context.Context, dest string,
 	// the entry for exactly the replay that has to land the case where it is.
 	rev, err := c.w.cases.commit(refuse, img, rec.revision,
 		committedState{s: rec.commit.s, stage: to,
-			reviews: rec.commit.reviews},
+			reviews: rec.commit.reviews,
+			sigs:    rec.commit.sigs},
 		committedBy{by: c.actor.User, op: opTransition})
 	if err != nil {
 		// A concurrent commit between the guard above and this one, which the
@@ -275,20 +291,37 @@ func (c Case) Transition(ctx context.Context, dest string,
 	return res, nil
 }
 
-// requireSentence states what a destination's `require` still wants, in the two
-// kinds of remedy it can want: a value nobody has typed, and a decision nobody
-// has made. Both are counted rather than merged into one number because the
-// sentences a host owes the user are different — "fill this in" and "wait for
-// the registrar" — and a refusal that said "2 fields with no value" about an
-// approval would send the user back to a form they had already finished.
-func requireSentence(dest string, fields, units int) string {
-	out := quote(dest) + " still requires "
-	switch {
-	case units == 0:
-		return out + count(fields, "field", "fields") + " with no value"
-	case fields == 0:
-		return out + count(units, "approval", "approvals")
+// requireSentence states what a destination's `require` still wants, in the
+// three kinds of remedy it can want: a value nobody has typed, a decision nobody
+// has made, and a signature nobody has given. They are counted apart rather than
+// merged into one number because the errands are different — "fill this in",
+// "wait for the registrar", "get it signed" — and a refusal that said "2 fields
+// with no value" about an approval would send the user back to a form they had
+// already finished. The order is the order §5.5's scan produces them in, which
+// is the order a client can act on: content, then judgement, then attestation.
+func requireSentence(dest string, fields, units, sigs int) string {
+	var parts []string
+	if fields > 0 {
+		parts = append(parts, count(fields, "field", "fields")+
+			" with no value")
 	}
-	return out + count(fields, "field", "fields") + " with no value, and " +
-		count(units, "approval", "approvals")
+	if units > 0 {
+		parts = append(parts, count(units, "approval", "approvals"))
+	}
+	if sigs > 0 {
+		parts = append(parts, count(sigs, "signature", "signatures"))
+	}
+	return quote(dest) + " still requires " + andList(parts)
+}
+
+// andList joins what a destination wants into one sentence. The comma before
+// "and" is kept for two parts because that is the wording §5.5 shipped with, and
+// a third conjunct arrives as the third element of the same list rather than as
+// a new shape of message.
+func andList(parts []string) string {
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + ", and " +
+		parts[len(parts)-1]
 }

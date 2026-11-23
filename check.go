@@ -30,17 +30,22 @@ type gap struct {
 
 // The shapes a gap takes, which a host renders differently because the
 // remedy is different: a field needs a value, a collection needs an
-// instance, a verifiable unit needs a decision. The second is why `Missing`
-// cannot be a flat "empty fields" list — a required `multiple` with no rows
-// has no empty field to point at — and the third is why an entry may name a
-// declaration nobody can type into: DESIGN §4.4's destination `require` asks
-// for approvals as well as values, and §6.4 says a `Review` is the only way to
-// answer it. The kinds are not carried into the rendered list, so a host sees
-// one list of paths it must resolve by looking at what the path is.
+// instance, a verifiable unit needs a decision, a signature field needs a
+// signature. The second is why `Missing` cannot be a flat "empty fields"
+// list — a required `multiple` with no rows has no empty field to point at —
+// and the third and fourth are why an entry may name a declaration nobody can
+// type into: DESIGN §4.4's destination `require` asks for approvals and
+// signatures as well as values, and §6.4 says a `Review` and a `Sign` are the
+// only ways to answer them. `gapSig` is the kind with no fifth in front of it
+// because a signature is asked for by *name*: §5.4's walk reports a value, and
+// §5.10's scan reports the signature a form declares and does not hold. The
+// kinds are not carried into the rendered list, so a host sees one list of
+// paths it must resolve by looking at what the path is.
 const (
 	gapValue uint8 = iota + 1 // needs a value, holds none or an empty one
 	gapRows                   // needs at least one instance, has none
 	gapVerif                  // a `verifiable` unit is not APPROVED (§4.2)
+	gapSig                    // a required signature field is not signed (§4.2)
 )
 
 // incomplete walks one subtree of one state and returns every gap §5.4 would
@@ -68,6 +73,17 @@ func (s *state) incomplete(root nodeID) []gap {
 			continue
 		}
 		sl := &s.img.slots[n]
+		if sl.sig != 0 {
+			// A signature field is asked about as a signature and never as a
+			// value: `asked` above already says the definition wants one, and
+			// the answer is `sigEntry`'s, which §5.10's scan reads and a
+			// `Sign` writes. Counting it here would report it in the sentence
+			// that tells a caller to fill something in, for a field `Update`
+			// refuses to touch (value.go's `store`) — and a required
+			// signature would then make its own form permanently unsubmitable
+			// while `Sign`'s precondition wants exactly that submit first.
+			continue
+		}
 		switch {
 		case sl.coll != 0:
 			// A `multiple` declaration's requiredness is at least one

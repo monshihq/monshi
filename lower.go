@@ -465,6 +465,47 @@ func (l *lowerer) forms() {
 	l.img.slots[0].first = first
 	l.img.slots[0].n = uint32(len(kids))
 	l.img.slots[0].span = uint32(l.nextID)
+	l.formAnchors()
+}
+
+// formAnchors answers "which form owns this slot" once, for the whole image,
+// so that no request-time path walks one. Preorder makes the answer a range
+// copy: a form's subtree is contiguous, so stamping the ordinal over it is
+// the same loop the span already describes (§3.2).
+//
+// Two things are read from it at request time and neither is a walk. §5.6's
+// commit effects map a changed slot to the signature fields its form's
+// content binds — `slot.form` is the whole question, one array read per diff
+// entry — and the merge's veiled-clash address asks for the form whose name
+// it may print when the slot's own address is case data (§5.8).
+//
+// The same pass groups the signature fields by form, declaration order,
+// because a destination that requires a form asks about its signatures and
+// nothing else (S1 keeps them direct members). The group is a dense range,
+// so that question is bounded by the signatures a form declares rather than
+// by its fields.
+func (l *lowerer) formAnchors() {
+	img := l.img
+	img.sigSpan = make([]depRange, len(img.forms)+1)
+	img.sigSlots = nil
+	for f := range img.forms {
+		if f == 0 {
+			continue // index 0 is "no form"
+		}
+		root := img.forms[f]
+		lo, hi := img.subtree(root)
+		for n := lo; n < hi; n++ {
+			img.slots[n].form = formID(f)
+		}
+		first := uint32(len(img.sigSlots))
+		for _, c := range img.childrenOf(root) {
+			if img.slots[c].sig != 0 {
+				img.sigSlots = append(img.sigSlots, c)
+			}
+		}
+		last := uint32(len(img.sigSlots))
+		img.sigSpan[f] = depRange{first: first, n: last - first}
+	}
 }
 
 // buildNode numbers one subtree and returns its slot. parent is the slot of

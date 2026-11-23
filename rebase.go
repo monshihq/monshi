@@ -356,10 +356,12 @@ func (m *rebaser) collect(window []commitRecord) {
 				continue
 			}
 			if ch.kind != chgValue {
-				// A third kind is not a question about content, and its address
-				// may name a cell slot all the same: a `verifiable` field carries
-				// both, and a merge that read a decision as a base value would
-				// answer "what did the case hold here" with "who approved it".
+				// A verdict is not a question about content, and its address may
+				// name a cell slot all the same: a `verifiable` field carries
+				// both, and so does a `signature` one. A merge that read either
+				// as a base value would answer "what did the case hold here"
+				// with "who approved it" or "who signed it", and then treat the
+				// answer as a value a `Submit` may conflict with.
 				continue
 			}
 			k := cellKey{slot: ch.slot, steps: pathKey(ch.path)}

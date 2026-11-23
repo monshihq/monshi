@@ -162,6 +162,20 @@ their presence does not imply that the values were previously committed.
   but retains the historical record. Multiple signatures are unordered;
   each signature field has at most one effective signature per content
   version.
+- Invalidation is a fact of state rather than a flag on it: what stands
+  beside a signer's name is the revision that signature's own commit
+  produced, so the content it bound is the content before that commit, and
+  the same commit seam that resets a review erases an attestation whose
+  content moved (RUNTIME §5.6, §5.10). A field with nothing stored answers
+  one question — no hand stands behind it — and the difference between
+  never signed and invalidated belongs to history. One attestation per
+  field means a second signer replaces the first and is told whose hand now
+  stands, rather than being refused: a role-form would otherwise be locked
+  to whoever asked first. Revocation is not offered, because `REVOKE` above
+  is a decision's verb and an attestation is erased by content, not withdrawn.
+- A signature also keeps whatever reference the host gives for the ceremony
+  that produced it, as opaque text: the engine stores that a hand attested
+  and with what citation, never that it vouches for the citation.
 - Cryptographic and biometric signatures are possible; a printed
   signature image alone is presentational, not proof of authentication.
 
@@ -430,10 +444,14 @@ report an approval of content the caller is looking away from; the two
 statements are about different content, which is invariant 6's split
 (RUNTIME §5.7).
 
-Signature state is the one part of the list above with no shipped source:
-nothing signs until `Sign` exists, so the field that would carry §4.2's
-invalidation waits for milestone 5. A view today is complete about content,
-permissions and decisions and silent about signatures.
+Signature state is read the same way and from the same half of the split as
+the decision beside it: a node says whether a hand may attest there and, when
+one has, whose — the grant folded for this actor and the attestation the case
+holds, both of them, while the value next to them is this actor's own draft.
+What the view does not answer is the field's other half, who the declaration
+names, because that is a fact about a person and a read is not asked to guess
+which person is looking; `Sign` is where it is settled, and a host that wants
+the answer asks the operation (RUNTIME §5.10).
 
 Dynamic `Options` hooks are called by the engine when a requested view
 needs the options—not through a separate client `GetOptions` API. One
@@ -519,7 +537,22 @@ correspondence.
 - `Sign`: signed form must be fully submitted/valid with approved
   applicable verification units; enforce the signature field's
   authorized user/role, bind to form content and the observed global
-  revision.
+  revision. The shipping shape reads that sentence as two questions and one
+  fact. The questions are a grant and an identity: `allow sign` at the
+  field's own slot, and the field's declared holder — that role's holders, or
+  the user the committed cell names. The identity is asked before the form's
+  readiness, so an actor who lost the assignment hears that he is not the
+  signer rather than that the form is not ready; a definition may grant the
+  first without granting the second, and the language does not require them to
+  agree. The fact is that "bind to form content" is stated as a number and not
+  a digest: what stands beside the name is the revision the signature's own
+  commit produced, and §4.2's invalidation is what makes that honest, which
+  keeps the second question of a later gate an array read. A form that is not
+  ready is refused with the list of what it still wants rather than with a
+  permission message, and no hook is asked: the content a signature binds has
+  already passed the gates at its own commit. A signature is not revocable and
+  not mergeable — one attestation per field per content, so a second signer
+  replaces the first and says whose hand now stands (RUNTIME §5.10).
 - `Transition`: choose an explicitly declared target; evaluate
   authorization and conditions; `accept` checks destination `require`;
   `reject` skips completeness checks.
@@ -702,16 +735,19 @@ completeness and validation against the candidate, the forward diff, and
 the history entry and snapshot swap that must be consistent with each
 other. None of it is reachable through `Update` alone, and a milestone that
 ended at a working copy would leave invariants 1, 2, 5 and 6 unexercised.
-What milestone 5 still owns of a commit is signature invalidation (§4.2),
-which arrives with `Sign`; the `verif` half arrived with `Review`, which this
-list comes to last. RUNTIME §10 states what exists today.
+Milestone 5's commit work is whole now: the seam §4.2 asked for runs both of
+its erasures on every commit, the `verif` half arriving with `Review` and the
+`sigEntry` half with `Sign`, which is why the pair is one list the store owns
+rather than two rules each operation has to remember. RUNTIME §10 states what
+exists today.
 
 `Transition` follows it out of order for the same reason and one of its own:
 it is the other operation that commits, and unlike `Review` and `Sign` it
 needs nothing that does not exist yet — a declared edge, two masks, one
 condition and the completeness pass `Submit` already runs. Of the
-destination's `require` it now runs the `verif` units as well, and the
-signature conjunct is all that milestone 5 keeps of it (§4.2). Two
+destination's `require` it runs all three conjuncts today: completeness, the
+`verif` units, and the signatures a `required` field must hold, the last
+arriving with `Sign` (§4.2, RUNTIME §5.5). Two
 details of §6.4's sketch are refined by the shipping shape: the
 result is a `TransitionResult` rather than a `CommitResult`, because the
 `affected` path set promised above is a stage move's own answer — paths whose
@@ -740,8 +776,11 @@ pruning rather than flagging, and presence is reported in the data
 rather than as a second flag. A third is refined by what a decision *is*:
 verification state is offered only at the address that can be decided, so
 the flag and the operation agree instead of one inviting what the other
-refuses. The line with nothing to read yet is signature state, and it
-waits with the rest of milestone 5.
+refuses. A fourth is refined by the same rule read the other way: signature
+state arrives as a pair of fields, where a hand may attest and which hand did,
+and the declaration's other half — the holder its entry names — is not a
+read's answer, because a view is not asked which person is looking at it
+(RUNTIME §5.10).
 
 `Review` is the fifth item taken out of order, and it is the first taken
 from milestone 5 rather than from milestone 2's neighborhood. The reason is
@@ -752,13 +791,17 @@ A decision asks the mask, the path seam and the revision guard that
 beside it: a commit that clears a unit whose content it just changed is not
 testable while nothing can stand approved to be cleared, and neither is
 SYNTAX §7's walkthrough, which reaches `company_review` only after somebody
-approves. What stays with milestone 5 is `Sign` and the two
-halves it carries: signature validity as a third conjunct of a
-destination's `require`, and invalidation of a signature bound to content
-that moved. The pair reads the commit history, the committed snapshot
-and the per-user copies invariant 4 forces the store to keep, so it adds no
-state of its own, and invariant 5's "stale working states cannot Submit" has
-been a rule with no operation that could make a state fresh. What stays with
+approves. `Sign` is the milestone's last item, and it lands as the two halves
+the earlier ones left standing: signature validity as a third conjunct of a
+destination's `require`, and invalidation of a signature bound to content that
+moved, both paid through the commit seam `Review` had opened. Its own state is
+one table — a name, the revision that bound it, and the host's reference —
+dense by slot beside the decisions it joins in history, and no operation but
+this one writes a signature field. `Rebase` and `Discard` read the commit
+history, the committed snapshot
+and the per-user copies invariant 4 forces the store to keep, so they add no
+state of their own, and invariant 5's "stale working states cannot Submit" was
+a rule with no operation that could make a state fresh. What stays with
 milestone 6 is the half that needs a host: `OnCommit`, its observers and
 their delivery, because §6.5's "hosts may notify users via post-commit
 hooks" is hook work and `CaseContext` is not shipped yet. The deferral at the

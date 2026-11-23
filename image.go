@@ -151,6 +151,7 @@ type nodeSlot struct {
 	coll     uint32 // 1-based ordinal into image.colls; 0 = not a collection
 	typ      typeID // 0 on role-typed fields, which carry role instead
 	role     roleID // role-typed field: the role it confers (T4)
+	form     formID // owning top-level form, 1-based; 0 = the case root
 	flags    uint16
 	condPres condID  // present[cond]; 0 = unconditional
 	condReq  condID  // required[cond]; 0 = plain or not required
@@ -299,6 +300,8 @@ type image struct {
 	roleIdx  []stringID  // indexed by roleID; index 0 unused
 	depFrom  []depRange  // per slot: adjacency bounds into depOwn
 	depOwn   []nodeID    // condition-bearing owners that read that slot
+	sigSpan  []depRange  // per formID: bounds into sigSlots (§3.6, S1)
+	sigSlots []nodeID    // signature fields, grouped by owning form
 	depBound uint32      // closure queue bound: no slot is visited twice (§5.3)
 	initial  stageID     // first declared stage (ST1)
 }
@@ -340,13 +343,14 @@ func (img *image) subtree(n nodeID) (lo, hi nodeID) {
 
 // owner is the top-level declaration a slot descends from — the form whose
 // name a report uses when it may not name the slot itself (§5.8's veiled
-// clash). The walk is up `parent` to the case root, which §3.2's preorder
-// makes one pointer per level and no search.
+// clash), and the scope a signature binds to (§3.6, §5.10). It is one array
+// read: §3.2's lowering pass stamps the ordinal, so no request-time answer
+// walks a parent chain.
 func (img *image) owner(n nodeID) nodeID {
-	for img.slots[n].parent != 0 {
-		n = img.slots[n].parent
+	if f := img.slots[n].form; f != 0 {
+		return img.forms[f]
 	}
-	return n
+	return 0 // the case root owns itself, which is what the old walk returned
 }
 
 // baseOf is a slot's value class, or 0 for a role-typed field, which has no
@@ -361,6 +365,18 @@ func (img *image) baseOf(n nodeID) uint8 {
 
 // collOf is the innermost multiple collection whose instance rows hold slot
 // n, and 0 when n lives in the base row. img.colls is in preorder, so the
+// sigSlotsOf is one form's signature fields, in declaration order: the dense
+// range §3.2's lowering pass grouped so that the question "what does this form
+// owe in signatures" is bounded by the signatures a form declares rather than by
+// its fields (S1 keeps them direct members, so the group is the form's whole
+// signature surface). The case root has an empty range and asks nothing, which
+// is what lets a caller hand this the ordinal read from `slots[n].form` without
+// a second question about whether the slot was in a form at all.
+func (img *image) sigSlotsOf(f formID) []nodeID {
+	r := img.sigSpan[f]
+	return img.sigSlots[r.first : r.first+r.n]
+}
+
 // innermost enclosing range is the last one that reaches n.
 func (img *image) collOf(n nodeID) nodeID {
 	var inner nodeID

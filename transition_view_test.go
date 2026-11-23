@@ -15,6 +15,7 @@ package monshi
 // a replay that lands somewhere else, and milestone 5 is the one that reads it.
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -568,6 +569,23 @@ func TestAppendixATransitionTrace(t *testing.T) {
 			rvs.Revision, rvs.Stage, sub.Revision+1)
 	}
 
+	// Step 5's third conjunct, and the reason a trace of §5.5 has to say what it
+	// does *not* ask: SYNTAX §7's example declares two signature fields and marks
+	// neither `required`, so §5.6's "its required signatures are valid" wants
+	// nothing of this destination and step 6 below is the same move milestone 3
+	// ran. The scan is not a no-op by luck — it walks the form's two fields and
+	// reports the absence of a requirement — and one word of the same definition
+	// turns it into a refusal, which the test after this one runs.
+	if got := unsignedSigs(&rec.commit.s, rec.commit.sigs,
+		img.requires(dest)[0]); len(got) != 0 {
+		t.Errorf("company_review asks %+v, want nothing: §7 marks no signature"+
+			" required", got)
+	}
+	if n := len(img.sigSlotsOf(img.slots[img.requires(dest)[0]].form)); n != 2 {
+		t.Errorf("the example's application groups %d signature fields, want"+
+			" 2 — the conjunct reads a range, not a walk", n)
+	}
+
 	// Step 6: the revision check and one atomic commit, seen from the handle
 	// that was refused three calls ago. Nothing about the content moves, so
 	// the entry this writes is the trace's claim in §5.1: a stage change, and
@@ -638,6 +656,147 @@ func TestAppendixATransitionTrace(t *testing.T) {
 		t.Error("a Registrar may not edit the archive at company_review," +
 			" want the stage grant the §7 example declares")
 	}
+}
+
+// TestAppendixARequiredSignatureTrace is Appendix A's steps with §5.5's third
+// conjunct load-bearing: the same §7 corpus, with one word added to make the
+// reviewer's attestation something the destination asks for. It is a separate
+// trace rather than a case inside the one above because the point is the whole
+// sequence — a stage that will not open, the remedy that opens it, and the fact
+// that the hand entitled to give it is the one §3.5's fold put in charge of this
+// case and nobody else.
+func TestAppendixARequiredSignatureTrace(t *testing.T) {
+	src := strings.Replace(specExample(t),
+		"approved_by : signature(.reviewer);",
+		"approved_by : signature(.reviewer) required;", 1)
+	if src == specExample(t) {
+		t.Fatal("SYNTAX §7's example no longer declares the attestation this" +
+			" trace makes required")
+	}
+	rt := NewRuntime()
+	img := mustLowerSource(t, src)
+	d := &Definition{img: img}
+	if err := rt.Register(d); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Steps 1 through 4 as the trace above runs them: COMPANY content, the
+	// reviewer named in it, and the destination that guard admits.
+	dana, err := rt.Create(ctx(), d.ID(),
+		Actor{User: "dana", PrimaryRole: "Applicant"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	base := mustUpdate(t, dana, 0,
+		Set("application.kind", Tag("COMPANY")),
+		Set("application.full_name", Text("Monshi Ltd")),
+		Set("application.reviewer", User("elliot")),
+		Add("application.shareholders"),
+		Set("application.shareholders.1.holder_name", Text("Ada")),
+		Set("application.shareholders.1.shares",
+			Decimal(decimal.RequireFromString("10.00"))))
+	sub, err := dana.Submit(ctx(), "application", base)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	elliot, err := rt.Open(ctx(), dana.ID(), Actor{User: "elliot"})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	dest := mustStage(t, img, "company_review")
+	rvs, err := elliot.Review(ctx(), "application", ReviewApprove,
+		sub.Revision, "")
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+
+	// The destination's first two conjuncts are satisfied by the calls above, so
+	// what step 5 finds now is the attestation and nothing else: the same walk,
+	// the same gap list, the third kind of entry in it.
+	if _, err := elliot.Transition(ctx(), "company_review",
+		rvs.Revision); !Failed(err, InvalidOp) {
+		t.Fatalf("a stage opened over a required attestation: %v", err)
+	} else if !strings.Contains(err.Error(), "1 signature") {
+		t.Errorf("the refusal says %q, want the third conjunct counted", err)
+	}
+	form := img.requires(dest)[0]
+	frame := committedFrame(t, elliot, dana)
+	if got := unsignedSigs(&frame.s, frame.sigs, form); len(got) != 1 ||
+		got[0].kind != gapSig || got[0].path != "application.approved_by" {
+		t.Errorf("the destination asks %+v, want the reviewer's attestation",
+			got)
+	}
+
+	// Step 5's answer arrives through the operation that owes it. elliot is the
+	// hand the *committed* content names, and §5.4's completeness and §5.5's
+	// approval conjuncts already hold, so the attestation commits at once — and
+	// the signature stands for the content the case holds, not for the version
+	// the trace began with.
+	sig, err := elliot.Sign(ctx(), "application.approved_by", rvs.Revision,
+		"reviewer-note")
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if sig.Revision != rvs.Revision+1 || sig.Stage != "draft" {
+		t.Errorf("the attestation reached %d at %q, want %d at draft",
+			sig.Revision, sig.Stage, rvs.Revision+1)
+	}
+
+	// Step 6, now with all three conjuncts paid: the same call that was refused,
+	// at the number this commit produced. The trace's last claim is the one §4.2
+	// makes about a signature and a stage — a destination asks, the attestation
+	// answers, and the content it attested to is the content the case holds.
+	res, err := elliot.Transition(ctx(), "company_review", sig.Revision)
+	if err != nil {
+		t.Fatalf("Transition after the attestation = %v, want the move", err)
+	}
+	if res.Stage != "company_review" {
+		t.Errorf("the case reached %q, want company_review", res.Stage)
+	}
+	rec, err := elliot.w.cases.load(newRefuser("open", dana.ID()))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	field := slotByPath(t, img, "application.approved_by")
+	g := sigAt(rec.commit.sigs, field)
+	if g.by != "elliot" || g.at != sig.Revision || g.ref != "reviewer-note" {
+		t.Errorf("the case holds %q@%d %q, want elliot@%d reviewer-note",
+			g.by, g.at, g.ref, sig.Revision)
+	}
+	// And a content commit at the new stage erases the attestation that opened
+	// the door, which is §5.6's effect seen from the far end of the trace: the
+	// stage does not ask for it again, because the destination's `require` is
+	// only consulted on the way in.
+	if _, err := dana.Rebase(ctx()); err != nil {
+		t.Fatalf("Rebase: %v", err)
+	}
+	same, err := dana.w.cases.working(newRefuser("open", dana.ID()), "dana",
+		img)
+	if err != nil {
+		t.Fatalf("working: %v", err)
+	}
+	later := mustUpdate(t, dana, same.rev, Set("application.note",
+		Text("late")))
+	if _, err := dana.Submit(ctx(), "application", later); err != nil {
+		t.Fatalf("Submit at the new stage: %v", err)
+	}
+	after := committedFrame(t, dana, dana)
+	if sigAt(after.sigs, field).at != 0 {
+		t.Error("a content commit left the attestation standing at " +
+			"company_review")
+	}
+}
+
+// committedFrame is the committed state the trace's step 5 asks about, read
+// from the store rather than from a snapshot this test kept alive: the refusal
+// above is what says the scan runs over what the case holds now.
+func committedFrame(t *testing.T, by, of Case) committedState {
+	t.Helper()
+	rec, err := by.w.cases.load(newRefuser("open", of.ID()))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	return rec.commit
 }
 
 // holds and formSlot read the two bits of the trace's fixture this test would

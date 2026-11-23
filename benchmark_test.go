@@ -944,3 +944,175 @@ func BenchmarkTransitionRequires(b *testing.B) {
 		rev = res.Revision
 	}
 }
+
+// benchSpecSign is a case ready to be signed: the content §7's required fields
+// ask for, the reviewer the form names in it, and the approval the form's own
+// `verifiable` declaration makes a precondition of an attestation about it. Two
+// actors, because §4.2's readiness test is about content and a judgement other
+// hands made, and a benchmark that skipped it would be measuring a call the
+// operation cannot make.
+//
+// The content is complete here and empty in `BenchmarkReview` for the one
+// difference between the two operations: `Review` decides what the case holds
+// and asks nothing else of it, while `Sign` asks the completeness walk and the
+// pending-unit scan before it asks the store for anything. The subtraction that
+// reads this row against `BenchmarkSubmit` is therefore the gate's walk, the
+// table copy and the entry, and not a clean commit.
+func benchSpecSign(b *testing.B) (Case, uint64) {
+	b.Helper()
+	rt := NewRuntime()
+	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	if err := rt.Register(d); err != nil {
+		b.Fatalf("Register: %v", err)
+	}
+	dana, err := rt.Create(ctx(), "bench",
+		Actor{User: "dana", PrimaryRole: "Applicant"})
+	if err != nil {
+		b.Fatalf("Create: %v", err)
+	}
+	edits := append(completeApplication(0),
+		Set("application.reviewer", User("elliot")))
+	up, err := dana.Update(ctx(), 0, edits...)
+	if err != nil {
+		b.Fatalf("Update: %v", err)
+	}
+	sub, err := dana.Submit(ctx(), "application", up.Working)
+	if err != nil {
+		b.Fatalf("Submit: %v", err)
+	}
+	elliot, err := rt.Open(ctx(), dana.ID(), Actor{User: "elliot",
+		PrimaryRole: "Manager"})
+	if err != nil {
+		b.Fatalf("Open: %v", err)
+	}
+	rvs, err := elliot.Review(ctx(), "application", ReviewApprove,
+		sub.Revision, "")
+	if err != nil {
+		b.Fatalf("Review: %v", err)
+	}
+	return elliot, rvs.Revision
+}
+
+// BenchmarkSign is an attestation end to end (RUNTIME §5.10, DESIGN §4.2): the
+// fold, the resolution, the mask and the signature entry's own conjunct, the
+// readiness gate's two scans, the revision compare, and then a commit whose diff
+// is one entry. The loop alternates the evidence reference so that every
+// iteration commits: the same hand pointing at the same artifact twice is
+// already true, and §6.3 refuses that work — so a benchmark that repeated one
+// reference would be measuring `BenchmarkSignNoOp` and calling it a commit.
+func BenchmarkSign(b *testing.B) {
+	c, rev := benchSpecSign(b)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		ref := "envelope-a"
+		if i%2 == 1 {
+			ref = "envelope-b"
+		}
+		res, err := c.Sign(ctx(), "application.approved_by", rev, ref)
+		if err != nil {
+			b.Fatalf("Sign: %v", err)
+		}
+		rev = res.Revision
+	}
+}
+
+// BenchmarkSignNoOp is the double-click: the same hand, the same content, the
+// same reference, answered with success and no commit. The gap to
+// `BenchmarkSign` is what the store's writes, the table copy and the reset
+// cost — everything an attestation does besides being made, and the reason §8's
+// claim that a repeated request is cheap is a measured row rather than a reading
+// of the code.
+func BenchmarkSignNoOp(b *testing.B) {
+	c, rev := benchSpecSign(b)
+	res, err := c.Sign(ctx(), "application.approved_by", rev, "envelope")
+	if err != nil {
+		b.Fatalf("the attestation every timed call repeats: %v", err)
+	}
+	rev = res.Revision
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		again, err := c.Sign(ctx(), "application.approved_by", rev,
+			"envelope")
+		if err != nil {
+			b.Fatalf("Sign: %v", err)
+		}
+		if again.Revision != rev {
+			b.Fatalf("the repeat committed at %d, want %d", again.Revision,
+				rev)
+		}
+	}
+}
+
+// BenchmarkSignRefused is the same call stopped at the door, and the row that
+// says what an unauthorized attestation costs a host: the fold, the resolution,
+// one mask test and a refusal — before the shape questions, before the revision
+// compare, and before either scan that answers what the signature would have
+// bound. The actor holds `view`, `edit` and `review` on this form and no `sign`
+// grant anywhere in the case, which is the definition §7 ships with.
+func BenchmarkSignRefused(b *testing.B) {
+	rt := NewRuntime()
+	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	if err := rt.Register(d); err != nil {
+		b.Fatalf("Register: %v", err)
+	}
+	c, err := rt.Create(ctx(), "bench", Actor{User: "elliot",
+		PrimaryRole: "Registrar"})
+	if err != nil {
+		b.Fatalf("Create: %v", err)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, err := c.Sign(ctx(), "application.approved_by", uint64(i),
+			""); err == nil {
+			b.Fatal("a registrar with no sign grant attested anyway")
+		}
+	}
+}
+
+// BenchmarkSigReset prices §4.2's invalidation at the seam it actually runs in:
+// one diff entry in a form whose attestation stands, measured against the same
+// entry in a form whose signature field is empty. Both rows build their table
+// the same way inside the loop, so the subtraction is the effect and not the
+// fixture — the mapping's two array reads, the standing test, the table copy
+// `open` asks for and the write that clears one entry.
+//
+// It is an effect-level row rather than an operation-level one because that is
+// where the rule lives: `Submit` pays it and cannot be timed without it, so the
+// three `BenchmarkSign` rows above already carry the erasure's cost on the
+// commit path, and this row says how much of that is the new part. A case whose
+// forms are unsigned — the state most of a definition's life is spent in —
+// answers with no copy at all, which is the second row.
+func BenchmarkSigReset(b *testing.B) {
+	img := mustLower(b, "bench", specExample(b))
+	field := findSlot(img, "application.approved_by")
+	name := findSlot(img, "application.full_name")
+	changes := []commitChange{{kind: chgValue, slot: name, v: txt("Ada")}}
+	// Hoisted out of both loops: the list is the fixture's way of asking one
+	// effect, and an iteration that allocated it would be measuring the
+	// harness rather than the erasure.
+	one := []commitEffect{sigReset{}}
+
+	// `next` is declared outside the loop and assigned within it, which is how
+	// the store holds it: `commit` hands the driver the address of a field of
+	// its heap-allocated case record, and the snapshot is built there once per
+	// commit rather than allocated per iteration of a benchmark.
+	var next committedState
+
+	b.Run("standing", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			next = committedState{sigs: signedBy(img, field)}
+			applyCommitEffects(img, &next, changes, one)
+			if sigAt(next.sigs, field).at != 0 {
+				b.Fatal("the diff left the attestation standing")
+			}
+		}
+	})
+	b.Run("empty", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			next = committedState{sigs: signedBy(img)}
+			applyCommitEffects(img, &next, changes, one)
+		}
+	})
+}

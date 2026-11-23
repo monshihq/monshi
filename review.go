@@ -43,7 +43,6 @@ package monshi
 
 import (
 	"context"
-	"slices"
 	"strings"
 )
 
@@ -273,7 +272,7 @@ func (c Case) Review(ctx context.Context, target string, act ReviewAction,
 	tbl[unit] = next
 	rev, err := c.w.cases.commit(refuse, img, rec.revision,
 		committedState{s: rec.commit.s, stage: rec.commit.stage,
-			reviews: tbl},
+			reviews: tbl, sigs: rec.commit.sigs},
 		committedBy{by: c.actor.User, op: opReview,
 			changes: []commitChange{{kind: chgReview, slot: unit,
 				v: slotValue{set: true, i: int64(next.code),
@@ -313,48 +312,47 @@ func reviewTable(img *image, have []reviewState) []reviewState {
 	return next
 }
 
-// resetVerifs applies §4.2's rule to the diff a commit is about to write:
-// every verifiable unit whose content moved goes back to PENDING, and the
-// entries that say so are the ones the commit already made for §5.6's other
-// consumers. The mapping is one array read per entry — `slots[n].verif` is the
-// governing unit F3 settled at lowering — which is what makes this the effect
-// that costs nothing on a commit that changed nothing under a unit.
+// verifReset is §4.2's rule to the first of the two things that are not
+// content: a committed content change puts every verifiable unit whose content
+// moved back to PENDING. The mapping is one array read per entry —
+// `slots[n].verif` is the governing unit F3 settled at lowering — which is what
+// makes this the effect that costs nothing on a commit that changed nothing
+// under a unit.
 //
-// Two kinds are skipped, and both skips are load-bearing. `chgReview` is not
-// content: a commit whose changes are decisions must not reset the unit it
-// just decided, which would unmake the act the entry records. A rows entry is
-// content like any other — a row appearing or vanishing under a verifiable
-// group is the group's content changing — so it is *not* skipped, and its
-// slot is the collection's declaration, whose `verif` is the unit that
-// governs it.
-//
-// The table is copied once and only if something resets, so a commit that
-// moves content under no verifiable unit hands the stored slice forward
-// unchanged, and the store's replace-never-mutate rule is what makes sharing
-// it with readers safe in that case.
-func resetVerifs(img *image, have []reviewState,
-	changes []commitChange) []reviewState {
-	var hit []nodeID
-	for _, ch := range changes {
-		if ch.kind == chgReview {
-			continue
-		}
-		unit := img.slots[ch.slot].verif
-		if unit == 0 || reviewAt(have, unit).code == verifPending {
-			continue // no unit, or nothing standing that a reset would change
-		}
-		if !slices.Contains(hit, unit) {
-			hit = append(hit, unit)
-		}
+// Two kinds of entry are told apart, and the telling is the store's: §5.6's
+// driver skips the entries that are not content before `reach` is asked, so a
+// decision that reset its own unit cannot happen and neither can a signature
+// that invalidated the content it stands on. A rows entry *is* content: a row
+// appearing or vanishing under a verifiable group is that group's content
+// changing, and its slot's `verif` is the unit that governs it.
+type verifReset struct{}
+
+// reach counts the unit one entry moves, and only if the unit has a decision
+// standing: a commit that lands in a case nobody has reviewed has nothing to
+// erase, and §5.6's rule must not become an allocation for the sake of writing
+// zeroes over zeroes.
+func (verifReset) reach(img *image, next *committedState, ch commitChange,
+	hits []nodeID) []nodeID {
+	unit := img.slots[ch.slot].verif
+	if unit == 0 || reviewAt(next.reviews, unit).code == verifPending {
+		return hits // no unit, or nothing standing that a reset would change
 	}
-	if len(hit) == 0 {
-		return have
-	}
-	next := reviewTable(img, have)
-	for _, unit := range hit {
-		next[unit] = reviewState{}
-	}
-	return next
+	return addHit(hits, unit)
+}
+
+// open sizes the writable table to the definition's slots, which is what makes
+// `erase`'s index the unit's own number and not a lookup.
+func (verifReset) open(img *image, next *committedState) {
+	next.reviews = reviewTable(img, next.reviews)
+}
+
+// erase is the reset: the zero value, which is PENDING with nobody's name on
+// it. The decision itself is not rewritten anywhere else, because §5.9 keeps
+// resets out of history — the entry that says who decided survives its own
+// erasure, and replaying the entries between it and now is what says whether it
+// still stands.
+func (verifReset) erase(next *committedState, unit nodeID) {
+	next.reviews[unit] = reviewState{}
 }
 
 // pendingUnits lists the verifiable units inside one form that the case has

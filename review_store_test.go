@@ -125,6 +125,17 @@ func slotAt(t *testing.T, img *image, path string) nodeID {
 // decided is the table one review of `unit` would have stored, built by hand so
 // the reset tests start from a decision instead of from the operation that
 // makes one.
+// resetBy runs §5.6's verification reset over a diff the way the store does, and
+// hands back the table it produced. The list is one effect rather than the
+// package's two, so that a test about a decision is not also a test about a
+// signature.
+func resetBy(img *image, have []reviewState,
+	changes []commitChange) []reviewState {
+	next := committedState{reviews: have}
+	applyCommitEffects(img, &next, changes, []commitEffect{verifReset{}})
+	return next.reviews
+}
+
 func decided(img *image, unit nodeID, code uint8, note string) []reviewState {
 	tbl := reviewTable(img, nil)
 	tbl[unit] = reviewState{code: code, by: "elliot", at: 1, note: note}
@@ -187,14 +198,15 @@ func TestADecisionReplacesTheTableAndNotTheEntry(t *testing.T) {
 }
 
 func TestAReviewCommitDoesNotResetItself(t *testing.T) {
-	// The `chgReview` skip, which is the difference between a decision that
-	// stands and one that unmakes itself: the entry names a unit whose content
-	// did not move, and a reset that read it as content would clear the mark
-	// the same commit is writing.
+	// §5.6's kind filter, which is the difference between a decision that stands
+	// and one that unmakes itself: the entry names a unit whose content did not
+	// move, and a reset that read a verdict as content would clear the mark the
+	// same commit is writing. The driver asks the content kinds positively, so
+	// this is the entry type that never reaches an effect at all.
 	rt, img, c := reviewCase(t, rvRegistrar)
 	unit := slotAt(t, img, "application")
 	have := decided(img, unit, verifApproved, "")
-	got := resetVerifs(img, have, []commitChange{
+	got := resetBy(img, have, []commitChange{
 		{kind: chgReview, slot: unit,
 			v: slotValue{set: true, i: int64(verifRejected), s: "no"}},
 	})
@@ -258,7 +270,7 @@ func TestAContentCommitResetsItsUnit(t *testing.T) {
 		t.Fatalf("the approval stored %q, want APPROVED",
 			reviewAt(have, unit).state())
 	}
-	got := resetVerifs(img, have, []commitChange{
+	got := resetBy(img, have, []commitChange{
 		{kind: chgValue, slot: name, v: txt("Grace")}})
 	if reviewAt(got, unit).code != verifPending {
 		t.Error("a changed unit still read APPROVED after the reset")
@@ -285,7 +297,7 @@ func TestARowCommitResetsItsUnit(t *testing.T) {
 		t.Fatalf("the collection is governed by %d, want the form",
 			img.slots[coll].verif)
 	}
-	got := resetVerifs(img, decided(img, app, verifApproved, ""),
+	got := resetBy(img, decided(img, app, verifApproved, ""),
 		[]commitChange{rows(coll, nil, 7)})
 	if reviewAt(got, app).code != verifPending {
 		t.Error("a committed row left its unit APPROVED")
@@ -302,7 +314,7 @@ func TestACommitOutsideEveryUnitSharesTheTable(t *testing.T) {
 		t.Fatalf("gate is governed by %d, want no unit", img.slots[gate].verif)
 	}
 	have := decided(img, app, verifApproved, "")
-	got := resetVerifs(img, have, []commitChange{
+	got := resetBy(img, have, []commitChange{
 		{kind: chgValue, slot: gate, v: slotValue{set: true, i: 1}}})
 	if &got[0] != &have[0] {
 		t.Error("a commit outside every unit copied the table")
@@ -324,7 +336,7 @@ func TestOneCommitResetsEveryUnitItMoved(t *testing.T) {
 	note := slotAt(t, img, "archive.checks.note")
 	have := decided(img, app, verifApproved, "")
 	have[checks] = reviewState{code: verifApproved, by: "bo", at: 3}
-	got := resetVerifs(img, have, []commitChange{
+	got := resetBy(img, have, []commitChange{
 		{kind: chgValue, slot: name, v: txt("Ada")},
 		{kind: chgValue, slot: name, v: txt("Grace")},
 		{kind: chgValue, slot: off, v: slotValue{set: true, i: 1}},

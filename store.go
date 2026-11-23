@@ -30,6 +30,7 @@ package monshi
 // than the past, and it is why a `state` copy is a safe thing to hand out.
 
 import (
+	"slices"
 	"sync"
 	"time"
 )
@@ -140,8 +141,8 @@ type storedCase struct {
 // acts on the same case, and §5.1 lists all three among the semantic
 // committed changes. `opSubmit` and `opTransition` were declared before the
 // operations that use them were interesting; `opReview` is the first entry
-// whose act is not about content at all, and `opSign` joins it when `Sign`
-// lands.
+// whose act is not about content at all, and `opSign` is the second, so the
+// four words are already in the order milestone 5's replay has to read them.
 // A stored history that never had to be reshaped to hold them is the point of
 // writing the word early rather than in milestone 5.
 type commitOp uint8
@@ -150,6 +151,7 @@ const (
 	opSubmit commitOp = iota + 1
 	opTransition
 	opReview
+	opSign
 )
 
 // commitChange is one entry of a forward diff (DESIGN §5.1): which
@@ -187,12 +189,24 @@ const (
 // F4 reviews a `verifiable multiple` as a whole and not per member, so a
 // decision is about a declaration and never about a row.
 //
-// Being non-content is load-bearing twice, and both readers filter by kind
-// rather than by shape. §5.6's reset mapping must skip it — a decision that
-// reset its own unit would unmake itself — and §5.8's value pass must skip it
-// too, because a `verifiable` *field* is a cell slot, and a merge that read
-// `chgReview` as a base value would answer a question about content with an
-// approval.
+// `chgSign` is the fourth, and it is the case of the third discipline taken
+// to its limit: a signature says *which field* was signed and nothing else,
+// because the signer is `commitRecord`'s `by` and the content it binds is its
+// `revision`. The payload holds no more than the flag that the entry asserts
+// a fact rather than retracts one. `path` is empty for the same reason it is
+// empty for a decision, and for a second one: S1 puts a signature field
+// directly in a form, so there is no row to name.
+//
+// Being non-content is load-bearing three times over, and every reader of a
+// diff asks the kind rather than the shape. §5.6's reset mapping takes value
+// and rows entries and no others — a decision that reset its own unit would
+// unmake itself, and so would a signature that invalidated the content it
+// stands on. §5.6's invalidation mapping asks the same two kinds. §5.8's
+// value pass takes a cell only from `chgValue` and a row list only from
+// `chgRows`, because a `verifiable` *field* is a cell slot, and a merge that
+// read a decision or a signature as a base value would answer a question
+// about content with a verdict about it. Asking kinds positively is what
+// makes adding a fourth safe: no consumer of content has to be told.
 //
 // `path` is empty for a value the base row holds. For a member of a
 // collection it names the instances outermost first, in the stable IDs §5.1
@@ -211,6 +225,7 @@ const (
 	chgValue  uint8 = iota + 1 // one field's value, at one instance path
 	chgRows                    // one collection's instance count
 	chgReview                  // one verifiable unit's decision: not content
+	chgSign                    // one signature field's signer: not content
 )
 
 // commitRecord is one entry in a case's history: the revision it produced,
@@ -243,35 +258,40 @@ type commitRecord struct {
 }
 
 // committedState is one materialized committed snapshot: the case's values
-// and instance rows, the stage it is at, and the decisions reviewers have
-// made about that content (DESIGN §4.2). A host-facing `Committed` can be
-// added over this shape later without breaking a reader, because the state
-// and the stage keep their positions as the struct grows.
+// and instance rows, the stage it is at, and the two kinds of verdict about
+// that content — the decisions reviewers have made and the signatures actors
+// have left (DESIGN §4.2). A host-facing `Committed` can be added over this
+// shape later without breaking a reader, because the state and the stage keep
+// their positions as the struct grows.
 //
-// `reviews` is dense by slot and consulted only at a slot that declares
-// `verifiable` — the governing unit F3 already resolved at lowering — so a
-// case nobody has reviewed holds a nil table and pays nothing for the
-// feature.
+// Both tables are dense by slot and consulted only at a slot the definition
+// says carries the fact: `reviews` at a governing `verifiable` unit, where F3
+// already settled which declaration answers, and `sigs` at a signature field,
+// where S1 already settled that the field is a form's direct member. A case
+// nobody has reviewed or signed holds nil tables and pays nothing for the
+// features.
 //
 // It sits *beside* `s` and not inside it, and that placement is the whole
 // design decision. A working copy is a clone of the data snapshot, so a
-// review state stored as data would be handed to every draft, compared by
-// §5.8's merge and grafted by a submit — three things no decision is a
-// statement about, since a reviewer approves what the case *holds* and not
-// what somebody is typing. Kept beside it, `Update` cannot write one (a
-// signature field is refused for the same structural reason), §6.3's "other
+// verdict stored as data would be handed to every draft, compared by §5.8's
+// merge and grafted by a submit — three things no verdict is a statement
+// about, since a reviewer approves what the case *holds* and not what
+// somebody is typing, and a signature is a statement about content the signer
+// was *shown*. Kept beside it, `Update` cannot write either (a signature field
+// is refused for the same structural reason it has no cell for), §6.3's "other
 // forms' unsubmitted working edits remain intact" needs no exception for
-// reviews, and a rebase has nothing to reconcile.
+// verdicts, and a rebase has nothing to reconcile.
 //
-// The replace-never-mutate rule stated above is what makes handing this slice
-// to a caller safe: a commit builds a whole new table with `reviewTable` and
-// never writes an entry of the stored one, exactly as `Submit` builds a new
-// state instead of grafting the stored one.
+// The replace-never-mutate rule stated above is what makes handing these slices
+// to a caller safe: a commit builds a whole new table with `reviewTable` or
+// `signTable` and never writes an entry of the stored one, exactly as `Submit`
+// builds a new state instead of grafting the stored one.
 type committedState struct {
 	s     state
 	stage stageID
 
 	reviews []reviewState
+	sigs    []sigState
 }
 
 // stageName renders the snapshot's stage as its definition spells it.
@@ -546,6 +566,90 @@ type committedBy struct {
 	changes []commitChange
 }
 
+// commitEffect is §5.6's rule about what a commit *erases*, stated once as a
+// shape: something a commit's diff removes from the tables that sit beside the
+// content, because the content they speak about moved. The language has two —
+// the verification reset review.go writes and the signature invalidation
+// sign.go writes — and both are the same three questions, which is why the
+// store runs them rather than each operation remembering them.
+//
+// `reach` asks what one diff entry removes, in this effect's terms: it maps the
+// entry to the slots whose fact it erases and adds those not already counted,
+// consulting the state as the effects have left it so far. Answering it is one
+// or two array reads and no walk, which is the whole reason §3.2's lowering
+// stamps `verif` and the owning `form` onto the slot: "what stops being true
+// when this moved" is a question the definition can answer before any case
+// exists. An effect that says nothing about an entry says nothing about the
+// commit, and a commit that reaches nothing copies nothing — the property §8
+// prices, and the reason `reach` is told whether the fact is standing at all.
+//
+// `open` then makes the table the removals write into, and `erase` removes one
+// fact by naming its slot. The pair is separated on purpose: copying is a
+// per-commit decision and clearing is a per-fact one, so a diff that moves the
+// same form twice pays for one table rather than two, and an effect with
+// nothing to remove hands the stored slice forward untouched.
+type commitEffect interface {
+	reach(img *image, next *committedState, ch commitChange,
+		hits []nodeID) []nodeID
+	open(img *image, next *committedState)
+	erase(next *committedState, target nodeID)
+}
+
+// commitEffects are the effects every commit pays for. That there is one list
+// and not one per operation is the point: a `Submit` that erased verifications
+// but not signatures would leave a case whose attestation outlived the content
+// it attested to, and no read of the state could tell that had happened. The
+// store runs the list and no caller hands it one, which is what makes §5.6's
+// rules a rule rather than a convention; the driver below takes the list as a
+// parameter so that a test can ask one effect to do one thing.
+var commitEffects = []commitEffect{verifReset{}, sigReset{}}
+
+// applyCommitEffects runs the effects over the diff a commit is writing, on the
+// snapshot the commit is about to install. It mutates `next` in place: `next` is
+// the caller's own copy of the case's state, and the replace-never-mutate rule
+// is kept by `open`, which hands back a fresh table and never edits the stored
+// one.
+func applyCommitEffects(img *image, next *committedState,
+	changes []commitChange, effects []commitEffect) {
+	for _, e := range effects {
+		var hits []nodeID
+		for _, ch := range changes {
+			if ch.kind != chgValue && ch.kind != chgRows {
+				// Not content. §5.1 counts a decision and a signature among
+				// the semantic committed changes, and both are recorded, but
+				// neither is the kind of change §5.6's rules are stated about:
+				// a commit whose changes are verdicts erases no verdict.
+				// Asking the kinds positively here is what lets an effect skip
+				// the question, and what makes a kind history learns to record
+				// later safe — an effect asked about a kind it does not
+				// understand would be erasing a fact from an entry about
+				// something else.
+				continue
+			}
+			hits = e.reach(img, next, ch, hits)
+		}
+		if len(hits) == 0 {
+			continue
+		}
+		e.open(img, next)
+		for _, n := range hits {
+			e.erase(next, n)
+		}
+	}
+}
+
+// addHit collects a removal target the caller has not counted yet. Both effects
+// need the dedup — a diff that moves three fields under one unit removes one
+// fact, and a rebase that commits four fields of one form invalidates that
+// form's signature once — and the lists are the size of a form's declarations,
+// so a linear scan is the cheap answer and a set would be the expensive one.
+func addHit(hits []nodeID, n nodeID) []nodeID {
+	if !slices.Contains(hits, n) {
+		hits = append(hits, n)
+	}
+	return hits
+}
+
 // commit replaces a case's committed snapshot, appends the commit that says
 // why, and rebases the submitting actor's working copy onto the revision the
 // commit produced — the three writes DESIGN §6.3 requires to be consistent,
@@ -560,11 +664,11 @@ type committedBy struct {
 // another commit could pass.
 //
 // `img` is the case's own definition, and this method needs it for exactly one
-// reason: §4.2's reset of the review table is part of committing the snapshot,
-// and the store keys cases by definition *name* rather than holding the image
-// the data was built under (DESIGN §3 leaves that pairing to the handle).
-// `by.changes` is the diff the same call is committing, which is what the reset
-// reads.
+// reason: §5.6's effects are part of committing the snapshot, and the store keys
+// cases by definition *name* rather than holding the image the data was built
+// under (DESIGN §3 leaves that pairing to the handle). `by.changes` is the diff
+// the same call is committing, and `effects` names the rules that read it: both
+// are parameters for that one call and nothing else.
 //
 // The history append and the snapshot swap are the two halves of one act, and
 // the order inside the lock is worth stating because it is what makes
@@ -607,20 +711,26 @@ func (s *caseStore) commit(refuse refuser, img *image, want uint64,
 		return 0, refuse.now(StaleRevision,
 			"the case is at revision "+dec(rec.revision)+", not "+dec(want))
 	}
-	// DESIGN §4.2's reset, applied here and not by the caller, which is the
-	// difference between a rule and a convention: an operation that forgot to
-	// reset its own units would ship a case whose APPROVED mark outlived the
-	// content it approved, and no read could tell that happened. `img` is a
-	// parameter for this line and nothing else — the store keys cases by
-	// definition *name*, and a case's image is the caller's to know.
+	// DESIGN §4.2's two erasures, applied here and not by the caller, which is
+	// the difference between a rule and a convention: an operation that forgot
+	// to reset its own units would ship a case whose APPROVED mark outlived the
+	// content it approved, and one that forgot to invalidate its signatures
+	// would ship a case whose attestation did. `img` is a parameter for this
+	// line and nothing else — the store keys cases by definition *name*, and a
+	// case's image is the caller's to know.
 	//
-	// It runs after the revision guard and before either write, so a rejected
-	// commit leaves the stored table untouched and an accepted one can never
-	// carry a stale mark. What the reset costs is one array read per diff
-	// entry (§5.6), which is why it is paid on every commit rather than
-	// skipped when the case looks unaffected.
-	next.reviews = resetVerifs(img, next.reviews, by.changes)
+	// It runs after the revision guard, on the snapshot the commit has already
+	// installed, and before either write, so a rejected commit leaves the
+	// stored tables untouched and an accepted one can never carry a mark whose
+	// content is gone. What the erasures cost is one or two array reads per
+	// diff entry (§5.6), which is why they are paid on every commit rather than
+	// skipped when the case looks unaffected. The address handed over is the
+	// stored case's own field rather than the parameter's, and that is not
+	// cosmetic: taking the address of the by-value parameter would move it to
+	// the heap and make every commit in the language pay an allocation for a
+	// rule that reads two arrays.
 	rec.commit = next
+	applyCommitEffects(img, &rec.commit, by.changes, commitEffects)
 	rec.revision++
 	rec.hist = append(rec.hist, commitRecord{
 		revision: rec.revision,

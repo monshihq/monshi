@@ -127,3 +127,16 @@ func (img *image) maySubmit(roles []roleID, stage stageID, form nodeID) bool {
 func (img *image) mayReview(roles []roleID, stage stageID, n nodeID) bool {
 	return img.effective(roles, stage, n)&permReview != 0
 }
+
+// maySign is the question `Sign` asks, and it is asked at the signature field's
+// own slot for the reason `mayReview` gives about its unit: P3 puts a `sign`
+// grant's target on a signature field, so the bit can arrive at any other slot
+// only by inheritance from an ancestor — and `allow sign all;` is exactly that,
+// naming the case root and reaching every field beneath it. That is the reading
+// P2 gives `all` in every other permission's hands, and it means the mask cannot
+// be the whole authority question: sign.go asks `sigEntry`'s second conjunct
+// beside it, because a bit inherited from the root says the definition opened
+// this act to a role and S3 says which hand it opened it to.
+func (img *image) maySign(roles []roleID, stage stageID, n nodeID) bool {
+	return img.effective(roles, stage, n)&permSign != 0
+}

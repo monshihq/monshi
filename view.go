@@ -52,14 +52,22 @@ package monshi
 //     display it. Both are the same promise: a view whose rows disagree about
 //     when they were read is not a view of anything.
 //
-// What this file did not give, and now does, is verification state: a node
-// reports the `verifiable` declaration that governs it and what the case has
-// decided about it (RUNTIME §5.9). What it still does not report is signature
-// validity, because `Sign` has not landed (DESIGN §10) and §4.2's `verifiable`
-// attribute declares a permission target, not a verdict. The node reports the
-// kind the definition declared, so a signature field arrives as `"signature"`
-// and a client can put its box where the author wanted one; a signature's
-// verdict joins the same field when there is one to read.
+// What this file did not give, and now does, is the two verdicts a case holds
+// about its content: a node reports the `verifiable` declaration that governs
+// it and what the case decided about that (RUNTIME §5.9), and a signature field
+// reports who attested to the content the case holds and what reference the
+// attestation came with (§5.10). Both are read from the committed snapshot while
+// the values beside them are read from this actor's draft, which is the split
+// §6.1 states and §5.7 draws: the verdicts are about the case, the draft is about
+// what somebody would like it to be.
+//
+// Neither reports staleness, and neither could. §4.2's rules are that a content
+// commit erases the verdict it invalidates, and an erased verdict is not in the
+// table this walk reads, so a moved case shows the *absence* of a decision or an
+// attestation and the account of what was there is history's (§5.6). What the
+// node reports about the declaration itself is the kind the author spelled, so a
+// signature field arrives as `"signature"` whether or not anything has been
+// signed in it.
 
 import (
 	"context"
@@ -205,6 +213,25 @@ type ViewNode struct {
 	// honest rendering.
 	Review ReviewInfo
 
+	// Signable is the answer `Sign` will give for this node: the mask, the
+	// roles and the stage §5.10 asks, at the slot a host would send. Only a
+	// signature field can carry it, because only one can be signed — and
+	// unlike `Reviewable`, it says nothing about whether the field's own
+	// authority conjunct holds: S3's second half is about *who* the definition
+	// opened the field to, which a view cannot answer for an actor who is not
+	// the one asking.
+	Signable bool
+
+	// Signature is the attestation the case holds for this signature field,
+	// read from the committed snapshot for §4.2's reason: a hand attests to the
+	// content that is committed, and a signature beside a draft would be a
+	// statement about content nobody has published. A zero value means the field
+	// holds none, which covers the field never having been signed and the
+	// signature a content commit invalidated in one answer; §5.10 says why the
+	// two are the same fact rather than two facts with one rendering, and why
+	// the difference is history's to state.
+	Signature SignatureInfo
+
 	// Options is the choice list this field's `Options` hook supplied, in the
 	// order the host returned it. Non-nil only for a declared `options`
 	// field: an enum's choices are declared data and arrive as `Kind`
@@ -297,6 +324,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 		roles:    img.rolesHeld(c.actor, rec.commit.s),
 		stage:    rec.commit.stage,
 		reviews:  rec.commit.reviews,
+		sigs:     rec.commit.sigs,
 		problems: map[string][]FieldProblem{},
 		opts:     map[hookID][]string{},
 	}
@@ -464,11 +492,13 @@ type viewWalk struct {
 	stage  stageID
 	vis    []bool
 
-	// reviews is the committed decision table, and the one field here that is
-	// not read from `s`: a verdict is a fact about the case and not about this
-	// actor's draft (§4.2, §5.9). Nil when nothing has ever been decided, which
-	// `reviewAt` reads as "everything pending".
+	// reviews and sigs are the committed verdict tables, and the two fields
+	// here that are not read from `s`: a decision and an attestation are facts
+	// about the case and not about this actor's draft (§4.2, §5.9, §5.10). Each
+	// is nil when nothing of its kind has ever been recorded, which `reviewAt`
+	// reads as "everything pending" and `sigAt` as "nothing signed".
 	reviews []reviewState
+	sigs    []sigState
 
 	problems map[string][]FieldProblem
 	opts     map[hookID][]string
@@ -549,6 +579,17 @@ func (v *viewWalk) node(n nodeID, prefix instPath) (*ViewNode, error) {
 		Reviewable: sl.verif == n && !endsAt(prefix, n) &&
 			img.mayReview(v.roles, v.stage, n),
 		Review: reviewInfoOf(img, v.reviews, n),
+		// Two of `Reviewable`'s three tests are not asked here, and both are
+		// S1's doing: a signature field is a form's direct member, so this
+		// node's slot *is* the declaration (no governing unit to settle) and no
+		// address of it is ever an instance's (no row to decline). What is left
+		// is the two facts §4.3 promises the flag answers: the mask at this
+		// slot, asked the way §5.10 asks it, and the test for being a signature
+		// field at all. That test is load-bearing rather than tidy: `allow sign
+		// all` is legal, its bit reaches every slot by inheritance, and without
+		// it a definition would report half its fields as signable.
+		Signable:  sl.sig != 0 && img.maySign(v.roles, v.stage, n),
+		Signature: signatureInfoOf(img, v.sigs, n),
 	}
 	if sl.kind == kindField {
 		// The draft's cell, at this instance. A form, a group and a
