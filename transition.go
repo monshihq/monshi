@@ -138,14 +138,15 @@ type TransitionResult struct {
 // exactly as they were.
 func (c Case) Transition(ctx context.Context, dest string,
 	observed uint64) (TransitionResult, error) {
-	d, rec, err := c.look(ctx, "transition")
+	refuse := c.refusing("transition")
+	d, rec, err := c.look(ctx, refuse)
 	if err != nil {
 		return TransitionResult{}, err
 	}
 	img := d.img
 	to, ok := img.stageByName(dest)
 	if !ok {
-		return TransitionResult{}, refused("transition", NotFound, c.id,
+		return TransitionResult{}, refuse.now(NotFound,
 			"no stage is named "+quote(dest))
 	}
 	from := rec.commit.stage
@@ -157,7 +158,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 		// from a wish to be elsewhere, and what it can say is a fact: no
 		// transition is declared. The category is about state rather than
 		// about a name, because the name it was given does resolve.
-		return TransitionResult{}, refused("transition", InvalidOp, c.id,
+		return TransitionResult{}, refuse.now(InvalidOp,
 			"no transition is declared from "+quote(img.stageName(from))+
 				" to "+quote(dest))
 	}
@@ -174,7 +175,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 		kind = "reject"
 	}
 	if !granted {
-		return TransitionResult{}, refused("transition", AccessDenied, c.id,
+		return TransitionResult{}, refuse.now(AccessDenied,
 			"an "+kind+" toward "+quote(dest)+
 				" is not granted at stage "+quote(img.stageName(from)))
 	}
@@ -184,7 +185,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 	// below; this one exists so the refusal arrives before any content is
 	// read, and with the case's number in it.
 	if observed != rec.revision {
-		return TransitionResult{}, refused("transition", StaleRevision, c.id,
+		return TransitionResult{}, refuse.now(StaleRevision,
 			"the case is at revision "+dec(rec.revision)+", not "+
 				dec(observed))
 	}
@@ -198,7 +199,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 	// adjacency on purpose, so nothing here walks a fanout — the guard is
 	// asked at the moment of the transition and nowhere else.
 	if e.guard != 0 && !img.cond(e.guard)(rec.commit.s.row) {
-		return res, refused("transition", InvalidOp, c.id,
+		return res, refuse.now(InvalidOp,
 			"the "+kind+" toward "+quote(dest)+" is declared with a "+
 				"condition the committed content does not meet")
 	}
@@ -215,7 +216,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 		}
 		if len(gaps) > 0 {
 			res.Missing = gapPaths(gaps)
-			return res, refused("transition", InvalidOp, c.id,
+			return res, refuse.now(InvalidOp,
 				quote(dest)+" still requires "+count(len(gaps),
 					"field", "fields")+" with no value")
 		}
@@ -236,7 +237,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 	// `changes` is empty and that is not a no-op: §5.1 counts the stage among
 	// the semantic committed changes, and commitRecord carries the stage of
 	// the entry for exactly the replay that has to land the case where it is.
-	rev, err := c.w.cases.commit("transition", c.id, rec.revision,
+	rev, err := c.w.cases.commit(refuse, rec.revision,
 		committedState{s: rec.commit.s, stage: to},
 		committedBy{by: c.actor.User, op: opTransition})
 	if err != nil {

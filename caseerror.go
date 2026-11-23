@@ -102,11 +102,61 @@ func Failed(err error, want Category) bool {
 	return errors.As(err, &ce) && ce.Reason == want
 }
 
-// refused builds the one refusal shape this package emits. `op` is stated
-// by the caller because the same store path serves several operations and
-// a host wants to know which one refused.
+// refused builds the one refusal shape this package emits. It is the
+// primitive, and the only thing that calls it is a `refuser` below: an
+// operation's name and the case it was asked of travel together through
+// every refusal of that call, and building a `CaseError` by hand anywhere
+// else would put two hand-typed words back where one binding belongs.
 func refused(op string, c Category, id CaseID, detail string) error {
 	return &CaseError{Op: op, Reason: c, Case: id, Detail: detail}
+}
+
+// refuser is one operation's name bound to one case, so that a call path
+// states who is refusing exactly once — at its top — and every refusal it
+// then returns agrees.
+//
+// The property is worth the indirection because `CaseError.Op` is how a host
+// finds the call that answered it: `Op` is a field of the contract, not
+// decoration, and a store refusal or a hook failure that said `update` when
+// the host called `submit` would send it to the wrong line of its own code.
+// Before this type, that agreement was maintained by typing the same string
+// at thirty-odd call sites, including the ones where the name is handed to
+// the store and comes back inside an error the operation did not build.
+//
+// It also folds the case ID into the same binding, which is the other half
+// of the argument: a store method that receives an ID *and* an operation
+// name can be passed a pair that does not belong together, and only the
+// caller knows which is which.
+type refuser struct {
+	op string
+	id CaseID
+}
+
+// newRefuser binds a name to a case for a path that has no handle yet —
+// `Create`, before the case it is making exists, and the registry's
+// definition-level refusals, which are about no case in particular and so
+// carry the zero ID the way `CaseError` documents it.
+func newRefuser(op string, id CaseID) refuser { return refuser{op: op, id: id} }
+
+// refusing is newRefuser for the case this handle points at. Each operation
+// calls it once, as its first act, and passes the result wherever a refusal
+// can be built downstream — including into the store.
+func (c Case) refusing(op string) refuser { return newRefuser(op, c.id) }
+
+// now is the ordinary refusal: category `c`, sentence `detail`, in this
+// binding's operation name and against its case.
+func (r refuser) now(c Category, detail string) error {
+	return refused(r.op, c, r.id, detail)
+}
+
+// caused is `now` with a cause beside it, for the refusals whose reason is
+// another error's — a hook that returned its own failure, or a store driver
+// that will. The cause is the host's to read and the category is the
+// engine's answer, which is why they are one value and not two.
+func (r refuser) caused(c Category, detail string, cause error) error {
+	err := refused(r.op, c, r.id, detail)
+	err.(*CaseError).Cause = cause
+	return err
 }
 
 // dec and quote render the two things a refusal names: a revision and a

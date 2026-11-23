@@ -123,15 +123,16 @@ func (h *hookSet) normalizer(img *image, id hookID) (normFunc, bool) {
 // HOOK_FAILURE naming the binding: blaming the caller for a function it did
 // not write would send it to debug the wrong half of its own code.
 //
-// `op` names the operation the refusal is about, for the reason store.go
-// gives its `op`: a host reads `CaseError.Op` to find the call, and a hook
+// `refuse` names the operation the refusal is about, for the reason store.go
+// gives its own: a host reads `CaseError.Op` to find the call, and a hook
 // failure heard during a submit that said "update" would send it to the wrong
-// line of its own code.
-func (w *wiring) settle(ctx context.Context, op string, img *image,
-	id CaseID, n nodeID, in Value) (slotValue, error) {
+// line of its own code. It arrives bound rather than as a word the hook layer
+// re-types, which is how `validate` below answers in the same voice.
+func (w *wiring) settle(ctx context.Context, refuse refuser, img *image,
+	n nodeID, in Value) (slotValue, error) {
 	out, bad := img.store(n, in)
 	if bad != "" {
-		return slotValue{}, refused(op, InvalidOp, id, bad)
+		return slotValue{}, refuse.now(InvalidOp, bad)
 	}
 	fn, hook := w.forType(img, n)
 	if fn == nil {
@@ -140,15 +141,13 @@ func (w *wiring) settle(ctx context.Context, op string, img *image,
 	binding := quote(img.bindingName(hook))
 	normalized, err := fn(ctx, in)
 	if err != nil {
-		return slotValue{}, &CaseError{Op: op, Reason: HookFailure,
-			Case: id, Detail: "the Validate hook for " + binding +
-				" refused the value", Cause: err}
+		return slotValue{}, refuse.caused(HookFailure,
+			"the Validate hook for "+binding+" refused the value", err)
 	}
 	out, bad = img.store(n, normalized)
 	if bad != "" {
-		return slotValue{}, &CaseError{Op: op, Reason: HookFailure,
-			Case: id, Detail: "the Validate hook for " + binding +
-				" returned a value its type does not hold: " + bad}
+		return slotValue{}, refuse.now(HookFailure, "the Validate hook for "+
+			binding+" returned a value its type does not hold: "+bad)
 	}
 	return out, nil
 }
@@ -199,7 +198,7 @@ func (w *wiring) forType(img *image, n nodeID) (normFunc, hookID) {
 // normalized value is what "all later checks" see, and Submit *is* that later
 // check, so a hook that is not a fixed point on its own output has a bug to
 // fix, and a refusal naming the binding is where it learns so.
-func (w *wiring) validate(ctx context.Context, img *image, id CaseID,
+func (w *wiring) validate(ctx context.Context, refuse refuser, img *image,
 	s *state, root nodeID) ([]FieldProblem, error) {
 	var out []FieldProblem
 	lo, hi := img.subtree(root)
@@ -244,16 +243,14 @@ func (w *wiring) validate(ctx context.Context, img *image, id CaseID,
 			}
 			back, bad := img.store(n, got)
 			if bad != "" {
-				return nil, &CaseError{Op: "submit", Reason: HookFailure,
-					Case: id, Detail: "the Validate hook for " +
-						quote(binding) +
-						" returned a value its type does not hold: " + bad}
+				return nil, refuse.now(HookFailure, "the Validate hook for "+
+					quote(binding)+
+					" returned a value its type does not hold: "+bad)
 			}
 			if !img.same(n, v, back) {
-				return nil, &CaseError{Op: "submit", Reason: HookFailure,
-					Case: id, Detail: "the Validate hook for " +
-						quote(binding) + " rewrote a stored value, at " +
-						s.addr(n, p)}
+				return nil, refuse.now(HookFailure, "the Validate hook for "+
+					quote(binding)+" rewrote a stored value, at "+
+					s.addr(n, p))
 			}
 		}
 	}

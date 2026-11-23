@@ -1214,6 +1214,20 @@ a re-run shows.
   reinterpreting the data into nonsense, and a case nobody opens again is
   never asked.
 - **No automatic `Rebase` merging** (DESIGN §6.5 deferral stands).
+- **No abstracted commit ladder.** `Update`, `Submit` and `Transition`
+  share a shape — look the case up, resolve what was named, ask
+  permission, ask the numbers, ask the content, then save — but the
+  interleaving of those questions is the per-operation decision §5.4 and
+  §5.5 exist to state, and §5.5's conditional rebase is what a shared step
+  costs when one operation cannot rely on the reason the other had it
+  pass. Extract the skeleton when `Review` and `Sign` make it five
+  instances, not while it is three.
+- **One `Affected` policy is a milestone 5–6 decision.** DESIGN §6.4
+  promises an affected set for every committing operation; `Submit`
+  ships without one and `Transition` with the §5.5 definition walk,
+  because notification is the only consumer of such a list and it is
+  `OnCommit`'s shape that decides what the lists must contain. The two
+  are decided together, not one operation at a time.
 - **No per-instance condition paths** (SYNTAX Appendix B item 11): F6
   uniformity is load-bearing for §3.4's one-closure-per-collection. If
   instance-relative conditions are ever added, `condFn` gains an

@@ -94,7 +94,7 @@ func editCase(t *testing.T, actor Actor) (*Runtime, *image, Case) {
 // definition resolves to.
 func draftState(t *testing.T, c Case, img *image) state {
 	t.Helper()
-	w, err := c.w.cases.working("open", c.id, c.actor.User, img)
+	w, err := c.w.cases.working(newRefuser("open", c.id), c.actor.User, img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestUpdateWritesTheWorkingCopyAndNotTheCase(t *testing.T) {
 	// and the split is what §6.3's Submit diff is computed against, so if
 	// this assertion ever fails the symptom is a commit reporting an empty
 	// diff on content a user typed an hour ago.
-	rec, err := c.w.cases.load("open", c.id)
+	rec, err := c.w.cases.load(newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestUpdateWritesTheWorkingCopyAndNotTheCase(t *testing.T) {
 	// And the copy's base is the committed revision it diverged from, not a
 	// number the caller asserted: §6.5's rebase compares that pair, and §3.1's
 	// division says the store does the numbering.
-	w, err := c.w.cases.working("open", c.id, c.actor.User, img)
+	w, err := c.w.cases.working(newRefuser("open", c.id), c.actor.User, img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestAnEditConfersNothingUntilItIsCommitted(t *testing.T) {
 	// The assignment alone is a permitted edit, and it still confers nothing
 	// while it is a draft.
 	base := mustUpdate(t, c, 0, Set("application.reviewer", User("dana")))
-	rec, err := c.w.cases.load("open", c.id)
+	rec, err := c.w.cases.load(newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -466,7 +466,7 @@ func TestValidateNormalizesTheValueItIsGiven(t *testing.T) {
 		t.Errorf("a failed hook left %s in the row, want the earlier value",
 			again.d.String())
 	}
-	w, err := c.w.cases.working("open", c.id, c.actor.User, img)
+	w, err := c.w.cases.working(newRefuser("open", c.id), c.actor.User, img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
@@ -584,7 +584,7 @@ func TestUpdateRefusesACaseItCannotInterpret(t *testing.T) {
 	// uncommitted bytes: the same value, a new pair of eyes. §3.3 makes the
 	// changed default a fact about *future* data, so the field still holds
 	// what create put in it until an edit says otherwise.
-	w, err := rt.w.cases.working("open", c.id, "dana", compat.img)
+	w, err := rt.w.cases.working(newRefuser("open", c.id), "dana", compat.img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}

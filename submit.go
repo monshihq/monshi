@@ -111,12 +111,13 @@ type CommitResult struct {
 // transition or no persistent effect").
 func (c Case) Submit(ctx context.Context, form string,
 	working uint64) (CommitResult, error) {
-	d, rec, err := c.look(ctx, "submit")
+	refuse := c.refusing("submit")
+	d, rec, err := c.look(ctx, refuse)
 	if err != nil {
 		return CommitResult{}, err
 	}
 	img := d.img
-	n, err := img.topForm("submit", c.id, form)
+	n, err := img.topForm(refuse, form)
 	if err != nil {
 		return CommitResult{}, err
 	}
@@ -128,20 +129,20 @@ func (c Case) Submit(ctx context.Context, form string,
 	// grant themselves the right to publish the grant.
 	roles := img.rolesHeld(c.actor, rec.commit.s)
 	if !img.maySubmit(roles, rec.commit.stage, n) {
-		return CommitResult{}, refused("submit", AccessDenied, c.id,
+		return CommitResult{}, refuse.now(AccessDenied,
 			"submitting "+quote(form)+" is not granted at stage "+
 				quote(img.stageName(rec.commit.stage)))
 	}
 
-	w, err := c.w.cases.working("submit", c.id, c.actor.User, img)
+	w, err := c.w.cases.working(refuse, c.actor.User, img)
 	if err != nil {
 		return CommitResult{}, err
 	}
 	if w.rev != working {
-		return CommitResult{}, staleWorking("submit", c.id, w.rev, working)
+		return CommitResult{}, refuse.staleCopy(w.rev, working)
 	}
 	if w.base != rec.revision {
-		return CommitResult{}, refused("submit", StaleRevision, c.id,
+		return CommitResult{}, refuse.now(StaleRevision,
 			"the working copy descends from revision "+dec(w.base)+
 				", the case is at "+dec(rec.revision))
 	}
@@ -157,7 +158,7 @@ func (c Case) Submit(ctx context.Context, form string,
 	if len(gaps) > 0 {
 		res.Missing = gapPaths(gaps)
 	}
-	problems, err := c.w.validate(ctx, img, c.id, &w.s, n)
+	problems, err := c.w.validate(ctx, refuse, img, &w.s, n)
 	if err != nil {
 		// A hook that misbehaved rather than refused: HOOK_FAILURE, and no
 		// list to render, because the defect is in host code and not in any
@@ -167,7 +168,7 @@ func (c Case) Submit(ctx context.Context, form string,
 	}
 	res.Invalid = problems
 	if len(res.Missing) > 0 || len(res.Invalid) > 0 {
-		return res, refused("submit", InvalidOp, c.id,
+		return res, refuse.now(InvalidOp,
 			notSubmittable(quote(form), res.Missing, res.Invalid))
 	}
 
@@ -200,7 +201,7 @@ func (c Case) Submit(ctx context.Context, form string,
 		return res, nil
 	}
 
-	rev, err := c.w.cases.commit("submit", c.id, rec.revision,
+	rev, err := c.w.cases.commit(refuse, rec.revision,
 		committedState{s: next, stage: rec.commit.stage},
 		committedBy{by: c.actor.User, op: opSubmit, changes: changes})
 	if err != nil {
@@ -225,9 +226,9 @@ func (c Case) Submit(ctx context.Context, form string,
 // commonest confusion in an API that has both. Telling them apart is worth a
 // branch, because the host's fix differs — one is a typo, the other is the
 // wrong operation.
-func (img *image) topForm(op string, id CaseID, name string) (nodeID, error) {
+func (img *image) topForm(refuse refuser, name string) (nodeID, error) {
 	if strings.Contains(name, ".") {
-		return 0, refused(op, InvalidOp, id,
+		return 0, refuse.now(InvalidOp,
 			"a submit names one top-level form, and "+quote(name)+
 				" is a path: submit the form that contains it")
 	}
@@ -236,7 +237,7 @@ func (img *image) topForm(op string, id CaseID, name string) (nodeID, error) {
 			return n, nil
 		}
 	}
-	return 0, refused(op, NotFound, id, "no form is named "+quote(name))
+	return 0, refuse.now(NotFound, "no form is named "+quote(name))
 }
 
 // notSubmittable is the one sentence a refused submit carries beside its

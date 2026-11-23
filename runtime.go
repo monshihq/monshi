@@ -122,7 +122,7 @@ func (r *Runtime) Define(id string, src io.Reader) (*Definition, error) {
 // definition reinterprets every case that names it (DESIGN §3), and a host
 // that means to swap one under live cases should have to say so.
 func (r *Runtime) Register(d *Definition) error {
-	return r.insert("register", d, false)
+	return r.insert(newRefuser("register", 0), d, false)
 }
 
 // Replace registers a definition under its ID whether or not one is
@@ -139,16 +139,16 @@ func (r *Runtime) Register(d *Definition) error {
 // a host that changes a definition in place decides whether its existing
 // cases are re-created or migrated.
 func (r *Runtime) Replace(d *Definition) error {
-	return r.insert("replace", d, true)
+	return r.insert(newRefuser("replace", 0), d, true)
 }
 
 // insert is the registry write both Register and Replace need: one
 // refusal shape, one detail naming the operation that asked.
-func (r *Runtime) insert(op string, d *Definition, replace bool) error {
+func (r *Runtime) insert(refuse refuser, d *Definition, replace bool) error {
 	if d == nil {
-		return refused(op, InvalidOp, 0, "no definition was given")
+		return refuse.now(InvalidOp, "no definition was given")
 	}
-	return r.w.defs.add(op, d, replace)
+	return r.w.defs.add(refuse, d, replace)
 }
 
 // Definition returns the registered definition with that ID.
@@ -166,7 +166,7 @@ func (r *Runtime) Create(ctx context.Context, definition string,
 	actor Actor) (Case, error) {
 	d, ok := r.w.defs.get(definition)
 	if !ok {
-		return Case{}, refused("create", InvalidOp, 0,
+		return Case{}, newRefuser("create", 0).now(InvalidOp,
 			"no definition is registered as "+quote(definition))
 	}
 	id := r.w.cases.create(d)
@@ -175,7 +175,8 @@ func (r *Runtime) Create(ctx context.Context, definition string,
 	// working state — the same act `Open` performs, for the same reason: an
 	// edit that gets refused afterwards must not leave behind a copy the
 	// caller never saw created (`Open` below says why that matters).
-	if _, err := r.w.cases.working("create", id, actor.User, d.img); err != nil {
+	if _, err := r.w.cases.working(c.refusing("create"), actor.User,
+		d.img); err != nil {
 		return Case{}, err
 	}
 	return c, nil
@@ -188,7 +189,7 @@ func (r *Runtime) Create(ctx context.Context, definition string,
 // fails here rather than at first use.
 func (r *Runtime) Open(ctx context.Context, id CaseID, actor Actor) (Case, error) {
 	c := Case{id: id, actor: actor, w: r.w}
-	d, rec, err := c.look(ctx, "open")
+	d, rec, err := c.look(ctx, c.refusing("open"))
 	if err != nil {
 		return Case{}, err
 	}
@@ -204,7 +205,8 @@ func (r *Runtime) Open(ctx context.Context, id CaseID, actor Actor) (Case, error
 	// changed nothing it was shown, because the copy it wrote on already
 	// existed (§9's no-persistent-effect guarantee, which an edit cannot make
 	// true for itself).
-	if _, err := r.w.cases.working("open", id, actor.User, d.img); err != nil {
+	if _, err := r.w.cases.working(c.refusing("open"), actor.User,
+		d.img); err != nil {
 		return Case{}, err
 	}
 	return c, nil
@@ -248,7 +250,7 @@ func (c Case) Definition() (*Definition, bool) {
 // Stage answers the case's current stage name. The operations that change
 // it are milestone 5's.
 func (c Case) Stage(ctx context.Context) (string, error) {
-	_, rec, err := c.look(ctx, "stage")
+	_, rec, err := c.look(ctx, c.refusing("stage"))
 	if err != nil {
 		return "", err
 	}
@@ -259,7 +261,7 @@ func (c Case) Stage(ctx context.Context) (string, error) {
 // Sign or Transition must present as the base it observed (DESIGN §6.4,
 // invariant 5).
 func (c Case) Revision(ctx context.Context) (uint64, error) {
-	_, rec, err := c.look(ctx, "revision")
+	_, rec, err := c.look(ctx, c.refusing("revision"))
 	if err != nil {
 		return 0, err
 	}
@@ -276,32 +278,35 @@ func (c Case) Revision(ctx context.Context) (uint64, error) {
 // The record is returned by value, which is what makes the snapshot's
 // scalars one consistent read rather than a race across the store's lock.
 //
-// `op` names the exported operation that asked, and each of them passes its
-// own word: a host reads `CaseError.Op` to learn which call refused, so a
-// shared lookup reporting "open" while the host called Stage would send it
-// to the wrong line of its own code.
+// `refuse` is the calling operation's own refuser, and this is the reason the
+// type exists rather than a nicety: a host reads `CaseError.Op` to learn which
+// call refused, so a shared lookup reporting "open" while the host called
+// `Stage` would send it to the wrong line of its own code. Passing the binding
+// down is also what lets the store's refusals — an unknown case, a stale
+// copy — be answered in the caller's voice without any of them naming an
+// operation it never saw.
 //
 // ctx is the caller's and is not read yet: these operations do no I/O
 // against a cancellable backend today, and the same calls will hand the
 // context to the store from milestone 4 on (store.go). Taking it now is
 // what lets a host write the call once.
-func (c Case) look(ctx context.Context, op string) (
+func (c Case) look(ctx context.Context, refuse refuser) (
 	*Definition, storedCase, error) {
 	// A zero Case is what a host holds if it ignored Create's error. It is
 	// not a handle on anything, and the answer is the refusal the store
 	// already gives for an ID it never issued — not a nil dereference inside
 	// a package the host cannot step through.
 	if c.w == nil {
-		return nil, storedCase{}, refused(op, NotFound, c.id,
+		return nil, storedCase{}, refuse.now(NotFound,
 			"this handle was never opened from a runtime")
 	}
-	rec, err := c.w.cases.load(op, c.id)
+	rec, err := c.w.cases.load(refuse)
 	if err != nil {
 		return nil, storedCase{}, err
 	}
 	d, ok := c.w.defs.get(rec.def)
 	if !ok {
-		return nil, storedCase{}, refused(op, SchemaMismatch, c.id,
+		return nil, storedCase{}, refuse.now(SchemaMismatch,
 			"definition "+quote(rec.def)+
 				" governs this case and is not registered")
 	}
@@ -313,7 +318,7 @@ func (c Case) look(ctx context.Context, op string) (
 	// what is deliberately not part of it.
 	if img := rec.commit.s.img; img != d.img {
 		if detail, ok := dataDrift(img, d.img); !ok {
-			return nil, storedCase{}, refused(op, SchemaMismatch, c.id, detail)
+			return nil, storedCase{}, refuse.now(SchemaMismatch, detail)
 		}
 		rec.commit.s.reinterpret(d.img)
 	}

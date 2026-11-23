@@ -167,7 +167,7 @@ func TestSubmitAsksTheRulesAsTheyAreToday(t *testing.T) {
 	// Nothing durable happened: no commit, and the draft exactly as it was
 	// presented — a refused submit does not normalize, clear or re-validate
 	// its way into the copy (§9's no persistent effect).
-	if hist, err := c.w.cases.history("open", c.id); err != nil ||
+	if hist, err := c.w.cases.history(newRefuser("open", c.id)); err != nil ||
 		len(hist) != 0 {
 		t.Errorf("the refused submit left %d history entries (%v), want 0",
 			len(hist), err)
@@ -253,7 +253,7 @@ func TestSubmitRefusesAHookThatRewroteAStoredValue(t *testing.T) {
 	if !strings.Contains(err.Error(), `"money"`) {
 		t.Error("the refusal did not name the binding it is about")
 	}
-	if hist, err := c.w.cases.history("open", c.id); err != nil ||
+	if hist, err := c.w.cases.history(newRefuser("open", c.id)); err != nil ||
 		len(hist) != 0 {
 		t.Errorf("a hook failure left %d history entries (%v), want 0",
 			len(hist), err)

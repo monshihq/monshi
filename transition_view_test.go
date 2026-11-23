@@ -249,7 +249,7 @@ func TestATransitionCommitsAStageAndNoContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	before, err := c.w.cases.load("open", c.id)
+	before, err := c.w.cases.load(newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestATransitionCommitsAStageAndNoContent(t *testing.T) {
 			res.Revision, res.Stage, first.Revision+1)
 	}
 
-	after, err := c.w.cases.load("open", c.id)
+	after, err := c.w.cases.load(newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestATransitionCommitsAStageAndNoContent(t *testing.T) {
 	// The history, which is where a stage change has to be visible: two
 	// entries, the second one the transition's, carrying no changes and a
 	// different stage from the entry before it.
-	hist, err := c.w.cases.history("open", c.id)
+	hist, err := c.w.cases.history(newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestACommitRebasesOnlyTheActorWhoMadeIt(t *testing.T) {
 // way to see the `base` a commit left it at.
 func workingOf(t *testing.T, c Case, img *image) (workingState, error) {
 	t.Helper()
-	return c.w.cases.working("open", c.id, c.actor.User, img)
+	return c.w.cases.working(newRefuser("open", c.id), c.actor.User, img)
 }
 
 // mustStage and mustRole resolve a fixture's names to ordinals, and fail the
@@ -489,7 +489,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	rec, err := elliot.w.cases.load("open", dana.ID())
+	rec, err := elliot.w.cases.load(newRefuser("open", dana.ID()))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -565,7 +565,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 		t.Errorf("the case reached %d at %q, want %d at company_review",
 			res.Revision, res.Stage, sub.Revision+1)
 	}
-	after, err := elliot.w.cases.load("open", dana.ID())
+	after, err := elliot.w.cases.load(newRefuser("open", dana.ID()))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -573,7 +573,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 		t.Errorf("the snapshot is at stage %d, want company_review",
 			after.commit.stage)
 	}
-	hist, err := elliot.w.cases.history("open", dana.ID())
+	hist, err := elliot.w.cases.history(newRefuser("open", dana.ID()))
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}

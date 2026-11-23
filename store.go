@@ -56,13 +56,13 @@ func (g *registry) get(id string) (*Definition, bool) {
 // to replace. Duplicate IDs are rejected because `Create` selects by ID:
 // two definitions under one name would make a case's record ambiguous about
 // which one governs its data, and that is a host mistake worth stopping
-// rather than resolving. `op` names the refusal after the act that asked,
+// rather than resolving. `refuse` names the refusal after the act that asked,
 // because Register and Replace report the same collision differently.
-func (g *registry) add(op string, d *Definition, replace bool) error {
+func (g *registry) add(refuse refuser, d *Definition, replace bool) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if _, dup := g.defs[d.ID()]; dup && !replace {
-		return refused(op, InvalidOp, 0,
+		return refuse.now(InvalidOp,
 			"definition "+quote(d.ID())+" is already registered")
 	}
 	g.defs[d.ID()] = d
@@ -268,10 +268,10 @@ func (s *caseStore) create(d *Definition) CaseID {
 // load returns a copy of one case's record. An unknown ID is NOT_FOUND:
 // the zero record is never an acceptable answer, because revision 0 at the
 // initial stage is a real state a case can be in.
-func (s *caseStore) load(op string, id CaseID) (storedCase, error) {
+func (s *caseStore) load(refuse refuser) (storedCase, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	rec, err := s.check(op, id)
+	rec, err := s.check(refuse)
 	if err != nil {
 		return storedCase{}, err
 	}
@@ -283,9 +283,11 @@ func (s *caseStore) load(op string, id CaseID) (storedCase, error) {
 // user opens the case). Every session of one actor gets the same copy —
 // invariant 4 — because the copy is keyed by identity.
 //
-// The three methods that follow take `op` for the reason `check` gives: a
-// working copy is read and written by whichever operation the host called,
-// and the store cannot know which one it was.
+// The three methods that follow take a `refuser` for the reason `check`
+// gives: a working copy is read and written by whichever operation the host
+// called, and the store cannot know which one it was. The case it is asked
+// about comes from the same binding, because a name and an ID that were
+// allowed to disagree would be a store refusal about the wrong case.
 //
 // `img` is the image the caller's definition just resolved to, and the copy
 // is handed out interpreted through it. The caller has proved the two images
@@ -294,11 +296,11 @@ func (s *caseStore) load(op string, id CaseID) (storedCase, error) {
 // state rather than a committed one, and it is a field of a copy: nothing
 // here writes the record, which is the part of invariant 8 that matters to
 // a case nobody has re-read yet.
-func (s *caseStore) working(op string, id CaseID, user UserID,
+func (s *caseStore) working(refuse refuser, user UserID,
 	img *image) (workingState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rec, err := s.check(op, id)
+	rec, err := s.check(refuse)
 	if err != nil {
 		return workingState{}, err
 	}
@@ -331,21 +333,21 @@ func (s *caseStore) working(op string, id CaseID, user UserID,
 // session had already taken — so the guard reads the stored copy, and the
 // stored copy's own base and rev are what land. The data is the caller's;
 // the numbering is the store's, the same division §3.1 makes of a case ID.
-func (s *caseStore) saveWorking(op string, id CaseID, user UserID,
+func (s *caseStore) saveWorking(refuse refuser, user UserID,
 	expected uint64, next workingState) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rec, err := s.check(op, id)
+	rec, err := s.check(refuse)
 	if err != nil {
 		return 0, err
 	}
 	cur, have := rec.work[user]
 	if !have {
-		return 0, refused(op, InvalidOp, id,
+		return 0, refuse.now(InvalidOp,
 			"this actor has no working copy to write over")
 	}
 	if cur.rev != expected {
-		return 0, staleWorking(op, id, cur.rev, expected)
+		return 0, refuse.staleCopy(cur.rev, expected)
 	}
 	stored := next
 	stored.s = next.s.clone()
@@ -355,15 +357,18 @@ func (s *caseStore) saveWorking(op string, id CaseID, user UserID,
 	return stored.rev, nil
 }
 
-// staleWorking is the one sentence DESIGN §6.2's guard needs, stated twice
+// staleCopy is the one sentence DESIGN §6.2's guard needs, stated twice
 // because the check is made twice: once when an operation reads the copy it
 // is about to write, so a caller whose view is out of date hears about it
 // before anything is resolved or checked against permissions, and once under
 // the store's lock, because a second session of the same actor can have saved
 // in between. Both say the same thing, which is the point: the race is not a
-// different error from the stale case, only a rarer one.
-func staleWorking(op string, id CaseID, cur, want uint64) error {
-	return refused(op, StaleRevision, id,
+// different error from the stale case, only a rarer one. It is a method
+// rather than a sentence in two places so that "the same thing" is true by
+// construction, and it carries the operation's name from whichever of the two
+// checks reached it.
+func (r refuser) staleCopy(cur, want uint64) error {
+	return r.now(StaleRevision,
 		"the working copy is at revision "+dec(cur)+", not "+dec(want))
 }
 
@@ -420,16 +425,16 @@ type committedBy struct {
 // guard §6.5 exists to make refuse. Lineage is a fact about history, and a
 // commit may only extend a copy's lineage when it was made against the state
 // that copy stands on.
-func (s *caseStore) commit(op string, id CaseID, want uint64,
+func (s *caseStore) commit(refuse refuser, want uint64,
 	next committedState, by committedBy) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rec, err := s.check(op, id)
+	rec, err := s.check(refuse)
 	if err != nil {
 		return 0, err
 	}
 	if rec.revision != want {
-		return 0, refused(op, StaleRevision, id,
+		return 0, refuse.now(StaleRevision,
 			"the case is at revision "+dec(rec.revision)+", not "+dec(want))
 	}
 	rec.commit = next
@@ -461,10 +466,10 @@ func (s *caseStore) commit(op string, id CaseID, want uint64,
 // audit view and the rebase, and both are later slices (DESIGN §6.5). It
 // exists now because the history is the store's third kind of state, and
 // because milestone 4's transaction needs the same read to replay from.
-func (s *caseStore) history(op string, id CaseID) ([]commitRecord, error) {
+func (s *caseStore) history(refuse refuser) ([]commitRecord, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	rec, err := s.check(op, id)
+	rec, err := s.check(refuse)
 	if err != nil {
 		return nil, err
 	}
@@ -482,7 +487,7 @@ func (s *caseStore) history(op string, id CaseID) ([]commitRecord, error) {
 // data another goroutine is reading because it replaces a value instead of
 // writing through a pointer to it.
 //
-// `check`'s `op` names the refusal after the act that asked, as
+// `check`'s `refuse` names the refusal after the act that asked, as
 // `registry.add`'s does. The store itself has no business being in a host's
 // log line: a host called `Update` and refused a commit, and "load" would
 // send whoever reads that line looking at the wrong half of the package.
@@ -491,10 +496,10 @@ func (s *caseStore) at(id CaseID) (*storedCase, bool) {
 	return rec, ok
 }
 
-func (s *caseStore) check(op string, id CaseID) (*storedCase, error) {
-	rec, ok := s.at(id)
+func (s *caseStore) check(refuse refuser) (*storedCase, error) {
+	rec, ok := s.at(refuse.id)
 	if !ok {
-		return nil, refused(op, NotFound, id, "no such case")
+		return nil, refuse.now(NotFound, "no such case")
 	}
 	return rec, nil
 }

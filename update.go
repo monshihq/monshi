@@ -73,7 +73,8 @@ type ChangeResult struct {
 // the check and the save, and reports the same STALE_REVISION.
 func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 	ChangeResult, error) {
-	d, rec, err := c.look(ctx, "update")
+	refuse := c.refusing("update")
+	d, rec, err := c.look(ctx, refuse)
 	if err != nil {
 		return ChangeResult{}, err
 	}
@@ -82,7 +83,7 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 		// not asked to guess what was meant, and a batch that arrived empty is
 		// almost always a slice the host built wrong — which is worth one
 		// refusal now rather than one quiet no-op per request.
-		return ChangeResult{}, refused("update", InvalidOp, c.id,
+		return ChangeResult{}, refuse.now(InvalidOp,
 			"the batch names no edit")
 	}
 
@@ -90,12 +91,12 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 	// sees unless the batch survives to the save. `d.img` is the image the
 	// case was just proved readable through, and store.go interprets the copy
 	// with it, which is §3's reinterpretation applied to a working state.
-	w, err := c.w.cases.working("update", c.id, c.actor.User, d.img)
+	w, err := c.w.cases.working(refuse, c.actor.User, d.img)
 	if err != nil {
 		return ChangeResult{}, err
 	}
 	if w.rev != base {
-		return ChangeResult{}, staleWorking("update", c.id, w.rev, base)
+		return ChangeResult{}, refuse.staleCopy(w.rev, base)
 	}
 
 	// Roles are folded from the *committed* snapshot. Not an optimization: an
@@ -106,7 +107,8 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 	fan := newFanout(img)
 	var out ChangeResult
 	for _, e := range edits {
-		created, err := c.apply(ctx, img, &w.s, roles, rec.commit.stage, e, fan)
+		created, err := c.apply(ctx, refuse, img, &w.s, roles,
+			rec.commit.stage, e, fan)
 		if err != nil {
 			return ChangeResult{}, err
 		}
@@ -121,7 +123,7 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 	// reads no values, only the adjacency, so it needs nothing from here but
 	// the write set — and it waits for the save, because a batch the store
 	// refuses should not have paid for a closure nobody is told about.
-	rev, err := c.w.cases.saveWorking("update", c.id, c.actor.User, base, w)
+	rev, err := c.w.cases.saveWorking(refuse, c.actor.User, base, w)
 	if err != nil {
 		return ChangeResult{}, err
 	}
@@ -139,19 +141,20 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 // — that is the batch's job rather than the edit's, because §6.2's whole point
 // is that a guard reading two fields in one batch is asked once, after both
 // landed (RUNTIME §5.3).
-func (c Case) apply(ctx context.Context, img *image, s *state,
-	roles []roleID, stage stageID, e Edit, fan *fanout) (string, error) {
+func (c Case) apply(ctx context.Context, refuse refuser, img *image,
+	s *state, roles []roleID, stage stageID, e Edit,
+	fan *fanout) (string, error) {
 	// An edit that names no path is a batch element nobody filled in, and it
 	// is worth saying so about the edit rather than letting §3.9's walk answer
 	// that no declaration is reached: the difference is between a host whose
 	// own request is malformed and one whose path has gone stale, and only one
 	// of those is fixed by looking at the definition.
 	if e.path == "" {
-		return "", refused("update", InvalidOp, c.id, "an edit names no path")
+		return "", refuse.now(InvalidOp, "an edit names no path")
 	}
 	r, ok := s.resolve(e.path)
 	if !ok {
-		return "", refused("update", NotFound, c.id,
+		return "", refuse.now(NotFound,
 			"no declaration is reached by path "+quote(e.path))
 	}
 	n := r.slot
@@ -165,16 +168,16 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 	switch e.kind {
 	case editSet, editEmpty:
 		if !r.hasValue {
-			return "", refused("update", InvalidOp, c.id,
+			return "", refuse.now(InvalidOp,
 				quote(e.path)+" "+whyNoValue(img, n))
 		}
 	case editAdd:
 		if bad := whyNotInstance(img, sl); bad != "" {
-			return "", refused("update", InvalidOp, c.id, quote(e.path)+" "+bad)
+			return "", refuse.now(InvalidOp, quote(e.path)+" "+bad)
 		}
 	case editRemove:
 		if sl.coll == 0 {
-			return "", refused("update", InvalidOp, c.id, quote(e.path)+
+			return "", refuse.now(InvalidOp, quote(e.path)+
 				" is not a multiple declaration, and remove drops an instance "+
 				"rather than a declaration")
 		}
@@ -185,7 +188,7 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 	// collection's own slot — the group, not its members — which is the same
 	// shape the language spells: `edit application.shareholders`.
 	if !img.mayEdit(roles, stage, n) {
-		return "", refused("update", AccessDenied, c.id,
+		return "", refuse.now(AccessDenied,
 			"editing "+quote(e.path)+" is not granted at stage "+
 				quote(img.stageName(stage)))
 	}
@@ -196,7 +199,7 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 		fan.wroteField(n)
 		return "", nil
 	case editSet:
-		v, err := c.w.settle(ctx, "update", img, c.id, n, e.v)
+		v, err := c.w.settle(ctx, refuse, img, n, e.v)
 		if err != nil {
 			return "", err
 		}
@@ -215,7 +218,7 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 			// a state that cannot hold the row — a defect, not a request, and
 			// reported as one so §10's rule about not laundering a runtime bug
 			// into a refusal keeps holding past the seam.
-			return "", refused("update", SchemaMismatch, c.id,
+			return "", refuse.now(SchemaMismatch,
 				quote(e.path)+" reaches a collection this state cannot add to")
 		}
 		fan.wroteRows(n)
@@ -228,7 +231,7 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 		// distinguishes, rather than assuming the caller meant the last row.
 		steps := r.path()
 		if len(steps) == 0 || steps[len(steps)-1].coll != n {
-			return "", refused("update", InvalidOp, c.id,
+			return "", refuse.now(InvalidOp,
 				quote(e.path)+" names a collection, not an instance of one")
 		}
 		if !s.removeAt(n, steps[:len(steps)-1], steps[len(steps)-1].id) {
@@ -238,13 +241,13 @@ func (c Case) apply(ctx context.Context, img *image, s *state,
 			// state. §10's rule against laundering a runtime bug into a
 			// refusal is why this is not reported as NOT_FOUND, which is what
 			// a host that really did name a stale instance hears.
-			return "", refused("update", SchemaMismatch, c.id,
+			return "", refuse.now(SchemaMismatch,
 				quote(e.path)+" names an instance this state does not hold")
 		}
 		fan.wroteRows(n)
 		return "", nil
 	}
-	return "", refused("update", InvalidOp, c.id, "an edit with no verb")
+	return "", refuse.now(InvalidOp, "an edit with no verb")
 }
 
 // whyNoValue says, for a slot resolution found but `Set` or `Empty` cannot
