@@ -428,3 +428,69 @@ func BenchmarkSubmitNoOp(b *testing.B) {
 		}
 	}
 }
+
+// benchSpecReview is the §7 corpus's two-edge loop out of and back into
+// `draft`: a Manager rejects to `correction`, and `correction` accepts back to
+// `draft`. Both edges are unconditional and neither destination names a
+// `require`, so one call is one commit with nothing else on its tab — no
+// completeness walk, no diff, no grafted content. That is the pair the two
+// benchmarks below split apart: the same decision path, once allowed and once
+// stopped by the edge's own condition.
+//
+// The actor is a Manager by primary role rather than the committed reviewer,
+// because conferring the role through `application.reviewer` would mean
+// committing content inside the timed loop.
+func benchSpecReview(b *testing.B) Case {
+	b.Helper()
+	rt := NewRuntime()
+	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	if err := rt.Register(d); err != nil {
+		b.Fatalf("Register: %v", err)
+	}
+	c, err := rt.Create(ctx(), "bench",
+		Actor{User: "elliot", PrimaryRole: "Manager"})
+	if err != nil {
+		b.Fatalf("Create: %v", err)
+	}
+	return c
+}
+
+// BenchmarkTransition measures a stage move end to end (RUNTIME §5.5, DESIGN
+// §6.4): the role fold, the edge lookup, one mask test, the revision compare,
+// the destination's `require` — nothing, for these two stages — the view walk,
+// and then the store's three consistent writes. It is the commit path minus
+// §5.4's two walks and minus §5.6's diff, which is the honest way to say what
+// a transition costs: it pays for a commit and for neither of the passes that
+// decide whether a commit is warranted.
+func BenchmarkTransition(b *testing.B) {
+	c := benchSpecReview(b)
+	dest := [2]string{"correction", "draft"}
+	rev := uint64(0)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		res, err := c.Transition(ctx(), dest[i%2], rev)
+		if err != nil {
+			b.Fatalf("Transition to %q: %v", dest[i%2], err)
+		}
+		rev = res.Revision
+	}
+}
+
+// BenchmarkTransitionGuard measures the same call stopped at its content check:
+// nothing is committed, so `application.kind` is unset and the PERSON edge's
+// guard answers false. The path is therefore the fold, the lookup, the mask,
+// the compare and one `condFn` over one row — and no require walk, no view walk
+// and no write. The refusal is returned as a `*CaseError`, so this row includes
+// the error's own allocation; what it isolates is that the checks before a
+// commit are a fraction of what the commit is.
+func BenchmarkTransitionGuard(b *testing.B) {
+	c := benchSpecReview(b)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, err := c.Transition(ctx(), "person_review", 0)
+		if !Failed(err, InvalidOp) {
+			b.Fatalf("the unmet guard answered %v, want INVALID_OPERATION",
+				err)
+		}
+	}
+}

@@ -162,3 +162,69 @@ func (f *fanout) affected() []string {
 	}
 	return out
 }
+
+// viewChanges is §5.3's affected set for the one operation that writes no
+// value: a stage move, which changes which paths an actor may see by changing
+// the stage the masks are resolved at (§3.5's overlays) and nothing else.
+//
+// The walk is a definition walk rather than a data walk, and that is the whole
+// cost story. A condition never reads the stage — `condFn` is a closure over
+// one row (RUNTIME §3.4) — so moving a case between stages cannot change what
+// is present, what is required, or what any value is: only the permission fold
+// takes the stage as an input. So this compares one word per slot and reports
+// the topmost difference, and no cell is touched. A transition's affected list
+// answers "which views of this case may now be rendered differently", which is
+// a question about the actor and the definition rather than about the data.
+//
+// The collapse rule is §5.3's own: preorder makes an ancestor's range
+// contiguous, so the first differing slot is reported and everything it covers
+// is skipped, which leaves the result sorted in declaration order with no path
+// contained in another. Reporting the group rather than the sixteen fields
+// inside it is the honest granularity, because a client told "this subtree may
+// render differently" re-reads the subtree.
+func (img *image) viewChanges(roles []roleID, from, to stageID) []string {
+	if from == to || !img.overlaysDiffer(roles, from, to) {
+		return nil
+	}
+	var out []string
+	cover := nodeID(0) // end of the last reported subtree
+	for n := nodeID(1); n < nodeID(len(img.slots)); n++ {
+		if n < cover {
+			continue // inside a subtree already reported by its own root
+		}
+		was := img.effective(roles, from, n)&permView != 0
+		now := img.effective(roles, to, n)&permView != 0
+		if was == now {
+			continue
+		}
+		out = append(out, img.path(n))
+		_, cover = img.subtree(n)
+	}
+	return out
+}
+
+// overlaysDiffer answers whether any role the actor holds resolves a
+// *different* overlay at `to` than it did at `from`. If none does, then
+// `permAt` hands back the same allow and deny word for every slot at both
+// stages, because a stage reaches §3.5's algebra only by selecting an overlay —
+// so the walk above would compare len(slots) identical pairs and report
+// nothing. Definitions with no stage-scoped grants are the common case, and the
+// test costs one binary search per held role.
+//
+// Which is a claim about cost and not about the answer: replacing the test with
+// "always differ" changes no result a test can see, and that is the intended
+// reading — the shortcut may only skip work, never verdicts. What is checked is
+// the other direction, that a role whose overlay index *does* move is not
+// skipped, because a shortcut that swallows one of those is a lost refresh.
+func (img *image) overlaysDiffer(roles []roleID, from, to stageID) bool {
+	for _, r := range roles {
+		if r == 0 {
+			continue // ordinal 0 is "no role": it sees the same at any stage
+		}
+		over := img.perms.byRole[r].over
+		if overlayIndex(over, from) != overlayIndex(over, to) {
+			return true
+		}
+	}
+	return false
+}

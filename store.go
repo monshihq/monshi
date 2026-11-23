@@ -146,6 +146,7 @@ type commitOp uint8
 
 const (
 	opSubmit commitOp = iota + 1
+	opTransition
 )
 
 // commitChange is one entry of a forward diff (DESIGN §5.1): which
@@ -190,11 +191,15 @@ const (
 // The stage is recorded per commit rather than left to the current snapshot
 // because §5.1 counts a stage change among the semantic committed changes:
 // replaying history onto an empty case has to land the case where it is, so
-// "revision 7 was at review" must be knowable from the entry. Today every
-// commit is a Submit, which never moves the stage (DESIGN §4.4, §6.3), so the
-// field is the same value each time — and that is exactly the check
-// history_test.go makes, because a Submit that *did* move the stage would
-// otherwise be invisible in the record it wrote.
+// "revision 7 was at review" must be knowable from the entry. The two
+// operations that write an entry use the field in opposite directions, which
+// is what makes it load-bearing rather than decorative: a Submit moves the
+// content and repeats the stage (DESIGN §4.4 keeps the stage where a
+// transition put it), and a Transition moves the stage and carries no content
+// at all. Either way the entry says what it changed by saying where the case
+// stood and what it wrote, and `diff_test.go` and
+// `transition_view_test.go` check the two halves of that from opposite
+// sides.
 //
 // No separate list of the binary content a commit pinned (§5.2's retention
 // rule) because there is nothing to list: a binary value's immutable `
@@ -394,11 +399,27 @@ type committedBy struct {
 // field it reads is a value the record owns, not a pointer it can follow into
 // a state another goroutine is writing.
 //
-// The rebase touches only the submitter's copy, and only its `base`: the
+// The rebase touches only the committer's copy, and only its `base`: the
 // content stays, because §6.3 is explicit that other forms' unsubmitted edits
 // survive one form's submit. Leaving `rev` where it was is what lets the same
 // client keep editing with the working revision it already holds, and what
 // keeps another session of that actor from getting a free pass at revision 0.
+//
+// It also requires that the copy actually descended from the revision this
+// commit replaces, which is the difference between `Submit` and every
+// committed-state operation that followed it. A submit cannot arrive without
+// that already true — its own guard compared the copy's `base` with the case's
+// revision before anything was grafted — so for a submit the test passes by
+// construction and the rebase is §6.3's rule stated plainly. A `Transition`
+// asks nothing of its author's draft: it moves the case, not the caller's
+// copy, and the caller presents the *case's* number. So an actor whose draft
+// was left behind two revisions ago can move the stage from a current
+// snapshot, and an unconditional rebase would then relabel that draft as
+// descending from the state it never saw — which is not a convenience but a
+// lost-update bug one call later, because his next submit would pass the very
+// guard §6.5 exists to make refuse. Lineage is a fact about history, and a
+// commit may only extend a copy's lineage when it was made against the state
+// that copy stands on.
 func (s *caseStore) commit(op string, id CaseID, want uint64,
 	next committedState, by committedBy) (uint64, error) {
 	s.mu.Lock()
@@ -421,7 +442,7 @@ func (s *caseStore) commit(op string, id CaseID, want uint64,
 		stage:    next.stage,
 		changes:  by.changes,
 	})
-	if w, have := rec.work[by.by]; have {
+	if w, have := rec.work[by.by]; have && w.base == want {
 		rebased := *w
 		rebased.base = rec.revision
 		rec.work[by.by] = &rebased

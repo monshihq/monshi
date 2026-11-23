@@ -96,9 +96,12 @@ type CommitResult struct {
 // accident: permission comes before either revision, so an actor who cannot
 // commit this form learns that and nothing about the copy's numbers. The
 // alternative reveals the case's revision traffic to a caller the definition
-// refuses (§7's posture that permission is enforced before anything is read),
-// and a host cannot un-learn what it was told. The remaining order is
-// DESIGN §6.3's own: the copy's revision, then the base, then the content —
+// refuses, and a host cannot un-learn what it was told. RUNTIME §7 does not
+// say this — its six items are about containment and bounds, and the one
+// written disclosure rule is DESIGN's invariant 7, about `View` — so the
+// ordering is this engine's own hardening, held to the same shape in
+// transition.go. The remaining order is DESIGN §6.3's own: the copy's
+// revision, then the base, then the content —
 // a cheap freshness test before an expensive walk, and completeness before
 // validation because a value nobody filled in has no hook worth calling.
 //

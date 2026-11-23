@@ -895,6 +895,65 @@ lookup instead of a search with ambiguity. Permission for the *targets*
 touched by the transition (e.g. writing a stage-scoped field after
 arrival) resolves through §3.5 with `s` = the current stage.
 
+`Transition(dest, observedRevision)` (DESIGN §6.4) ships that list in the
+order above, with the revision guard placed after permission and before
+either content read. Permission first is §5.4's rule for the same reason:
+the grant is a fact about the definition and the actor's committed roles,
+so it answers without reading anything the actor may not see. The guard
+then precedes the walk it may never reach, because both of the remaining
+checks read case content and content the caller has not seen is not
+content it can be told to fix — refusing on a condition absent from the
+snapshot the caller named would send a message about a case it cannot
+look at, while staleness is actionable either way.
+
+Two of §5.4's habits do *not* carry over, and both are the stage's fault.
+Completeness is asked of the *committed* state rather than a candidate:
+there is no candidate, since a transition writes no content, and a draft
+cannot satisfy a stage — the content a reviewer answers for is the content
+the case holds. And it is §5.2's engine-level `present ∧ satisfied` alone,
+with no `Validate` re-run: `Submit` is where a stored value is asked
+whether it is acceptable, and it asked on the way in. The second habit is
+the empty diff. A transition always commits, because §5.1 counts the stage
+among the semantic committed changes and `commitRecord` carries the stage
+per entry: the history entry a transition writes has no changes and a
+different stage from the one before it, which is what lets a replay land
+the case where it is.
+
+`Affected` for a move is the paths whose *visibility* changed, and it is a
+definition walk rather than a data walk. A condition never reads the stage
+(§3.4's closure takes one row), so nothing about presence, requiredness or
+values moves when the case does: only the §3.5 fold takes the stage as
+input, through that stage's overlay. So the answer compares one permission
+word per slot between the two stages and reports the topmost difference,
+collapsed by §5.3's rule, and it is skipped entirely when no overlay any
+held role resolves differs between the two — the common case, since
+transition permissions are not per-node (P1) and most definitions stage no
+grants at all. It is the acting actor's list, for the reason §5.3 gives: a
+second actor's answer is a second list, and whom to notify is DESIGN §7's
+`OnCommit` question.
+
+One line of §5.4's rebase rule is load-bearing here in a way it was not
+there. A commit moves its author's working copy forward only when that
+copy descends from the revision the commit replaces. For a submit the
+condition holds by construction — its own guard compared the copy's base
+with the case's revision — so §6.3's rule reads plainly. For a transition
+it does not: the caller presents the *case's* number and the operation
+asks nothing of his draft, so an actor whose copy was left behind two
+revisions ago may legitimately move the stage, and a rebase that followed
+would relabel his draft as descending from a state it never saw. His next
+submit would then pass the very guard §6.5 exists to make refuse, overwriting
+a commit he had not seen. Lineage is history, and a commit may extend it
+only from the state a copy stands on.
+
+What this section does not pay yet is `verif` units APPROVED and signature
+validity for current content, the other two conjuncts of the `require`
+line above: nothing approves or signs until `Review` and `Sign` exist, so
+a transition has nothing to withhold a stage change over (DESIGN §10's
+milestone 5). They join as further gaps on the same list rather than as
+new shapes, since the question is already "what does the destination still
+want". `OnCommit`, step 7 of Appendix A's trace, waits for the same reason
+it waits everywhere else (§6, DESIGN §10's milestone 6).
+
 ### 5.6 Commit effects precomputed
 
 Verification reset and signature invalidation are triggered by
@@ -1037,6 +1096,8 @@ group, 6 roles, 5 stages — 51 slots.
 | `BenchmarkCondEval` | one `tagCmp` guard | 2.1 ns, 0 allocs |
 | `BenchmarkPermResolve` | 51 slots, one role | 403 ns, 0 allocs |
 | `BenchmarkResolvePath` | caller text → a cell | 70 ns, 0 allocs |
+| `BenchmarkTransition` | one committed stage move | 190 ns, 2 allocs |
+| `BenchmarkTransitionGuard` | one refused stage move | 187 ns, 5 allocs |
 | `BenchmarkLoweringOnly` | schema → image, §7 | 12.6 µs, 248 allocs |
 | `BenchmarkLoweringWideOnly` | schema → image, wide | 30.3 µs, 295 allocs |
 | `BenchmarkLowerSpecExample` | source → image, §7 | 41.7 µs, 1074 allocs |
@@ -1095,11 +1156,35 @@ front end against lowering, the fanout against itself — the section says
 so, and a regression check should compare against a baseline measured in
 the same process rather than against this table.
 
-What is *not* measured yet, because the operations that would drive it
-are not shipped: `BenchmarkViewWide` and `BenchmarkTransitionGuard`. The
-frame of §5.1 and §5.2's answers exist and are tested, but a benchmark
-that hand-builds a state and calls one internal function would measure
-the fixture, not a request; they arrive with `View` and `Transition`.
+The transition path is the cheapest commit in the engine, and it is cheap
+for the reason §5.5 says it should be. Measured in one process with the
+rows above, a stage move came out between about a fifth and a quarter of
+the accepted three-write `Update`, and between an eleventh and a fifteenth
+of the update-then-submit pair, at two allocations; the ends of those
+spreads were consecutive runs of the same benchmark, on the machine §8's
+caveat is written for. It pays for no completeness walk over a candidate,
+no `Validate` re-run, no diff and no graft — the snapshot moves beside a
+new stage rather than being copied — so what is left is the role fold, one
+mask test, one revision compare and the store's three writes.
+(`BenchmarkTransition`.)
+
+The same call stopped at an edge's condition costs the same hundred and
+eighty nanoseconds and *more* objects than the one that committed: five
+against two, in fewer bytes, because three of them are the refusal's
+message. Read that beside the 3 : 1 deciding-to-writing split a submit
+pays, and the two operations are opposites for the same reason — a submit
+is walks around a cheap write, a transition is a write around nothing.
+Either way the engine's cost is in its passes and not in its store, which
+is what §5.2's indexed answers and §5.6's direct indexing are for.
+(`BenchmarkTransitionGuard`, driven by the SYNTAX §7 example's
+reject-to-`correction` and accept-to-`draft` loop so that each call is one
+commit and neither destination asks a `require`.)
+
+What is *not* measured yet, because the operation that would drive it is
+not shipped: `BenchmarkViewWide`. The frame of §5.1 and §5.2's answers
+exist and are tested, but a benchmark that hand-builds a state and calls
+one internal function would measure the fixture, not a request; it arrives
+with `View`.
 
 Nor is any "× faster than the compiled tree" ratio measured: that would
 mean an interpreted-tree harness, and building one to prove a point the
@@ -1150,8 +1235,10 @@ requiredness and §3.9's resolution seam are in place and tested, and so
 is the exported half that reads them: `Runtime` and `Case` (DESIGN §6),
 the registry and the store seam, §5.1's four working edits as one atomic
 `Update` (§6.2), §5.3's fanout behind `ChangeResult.Affected`, and §5.4's
-`Submit` with §5.6's forward diff and the store's history behind it. What
-remains is `View`, §5.5's transition checks, DESIGN §6.5's rebase, and the
+`Submit` with §5.6's forward diff and the store's history behind it, and
+§5.5's transition checks behind `Transition` — the second operation that
+commits, and the first whose affected set is about masks rather than values.
+What remains is `View`, DESIGN §6.5's rebase, and the
 *registration* half of §6's hook contract: a declared `Validate`
 normalization runs today, once against a value as it arrives and once again
 against the stored one at commit, and exporting its signature waits for the
@@ -1194,6 +1281,8 @@ func (c Case) Stage(ctx) (string, error)
 func (c Case) Revision(ctx) (uint64, error)
 func (c Case) Update(ctx, base uint64, edits ...Edit) (ChangeResult, error)
 func (c Case) Submit(ctx, form string, working uint64) (CommitResult, error)
+func (c Case) Transition(ctx, dest string,
+    observed uint64) (TransitionResult, error)
 
 // Edits, values, and what an accepted batch says.
 type Edit struct{ /* unexported */ }  // Set · Empty · Add · Remove
@@ -1207,6 +1296,13 @@ type CommitResult struct {
     Revision uint64; Stage string; Missing []string; Invalid []FieldProblem
 }
 type FieldProblem struct { Path, Code, Msg string }
+
+// What a stage move reached, and — when the destination was not ready — what
+// it still wants. A transition always commits, so there is no "revision it
+// did not move" to report.
+type TransitionResult struct {
+    Revision uint64; Stage string; Affected, Missing []string
+}
 
 // Refusals, by category.
 type Category string  // NOT_FOUND, ACCESS_DENIED, INVALID_OPERATION, …
@@ -1223,9 +1319,10 @@ of this package rather than a struct literal a host assembles by hand.
 categories, and they arrive on a refusal as well as on a success: a host
 renders a form's gaps without parsing a message, and reads the revision it
 must reload at out of the same value. What §6 names and this list does not —
-`View`, `Review`, `Sign`, `Transition`, `Rebase`, `Discard` — does not exist
-yet; `Submit` commits content, and the `verif` and `sigEntry` effects that
-need something to reset arrive with `Review` and `Sign` (§5.4).
+`View`, `Review`, `Sign`, `Rebase`, `Discard` — does not exist yet; `Submit`
+commits content and `Transition` commits a stage, and the `verif` and
+`sigEntry` effects that need something to reset or re-ask arrive with
+`Review` and `Sign` (§5.4, §5.5).
 
 `BinaryRef` is exported as a `[]byte` with no behavior. DESIGN §5.2 puts
 content handles in case *data*, and §5.1's value row reserves the field
@@ -1276,7 +1373,15 @@ in this package reads or resolves one.
   lands. (a) and (b) are `TestSpecExample*` in `lower_test.go`, with the
   source read out of SYNTAX.md so the fixture cannot drift from the
   document it is traced against; (a) is also checked through `Load`, so
-  the seam is not merely documentation.
+  the seam is not merely documentation. (c) is arriving with the
+  operations it traces rather than as one final test: §5.2's presence and
+  requiredness is `TestAppendixARequiredness`, and the trace's
+  `Transition` steps 1 through 6 — role set from a committed assignment,
+  edge, mask, guard, the destination's `require`, and the commit that
+  moves only the stage — are `TestAppendixATransitionTrace`, which also
+  checks the two `permTables` answers the trace ends on. Its step 5's
+  approval and signature conjuncts and step 7's `OnCommit` are the parts
+  that wait for milestones 5 and 6, and the test says so where it stops.
 
 ---
 
@@ -1348,12 +1453,18 @@ Runtime steps for `Transition(reviewer-user → "draft" →
    completeness under the effective frame, `verif` units APPROVED —
    `application` is verifiable as a whole, so the unit is the form —
    `submitted` valid for the current content version, and `approved_by`
-   valid iff the committed `reviewer` user signed that content.
+   valid iff the committed `reviewer` user signed that content. Only the
+   completeness half runs today: the other two wait for `Review` and
+   `Sign` (§5.5, milestone 5).
 6. Revision check against the global committed revision (DESIGN §6.4),
    then one atomic forward commit: the stage change, plus whatever
    §5.6 maps to. Here that is nothing — no verifiable content changed.
+   The shipped call asks the number *before* steps 4 and 5, because both
+   read content and content the caller has not seen is content it cannot
+   be told to fix (§5.5's order); the trace keeps the spec's listing.
 7. `OnCommit` fires after the commit is durable with the actual
    `Commit` and post-commit frame (§6), never inside the transaction.
+   Milestone 6's, like the same step after a submit.
 
 The trace touches: three integer sets (role set, accept mask, requires
 bitset), one `condFn`, and subtree walks bounded by definition size.

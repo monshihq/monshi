@@ -247,6 +247,27 @@ func (s *stageInfo) edgeTo(dest stageID) (edge, bool) {
 	return edge{}, false
 }
 
+// requires is the list of top-level forms one stage's `require` block names,
+// as slots, in declaration order.
+//
+// ST4 confined the bitset to top-level forms and §3.7 numbered it over form
+// ordinals, so this is a shift per bit and one index into img.forms — no name
+// lookup, and no form that a stage could require is skipped because the loop
+// guessed at which bits are set. Declaration order is not a courtesy: §5.5's
+// require check reports gaps from every required form, and gaps a host reads
+// as a punch-list have to arrive in the order the author put the forms in,
+// which is the order §5.4's walk uses within one form.
+func (img *image) requires(st stageID) []nodeID {
+	mask := img.stages[st].requires
+	var out []nodeID
+	for bit := 0; mask != 0; bit, mask = bit+1, mask>>1 {
+		if mask&1 != 0 {
+			out = append(out, img.forms[bit+1]) // ordinal 0 is "no form"
+		}
+	}
+	return out
+}
+
 type depRange struct{ first, n uint32 }
 
 // hookKey is the lookup key the engine uses to find a host hook for a

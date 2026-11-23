@@ -645,6 +645,21 @@ owns is the half of a commit that has nothing to act on yet: `verif` resets
 and signature invalidation (§4.2), which arrive with `Review` and `Sign`.
 RUNTIME §10 states what exists today.
 
+`Transition` follows it out of order for the same reason and one of its own:
+it is the other operation that commits, and unlike `Review` and `Sign` it
+needs nothing that does not exist yet — a declared edge, two masks, one
+condition and the completeness pass `Submit` already runs. Milestone 5 keeps
+its half of the destination's `require`, the `verif` units and signature
+validity (§4.2), which have nothing to act on until something approves and
+signs. Two details of §6.4's sketch are refined by the shipping shape: the
+result is a `TransitionResult` rather than a `CommitResult`, because the
+`affected` path set promised above is a stage move's own answer — paths whose
+*visibility* moved, with no value behind them — while a submit's affected set
+is the fanout `Update` already reported; and the number the call takes is
+named for the thing it is, the observed committed revision, since invariant
+5's refusal is about what the caller was shown rather than what it holds.
+Invariant 5's second half is now enforced by code rather than by intent.
+
 ### Deliberately deferred
 
 Detailed Rebase conflict resolution, advanced binary garbage

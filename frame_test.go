@@ -464,9 +464,9 @@ func TestStateValueOfACollectionIsItsRowCount(t *testing.T) {
 }
 
 // TestAppendixARequiredness completes RUNTIME Appendix A's trace as far as
-// the shipped layer can answer: presence, requiredness and the instance rows
-// between them. The rest of the trace is a transition, and that waits for
-// Case (§10) — this test is the part that is honest today.
+// the data layer answers: presence, requiredness and the instance rows
+// between them. The rest of the trace is a transition, and
+// `TestAppendixATransitionTrace` runs it against this same corpus.
 func TestAppendixARequiredness(t *testing.T) {
 	img := lowerExample(t)
 	kind := slotByPath(t, img, "application.kind")
