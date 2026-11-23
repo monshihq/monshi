@@ -855,11 +855,17 @@ the type does not hold, or rewrites a stored value — is `HOOK_FAILURE` with
 no list, because no field the actor can fix is what broke.
 
 An empty diff is a success that writes nothing (DESIGN §6.3: no meaningless
-commits), reported with the revision it did not move. What this section
-does *not* pay yet is the `verif` reset and `sigEntry` invalidation half of
-DESIGN §6.3: nothing approves a unit or signs one until `Review` and `Sign`
-exist, so a commit has nothing to reset (DESIGN §10's milestone 5). §5.6's
-targets index the same diff, so that half arrives without changing this one.
+commits), reported with the revision it did not move. A commit whose diff
+is decisions alone is a commit like any other, and that is why §5.9's
+`Review` came out as this section's second caller rather than a new shape
+in it: no completeness walk, no graft, no diff of its own, the same descent
+rule on the copy that wrote the entry — the half §5.5 has to handle as a
+special case because a transition presents no copy at all.
+
+What this section still does not pay is `sigEntry` invalidation, the other
+half of DESIGN §6.3: nothing signs until `Sign` exists (DESIGN §10's
+milestone 5). The `verif` reset half arrived with §5.9 and runs inside the
+store, because §5.6's targets index the very diff this call writes.
 
 ### 5.5 Transition checking
 
@@ -945,14 +951,35 @@ submit would then pass the very guard §6.5 exists to make refuse, overwriting
 a commit he had not seen. Lineage is history, and a commit may extend it
 only from the state a copy stands on.
 
-What this section does not pay yet is `verif` units APPROVED and signature
-validity for current content, the other two conjuncts of the `require`
-line above: nothing approves or signs until `Review` and `Sign` exist, so
-a transition has nothing to withhold a stage change over (DESIGN §10's
-milestone 5). They join as further gaps on the same list rather than as
-new shapes, since the question is already "what does the destination still
-want". `OnCommit`, step 7 of Appendix A's trace, waits for the same reason
-it waits everywhere else (§6, DESIGN §10's milestone 6).
+Two of the `require` line's three conjuncts are now paid, and one is not.
+The completeness half is §5.4's, and the second is `verif` units APPROVED:
+a required form's governing units — the form itself, and no nested
+declaration, because F3 says the outermost `verifiable` governs — must
+stand approved, and §5.9's `pendingUnits` names the ones that do not. They
+join as further gaps on §5.4's list rather than as a new shape, since the
+question is already "what does the destination still want", and a client
+that was shown one list to render now has to reconcile two. A gap is
+therefore either a value or a decision, and the destination's sentence
+counts them apart: three fields and one approval is not six of anything,
+because a reviewer's caller cannot fix a missing value and an applicant's
+cannot approve. A blank `require` adds no approval question at all: the
+scan runs inside the same `for f in bits(requires)` loop as §5.4's
+completeness pass, so a destination that asks nothing of no form — every
+stage of the SYNTAX §7 example's `draft`–`correction` loop, which is what
+`BenchmarkTransition` walks — pays nothing for the conjunct, and §5.4's
+`gap == 0` fast path stays the fast path it was priced as. Where a form is
+required the scan is a second pass over the same span of slots, reading
+`verif` from the table the walk already read requiredness from. It is short
+and cache-warm rather than free, and §8 prices the walk it rides: a gated
+move against a scratch copy with the scan's answer dropped came out inside
+the spread of two runs of one copy.
+
+Signature validity for current content is the conjunct still owed: nothing
+signs until `Sign` exists (DESIGN §10's milestone 5), so a transition has
+no signature to withhold a stage change over. It joins the same list, as
+the third kind of gap a `Missing` entry can be. `OnCommit`, step 7 of
+Appendix A's trace, waits for the same reason it waits everywhere else (§6,
+DESIGN §10's milestone 6).
 
 ### 5.6 Commit effects precomputed
 
@@ -965,14 +992,41 @@ changes" is answered at lowering, in O(1) per changed slot.
 
 The diff being indexed is a forward one: which declarations moved, at which
 instance, and what each holds now — never the old value, which the previous
-entry already carries (§5.1). It has two entry kinds, and they are the same
-distinction §5.3 draws between a write and an `Add`. A value at a path,
-whose payload may be absent because a committed `Empty`, or a removed row,
-has something to say. And a collection's new instance count, because a row
-appearing or vanishing is a change to the declaration's rows rather than to
-any one value. Nesting needs no special case: the instances a comparison
-visits are the union of the two states' rows, which is what lets the removal
-of an outer row say anything at all about the rows that left inside it.
+entry already carries (§5.1). It has two entry kinds *of content*, and they
+are the same distinction §5.3 draws between a write and an `Add`. A value
+at a path, whose payload may be absent because a committed `Empty`, or a
+removed row, has something to say. And a collection's new instance count,
+because a row appearing or vanishing is a change to the declaration's rows
+rather than to any one value. Nesting needs no special case: the instances
+a comparison visits are the union of the two states' rows, which is what
+lets the removal of an outer row say anything at all about the rows that
+left inside it.
+
+The third kind of entry is not content. A review decision names a governing
+unit rather than an address, and carries that unit's state, author and
+comment (SYNTAX F4, §5.9). It exists because a table holding one active
+decision per unit cannot answer "who approved this, when, and what did they
+say" after the next reviewer replaces it, and the commit record is the only
+place with room for the trail. It is written by the commit and read by
+neither operation that runs today: `History` and `Commit` are not exported
+yet, and historical replay is where a decision's account gets asked
+(DESIGN §10).
+
+That is the whole reason the kind has to be *distinguished* and not merely
+allowed. Two consumers read a diff besides the history that stores it, and
+they read it in opposite directions. §5.8's merge takes a cell only from a
+value entry and a row list only from a rows entry, which is where the
+distinction stops being cosmetic: a `verifiable` **field** is both a cell
+slot and a governed node, so a pass that skipped only rows entries would
+resolve the decision's slot against the base state and answer "what did the
+case hold here" with "who approved it" — and a decision landing over a draft
+would then offer a conflict about content nobody changed. §4.2's reset, run
+by the commit itself, skips the decision entry while reading value *and*
+rows entries: a commit may not unmake the act whose record it is writing,
+while a row appearing under a unit is exactly the change that ends a
+decision. Both tests are on the kind and not the payload, because a decision
+carries no path to test; and the third consumer is the record itself, which
+is written and read by nothing yet (§5.1, DESIGN §10's replay).
 
 ### 5.7 The view walk
 
@@ -1004,6 +1058,9 @@ View(actor A, paths P, case at stage s, committed frame F):
       if !vis[n] || !reached(n): return nil       // both prunes, at the top
       path = addr(n, p);  kind = the declaration's word
       value = cellValue(n, p)                     // fields only
+      reviewable = verif[n] == n && ! endsAt(p, n) // the unit, not a row (§5.9)
+                 && mayReview(A, stage, n)         // and the caller may decide
+      review = reviews[verif[n]]                   // the decision, if any
       options = fetch(n)                          // once per hook per call
       children = n's rows, in data order, or n's declaration children
 ```
@@ -1062,6 +1119,21 @@ before the actor typed. Roles and stage come from the committed case, so
 a draft that assigns a reviewer grants that reviewer nothing, and the two
 revision numbers one result reports are deliberately two different things
 — the case's and this copy's.
+
+The two review fields are read from two different places, and that is the
+one part of `View` worth stating twice. `Review` is the case's decision,
+taken from the committed snapshot, while the value beside it is the
+caller's draft (§5.9): an applicant with unsaved edits sees the verdict
+about the content the case *holds*, and both statements are true because
+they are about different content. `Reviewable` is the only field on the node
+computed against the caller rather than the definition alone, and it answers
+a narrower question than "may review here": it is true only at the node a
+decision may actually be addressed to. A row of a `verifiable multiple`
+holds the same slot as the declaration above it, and `Review` refuses that
+address, so a flag that offered it would be an invitation to a refusal
+(§5.9). Both fields obey §5.2's prune rule rather than being withheld
+beside content: a node that is not there reports no decision and no offer
+to decide, and no flag says which half is absent.
 
 Two node fields are read at the node they are printed on, and both are
 worth the sentence they cost. `CanEdit` is true of a form or a group
@@ -1124,13 +1196,15 @@ rule about its siblings, because the report is a subtree answer indexed by
 address and not a per-row question; the answers about rows nobody selected are
 dropped by never being looked up.
 
-Deferred, all of it on the record so the shape of the gap is known.
-`ViewNode` carries no verification or signature state: nothing approves a
-unit or signs one until `Review` and `Sign` exist, so the fields §6.1
-promises for §3.6's `verif` and `sigEntry` would report a constant
-(DESIGN §10's milestone 5). `CaseContext` is why an option key is a field
-path rather than a field instance, and why registration stays unexported
-(§6). And the question §6.5 leaves open about a draft whose committed
+Deferred, all of it on the record so the shape of the gap is known. The
+verification half of §6.1's node fields is here: `Reviewable` and `Review`
+print §3.6's `verif` answer, and §5.9 says where each is read from and
+which nodes may not carry it. The signature half is not, because nothing
+signs until `Sign` exists, so the field §6.1 promises for `sigEntry` would
+report a constant (DESIGN §10's milestone 5). `CaseContext` is why an
+option key is a field path rather than a field instance, and why
+registration stays unexported (§6). And the question §6.5 leaves open
+about a draft whose committed about a draft whose committed
 content moved is answered in §5.8, not here: `View` renders the draft it
 is handed, unchanged in shape whether or not that draft is behind the
 case, and `Rebase` is the operation that changes what the draft holds.
@@ -1306,9 +1380,142 @@ a merge asks no hook (§6): it moves committed values into a draft that has
 never been normalized or checked by host code, and the two calls that would
 notice — §5.4's completeness at submit, §5.7's masked report at view — are
 the caller's next request. `OnCommit` notification, which §6.5 says a host
-may use to tell a user the case moved, waits for milestone 6's observers,
-and the verification and signature effects a moved value would want to
-reset (§5.6) wait for `Review` and `Sign` with it.
+may use to tell a user the case moved, waits for milestone 6's observers.
+Of §5.6's two effects the merge turned out to owe nothing at all, and not
+because the reset arrived late: a decision belongs to the case and never to
+a draft, so `Review`'s table is neither carried across a sync nor reset by
+one. What a merge moves is values, and values were never what a decision
+was made about — the reviewer's own copy may be a hundred revisions stale
+and the decision in it is the case's, standing or erased by facts it does
+not contain. Signature invalidation is the effect still owed, and it waits
+for `Sign`.
+
+### 5.9 Review — a decision about committed content
+
+```text
+Review(actor A, target t, action k, observed revision r, comment c):
+  roles = A's primary role ∪ committed role-typed assignments (T4)
+  s, ok = resolve(t)                       // the committed frame, §3.9
+  grant = mayReview(roles, stage, s.slot)  // §3.5's mask, at that slot
+  if !ok ∧ !grant:  ACCESS_DENIED          // never which half failed
+  if !ok ∧  grant:  NOT_FOUND
+  unit = slots[s.slot].verif
+  if unit ≠ s.slot:  INVALID_OPERATION naming unit        // F3
+  if s.depth ≠ 0:    INVALID_OPERATION naming unit        // F4
+  require r == case revision          // a result beside the refusal (§6.4)
+  k ∈ {APPROVE, REJECT, REVOKE}
+  k == REJECT  ⇒ c non-blank;  k == REVOKE ⇒ c blank
+  cur = reviews[unit]
+  k == REVOKE  ⇒ cur is standing and cur.by == A          // §4.2
+  next = the decision k asks for, at revision r+1
+  if next == cur: success, and nothing is committed       // §6.3
+  commit(snapshot unchanged, reviews[unit] = next,
+         changes = [review entry for unit])               // §5.6's reset
+```
+
+It is the third operation that commits and the first whose commit says nothing
+about data. That single fact decides where everything lives: a decision is
+about the *case*, so `Review` reads no draft, writes no draft, and stores its
+table beside the committed snapshot instead of inside it. Three consequences
+follow from that placement and none of them needs a rule of its own. `Update`
+cannot write a decision, because a decision is not one of the four working
+edits and not in the state an edit rewrites. `Rebase` has nothing to merge,
+because the window it walks carries a `chgReview` entry whose address may name
+a cell slot — a `verifiable` *field* is both a slot and a governed node — and
+§5.8's two passes skip every kind that is not content, so a decision landing
+over a draft moves the copy's lineage and not its values. And `Submit` grafts
+no decision: it replaces a form's subtree in the snapshot, and the table is not
+in the subtree.
+
+A dense array indexed by slot is the shape, allocated on the first decision
+anybody makes and shared by every reader until something resets it. Indexing by
+slot rather than by unit count is §3.9's rule kept — nothing that came from
+case data indexes anything — and it is what makes the two reads here one array
+access apiece. The zero entry is `PENDING`, which is why a case nobody has
+reviewed holds no array at all: an absent entry and a pending entry are the
+same answer, and a table sized to the slots on registration would be a
+per-definition cost paid by cases that never use it.
+
+**The unit is the declaration, not the address.** F3 makes the outermost
+`verifiable` declaration govern, so a `verifiable` field inside a `verifiable`
+form is decided by the form and a decision addressed to the field is refused —
+naming the unit that answers, because a host left to discover the target by
+trial is being taught the definition by its error messages. F4 makes a
+collection decided as a whole, so a path through a row is refused the same way
+even when the row's address resolves against somebody's data. Both refusals are
+`INVALID_OPERATION` and both name the unit, and §5.7's `Reviewable` is computed
+by the same two tests: an actor with a real `review` grant at a nested group
+holds a permission the engine will not take a decision with, and the view says
+so instead of offering a button that cannot be pressed.
+
+**One decision is active per unit.** A second approval is not a duplicate: it
+is a replacement, and the case says whose judgement stands. So the comparison
+that decides whether to commit is between three facts — state, author, comment
+— and not between two states, because "the same APPROVED by a different hand"
+is new information the history did not have. Revocation is the author's alone,
+and it fails two ways that must not be confusable: nothing standing is
+`INVALID_OPERATION` (a permission answer there would disclose that a decision
+exists, and the answer the caller needs is elsewhere) while somebody else's
+decision is `ACCESS_DENIED` naming its author — the author is not a secret,
+both reviewers may see the unit, and without the name the second one cannot
+tell "you may not" from "there is nothing to take back".
+
+**What the decision was about** is the observed revision, and the guard refuses
+a decision about a case that moved even when the move touched an unrelated
+form. That is stricter than §4.2's reset and it is deliberate: a reviewer's
+"approved" is a statement about the whole case he was shown, and a reset keyed
+to content would let an approval stand that was made about a revision nobody
+asked him to look at again. It is the only refusal in this operation that
+carries a result, because naming the revision to reload at is the whole content
+of the answer (§6.4) — and the case's number is not a secret from a caller who
+may decide here, the way a withheld path is (§7's property 7). The mark stored
+is the revision the decision's *own* commit produces, predicted one ahead of
+what the caller observed: the store's guard runs under the same lock and
+refuses anything that arrived at another number, so the prediction is exact,
+and reading the number back is impossible because the table is part of what is
+being committed. Staleness is not stored and not computed from two numbers —
+§5.6's reset is what ends a decision's life.
+
+**The reset is a consumer, and the first one indexing was built for.** §4.2
+says committed content change puts a unit back to `PENDING`, and DESIGN §6.3
+says it is part of the commit — so it runs inside the store's `commit`, after
+the revision guard and before either write, and not in each operation that
+might remember it. The diff the same call is writing is mapped through
+`slots[n].verif`: one array read per entry, no walk, no dependency graph, and
+no work at all for a commit that touched nothing under a unit. Two kinds are
+told apart, and both readings are load-bearing. A `chgReview` entry is skipped:
+a commit whose changes are decisions must not reset the unit it just decided,
+which would unmake the act the entry records. A rows entry is *not* skipped: a
+row appearing or vanishing under a verifiable group is that group's content
+changing, and its slot's `verif` is the unit that governs it. The table is
+copied once and only if something resets, so the ordinary commit hands the
+stored slice forward untouched.
+
+Resets are not recorded. History says who decided what and when, and the state
+of a unit at revision *i* is derived by replaying the entries between the
+decision and *i* — a decision that no commit's diff erased is standing, and one
+whose revision a content change passed is not. Recording the erasure as well
+would store the same fact twice and give the two a chance to disagree.
+
+`View` prints the decision from the committed snapshot while it prints values
+from the caller's draft, which is §6.1's split at its most visible: an applicant
+with unsaved edits sees the verdict about what the case *holds*, and both
+statements are true because they are about different content. Decisions are
+disclosed to actors who may not make them — a rejection with no reader is a
+wall, not a refusal — and the unit's report is carried by every node in its
+subtree, so a client rendering one field can show the mark beside it without
+asking a second question. A node under no `verifiable` declaration reports no
+unit, which §5.7's rule about absence states as a zero value rather than a
+flag.
+
+What `Review` does not pay, on the record: no `Affected` set, for the reason
+§9 gives and in the company of `Submit`'s missing one; and no signature
+conjunct, which is `Sign`'s half of §5.5's `require` line and arrives with the
+`sigEntry` table §3.6 describes. The history entry a decision writes has no
+reader yet either — DESIGN §10's historical replay is where "what did this unit
+stand at revision 12?" gets asked — and it is written now because a history that
+cannot say who decided what is one milestone 5 would have to rewrite.
+
 ---
 
 ## 6. Hook execution contract
@@ -1459,7 +1666,17 @@ produced, one per distinct binding.
    that it is withheld. Update, Submit and Transition put the permission
    test before the revision compare for the same reason (§5.4): a
    forbidden operation must not leak the case's revision traffic as a
-   consolation. The merge is held to the same rule in the opposite
+   consolation. `Review` is the same rule over a fact neither of them
+   touches (§5.9): the mask is tested at the resolved node before the
+   revision is compared, and the two questions only it can be asked — is
+   this path a *unit*, is a decision *standing* here — are answered after
+   permission and, in the second case, as `INVALID_OPERATION` rather than
+   `ACCESS_DENIED`, because a permission answer about a decision that is
+   not there would tell the caller that somebody's is. What a decision
+   *is* is disclosed the other way: state, author and comment are printed
+   to any actor who may view the unit's content, including one who may not
+   decide it, since a rejection no one can read is a wall and not an
+   answer. The merge is held to the same rule in the opposite
    direction (§5.8): `Rebase` grants nothing, because the only state it
    writes is the caller's own draft, but every clash it reports is a
    statement about content, so a clash at a slot the actor may not view
@@ -1503,6 +1720,19 @@ an `Update` on it impossible.
 | `BenchmarkRebaseRows` | the merge over churned rows | 8.6 µs, 186 allocs |
 | `BenchmarkDiscard/draft` | a batch, then the drop of it | 920 ns, 20 allocs |
 | `BenchmarkDiscard/absent` | `Discard(0)` beside no copy | 33 ns, 0 allocs |
+| `BenchmarkTransitionRequires` | one gated move in three | 370 ns, 3 allocs |
+| `BenchmarkReview` | one committed decision | 340 ns, 4 allocs |
+| `BenchmarkReviewNoOp` | a decision already standing | 79 ns, 1 alloc |
+| `BenchmarkReviewRefused` | a decision not granted | 140 ns, 4 allocs |
+
+The four rows at the bottom are this slice's, and they, `BenchmarkTransition`
+and `BenchmarkSubmit` were measured in one process so that every ratio taken
+from them is a same-clock one: the stage move printed 181 to 192 ns over five
+runs there, which is the row above, and nothing below it had to be converted
+from a ratio to get here. The ordering is the part that does not depend on
+the clock: a refusal is the cheapest of the three review calls, a commit the
+dearest, and `BenchmarkReview` and `BenchmarkReviewNoOp` differ by the
+store's work and nothing else.
 
 Three things follow. A condition is two memory reads and a compare, so
 §3.4's "no type dispatch inside a running condition" is a cost claim and
@@ -1603,6 +1833,27 @@ new stage rather than being copied — so what is left is the role fold, one
 mask test, one revision compare and the store's three writes.
 (`BenchmarkTransition`.)
 
+The row after `BenchmarkTransition` is the only one here that prices a
+destination that *asks* a `require`, and it is not comparable with the rows
+beside it: one commit per iteration, cycling `person_review`, which declares
+`require application`, then a reject to `correction` and an accept back to
+`draft`, neither of which asks, over a case holding submitted content and a
+standing approval — where `BenchmarkTransition` moves an empty case between
+two stages that ask nothing. So 370 ns is one gated move amortized over two
+ungated ones, which makes it dearer than the ungated move's number and
+cheaper than the gated move's, and it is left that way rather than divided up
+on assumptions about what each third cost. What the row is here for is §5.5's
+claim about the conjunct §5.9 added. The gated move runs the completeness walk
+over the required form's subtree and `Validate` beside it, and the approval
+scan rides the same span: three runs of the loop against three of a scratch
+copy with the scan's result dropped came out 369 ns against 363 ns on the
+means, 1.6% apart where consecutive runs of one copy were 3% apart, at the
+same three allocations either way. So the walk's cost is §5.4's and the scan
+adds nothing that separates from it, which is what "read `verif` off the
+table the pass is already walking" is supposed to buy — and the reason the
+conjunct is reported here as two numbers and their spread instead of as a
+fifth row. (`BenchmarkTransitionRequires`.)
+
 The same call stopped at an edge's condition costs the same hundred and
 eighty nanoseconds and *more* objects than the one that committed: five
 against two, in fewer bytes, because three of them are the refusal's
@@ -1614,6 +1865,64 @@ is what §5.2's indexed answers and §5.6's direct indexing are for.
 (`BenchmarkTransitionGuard`, driven by the SYNTAX §7 example's
 reject-to-`correction` and accept-to-`draft` loop so that each call is one
 commit and neither destination asks a `require`.)
+
+A decision is priced beside the stage move it most resembles: 1.8× a
+`Transition` at four allocations against two — the table copy, the one-entry
+diff, the history record — and the reason it is not *cheaper* than a stage
+move, when it walks nothing, is that it writes a slice a transition does
+not. Already standing, the same call is 0.42× a transition at one allocation:
+the fold, the resolution, the mask test, the unit test, the revision compare,
+and a return with no message in it, which is §7's property 7 priced — the
+door is cheaper than the commit, and nothing about the case is read to answer
+at it. A granted decision is 2.4× a refused one, and nearly all of the
+difference is the commit's three writes rather than any check.
+
+Beside the operation that decides content, an accepted `Submit` on the same
+corpus is 6.8× a `Review`: a review runs neither of §5.4's walks, grafts no
+state and diffs nothing. §5.9's claim that the operation is therefore this
+package's cheapest commit is only true of the *store*: `Review` is dearer
+than `Discard`'s no-copy path by an order of magnitude, and that is the
+difference between committing and declining to. (`BenchmarkReview`,
+`BenchmarkReviewNoOp`, `BenchmarkReviewRefused`, against `BenchmarkSubmit`
+and `BenchmarkTransition`.)
+
+Two claims about what §5.9 adds to operations it does not belong to, both
+measured as differences against a scratch copy of this package with the code
+removed rather than as absolute rows, because a cost of one percent is not
+visible in a table of absolutes. The reset a commit applies (§5.6's first
+consumer) costs a scan of that commit's own entries when nothing stands
+approved, and that scan does not show up: three runs of `BenchmarkSubmit`
+against three of a scratch copy with the call removed came out 2384 ns
+against 2400 ns on the means — the copy *without* the reset a hair dearer,
+a gap inside the 2% that consecutive runs of one copy showed each other —
+at the same 42 allocations and within 70 bytes of each other either way.
+That is what O(diff) with a constant of one array read per entry is
+supposed to look like: §7's `application` is a verifiable form, so every
+entry this benchmark writes does get looked at, and looking at it costs
+nothing a commit was not already paying. The allocations are the part of
+the comparison that cannot be noise, and they say the second half of
+§5.9's claim — a commit whose diff decides nothing takes no table copy at
+all.
+
+The two fields a node now carries cost about a nanosecond and a half
+apiece: the whole-case view measured 8,578 ns with `Reviewable` and `Review`
+left zero against 8,705 ns with both computed — a re-run of the row above,
+one process per copy, which is what this section's caveat about absolute
+rows asks for of a comparison like this — across 78 nodes. That is 1.5%
+against the 1.6% consecutive runs of the computed copy differed from each
+other by, at the same 230 allocations and the same 35,267 bytes either way,
+and a cost that shows in the mean and not in the allocations or the bytes is
+the signature of arithmetic added to a walk that was already holding the
+answer. The flag is a slot-field compare, and for a node whose `verif` is
+its own it is a second compare against the instance path, and only then the
+same `effective` lookup `CanEdit` and `CanSubmit` each pay: one array read,
+one overlay search, one AND-NOT and a bit test. The info is one read of the
+decision table, and the name it carries is two more — the governing slot's
+stored `path` and then the interned string, with no walk to the root because
+a declaration's path is stored and not rebuilt (§3.1). A view that had to
+*derive* whether a decision still stands, by searching the history for a
+content commit newer than the decision's own — the alternative §5.9 declines
+— would have no such small number to point at.
 
 Synchronization is priced as a difference, because the loop that measures
 it contains the commit the merge is reconciling. `BenchmarkRebaseClean`
@@ -1697,13 +2006,17 @@ a re-run shows.
   they look the case up, ask the numbers, read the content, and then save
   the copy or delete it, with nothing resolved and no permission asked
   beyond the mask that decides what may be named. Extract the skeleton when
-  `Review` and `Sign` make it seven instances, not while it is five.
+  `Sign` makes it seven instances, not while it is six.
 - **One `Affected` policy is a milestone 5–6 decision.** DESIGN §6.4
-  promises an affected set for every committing operation; `Submit`
-  ships without one and `Transition` with the §5.5 definition walk,
+  promises an affected set for every committing operation; `Submit` and
+  `Review` ship without one and `Transition` with the §5.5 definition walk,
   because notification is the only consumer of such a list and it is
-  `OnCommit`'s shape that decides what the lists must contain. The two
-  are decided together, not one operation at a time.
+  `OnCommit`'s shape that decides what the lists must contain. The three
+  are decided together, not one operation at a time — and `Review` asks
+  the question that makes deferral the honest answer rather than a gap:
+  a decision changes no content, so an affected set for it could only
+  name the unit's subtree to say that a verdict landed, which is a
+  notification payload and not a §5.3 walk.
 - **No per-instance condition paths** (SYNTAX Appendix B item 11): F6
   uniformity is load-bearing for §3.4's one-closure-per-collection. If
   instance-relative conditions are ever added, `condFn` gains an
@@ -1731,6 +2044,19 @@ commits, and the first whose affected set is about masks rather than values.
 §5.7's view walk is behind `View`, milestone 3's first item: the mask folded
 once per call, the draft read without a copy being made, the selections merged
 on address, and `Options` fetched and `Validate` re-asked through that mask.
+Milestone 5 has landed in part, and for a reason of its own: `Review` is
+here (§5.9), the third operation that commits and the first whose commit
+says nothing about data. With it come §4.2's reset as a rule the store
+applies, §5.5's approval conjunct as a gap a destination can still ask
+about, and the two view fields that tell a client where a decision may be
+addressed. Why it could not wait for its milestone is §5.5's own: the
+SYNTAX §7 walkthrough reaches `company_review` *after* an approval, so the
+conformance trace this section is graded against needs a reviewer before it
+needs a signer, and a transition that asks for an approval nobody can make
+is a gate with no key. What stays with milestone 5 is `Sign` and the two
+halves it carries alone: signature validity as §5.5's third conjunct, and
+§5.6's `sigEntry` invalidation.
+
 DESIGN §10's milestone 6 has landed in part, and early: `Rebase` and
 `Discard` are here (§5.8) — the third version read out of the store's own
 history rather than replayed, a merge that takes an unchanged side and
@@ -1783,6 +2109,11 @@ func (c Case) Submit(ctx, form string, working uint64) (CommitResult, error)
 func (c Case) Transition(ctx, dest string,
     observed uint64) (TransitionResult, error)
 
+// A decision about what the case holds, not about what a draft would put
+// in it (§5.9): no working copy is named, and none moves.
+func (c Case) Review(ctx, target string, act ReviewAction,
+    observed uint64, comment string) (ReviewResult, error)
+
 // Edits, values, and what an accepted batch says.
 type Edit struct{ /* unexported */ }  // Set · Empty · Add · Remove
 type Value struct{ /* unexported */ } // Text · Int · Decimal · Bool · Date
@@ -1803,6 +2134,13 @@ type TransitionResult struct {
     Revision uint64; Stage string; Affected, Missing []string
 }
 
+// What a decision reached: the case's new number and its stage. A review
+// asks nothing about content, so there is no `Missing` list here — the
+// approvals a destination still wants are `Transition`'s answer (§5.5).
+type ReviewResult struct{ Revision uint64; Stage string }
+type ReviewAction string  // APPROVE · REJECT · REVOKE
+type ReviewState string   // PENDING · APPROVED · REJECTED, the unset answer
+
 // The read a client renders from: one snapshot, the selections named, the
 // mask of the actor asking (§5.7).
 func (c Case) View(ctx, paths ...string) (ViewResult, error)
@@ -1814,6 +2152,8 @@ type ViewNode struct {
     Multiple   bool                // a collection: children are rows
     Value      Value               // KindNone when the cell is unset
     Required, CanEdit, CanSubmit bool
+    Reviewable bool                // a decision may be addressed *here* (§5.9)
+    Review     ReviewInfo          // the unit's decision, PENDING if none
     Options    []string            // fetched once per binding per call
     Problems   []FieldProblem      // reports about this node's own value
     Children   []*ViewNode
@@ -1852,13 +2192,25 @@ type Category string  // NOT_FOUND, ACCESS_DENIED, INVALID_OPERATION, …
 type CaseError struct {
     Op string; Reason Category; Case CaseID; Detail string; Cause error
 }
+// The decision a node reports: whose judgement stands, when, and what they
+// said. `State` is PENDING and the other three are zero when nothing stands
+// (§5.9); `Unit` is the same on every node in the subtree, and is empty for
+// content no `verifiable` declaration governs.
+type ReviewInfo struct {
+    Unit    string       // the governing declaration's path, never a row
+    State   ReviewState
+    By      UserID
+    At      uint64       // the revision the decision's own commit produced
+    Comment string
+}
+
 func Failed(err error, want Category) bool
 ```
 
 `Definition`, `Case`, `Edit` and `Value` have no exported fields, which
 is what lets §5.1's class tagging and §6's hook contract stay decisions
 of this package rather than a struct literal a host assembles by hand.
-The results — `ChangeResult` and the four that read like it — have the
+The results — `ChangeResult` and the five that read like it — have the
 opposite shape, and `ViewNode` follows them for the same reason §5.1
 gives: a *write* a caller assembles is a value to be validated, so it
 stays a constructor, while a *read* the engine assembles is data to be
@@ -1870,14 +2222,17 @@ categories, and they arrive on a refusal as well as on a success: a host
 renders a form's gaps without parsing a message, and reads the revision it
 must reload at out of the same value.
 
-What §6 names and this list still does not — `Review` and `Sign` — waits for
-the milestone that approves and signs content. `Submit` commits content,
-`Transition` commits a stage, `View` reads both of those beside an actor's
-own draft, and §5.8's two operations settle a draft against what the case
-committed after it was made; the `verif` and `sigEntry` effects that need
-something to reset or re-ask arrive with the operations that do the resetting
-(§5.4, §5.5, §5.7), and `OnCommit`, §6.5's way of telling a user the case
-moved, with milestone 6's observers.
+`Review` is the third commit and the first whose commit says nothing about
+data (§5.9), which is why its signature takes no working copy and its result
+no `Affected` set. What §6 names and this list still does not
+is `Sign`: nothing signs until it exists, so the `sigEntry` table §3.6
+describes stays unbuilt, the signature conjunct of §5.5's `require` stays
+unpaid, and the `sigEntry` half of §5.6's indexing has no consumer. `Submit`
+commits content, `Transition` commits a stage, `Review` commits a verdict,
+`View` reads all three beside an actor's own draft, and §5.8's two operations
+settle a draft against what the case committed after it was made; `OnCommit`,
+§6.5's way of telling a user the case moved, waits with milestone 6's
+observers.
 
 `BinaryRef` is exported as a `[]byte` with no behavior. DESIGN §5.2 puts
 content handles in case *data*, and §5.1's value row reserves the field
@@ -1934,9 +2289,14 @@ in this package reads or resolves one.
   `Transition` steps 1 through 6 — role set from a committed assignment,
   edge, mask, guard, the destination's `require`, and the commit that
   moves only the stage — are `TestAppendixATransitionTrace`, which also
-  checks the two `permTables` answers the trace ends on. Its step 5's
-  approval and signature conjuncts and step 7's `OnCommit` are the parts
-  that wait for milestones 5 and 6, and the test says so where it stops.
+  checks the two `permTables` answers the trace ends on. Step 5's approval
+  conjunct is now part of that trace, which is why the test performs a
+  `Review` of the required form before it asks for the move: SYNTAX §7's
+  walkthrough says the case goes to `company_review` only after the
+  `Registrar` or `Manager` approves, so the gate is checked where the spec
+  states it rather than in a fixture of its own. Step 5's signature
+  conjunct and step 7's `OnCommit` are what still waits for milestones 5
+  and 6, and the test says so where it stops.
   §6.5's synchronization has no step in this trace, because the trace is one
   actor moving one case forward: it is tested as the two actors §6.5
   describes, against the exported surface, in `rebase_test.go` (§5.8).
@@ -2009,14 +2369,30 @@ Runtime steps for `Transition(reviewer-user → "draft" →
    `company_review` (ST3).
 5. `stage[company_review].requires` = the `application` bit: §5.4
    completeness under the effective frame, `verif` units APPROVED —
-   `application` is verifiable as a whole, so the unit is the form —
-   `submitted` valid for the current content version, and `approved_by`
-   valid iff the committed `reviewer` user signed that content. Only the
-   completeness half runs today: the other two wait for `Review` and
-   `Sign` (§5.5, milestone 5).
+   `application` is verifiable as a whole, so the unit is the form and
+   `verif[holderName] = verif[shareholders]` from the lowering block above
+   is what makes its nested fields answer through it — `submitted` valid
+   for the current content version, and `approved_by` valid iff the
+   committed `reviewer` user signed that content. The completeness and
+   approval halves run today; the two signature checks wait for `Sign`
+   (§5.5, milestone 5).
+
+   The approval half is why this trace has a step the spec's listing does
+   not: `Review(holderOfManager, "application", APPROVE, observed, "")`
+   stands before the move. The trace's actor is the committed
+   `application.reviewer`, so `draft`'s `accept, reject` grant and
+   `Registrar`'s and `Manager`'s `review application` grant are the same
+   person's, which is exactly the definition SYNTAX §7 writes and the
+   reason one fixture serves both steps. A `Transition` attempted at the
+   same revision with no decision committed is refused and names
+   `application` on its `Missing` list — SYNTAX §7's walkthrough says the
+   case reaches `company_review` *after* the approval, and step 5's
+   conjunct is what makes the runtime agree.
 6. Revision check against the global committed revision (DESIGN §6.4),
    then one atomic forward commit: the stage change, plus whatever
-   §5.6 maps to. Here that is nothing — no verifiable content changed.
+   §5.6 maps to. Here that is nothing — no verifiable content changed, and
+   the entry `Review` wrote two revisions back is not a content entry, so
+   the decision that satisfied step 5 survives the move that consumes it.
    The shipped call asks the number *before* steps 4 and 5, because both
    read content and content the caller has not seen is content it cannot
    be told to fix (§5.5's order); the trace keeps the spec's listing.
@@ -2025,7 +2401,11 @@ Runtime steps for `Transition(reviewer-user → "draft" →
    Milestone 6's, like the same step after a submit.
 
 The trace touches: three integer sets (role set, accept mask, requires
-bitset), one `condFn`, and subtree walks bounded by definition size.
+bitset), one `condFn`, one decision-table read and the subtree walks
+bounded by definition size. That read is step 5's approval conjunct, and it
+is a slot-field lookup plus an array index — the reason §5.5 can say the
+conjunct arrives "as further gaps on the same list rather than as new
+shapes" and mean it in the machine as well as in the document.
 §3.9 turned the caller's `"company_review"` into a `stageID` before any
 of it ran, so the interpretation itself does no name comparison and no
 type dispatch, and probes no map — a case's only data-keyed lookup is a

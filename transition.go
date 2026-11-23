@@ -57,11 +57,11 @@ package monshi
 //     invent a third place a commit can fail for a reason no field the actor
 //     can reach explains.
 //
-// What this file does not do is the other two conjuncts of §5.5's require line
-// — `verif` units APPROVED and signatures valid. Nothing approves or signs
-// until `Review` and `Sign` exist (DESIGN §10's milestone 5), so there is
-// nothing yet for a transition to withhold a stage change over; RUNTIME §5.5
-// says the same from the other side.
+// What this file does not do is §5.5's third conjunct: signatures valid for
+// current content. Nothing signs until `Sign` exists (DESIGN §10's milestone
+// 5), so a signature slot holds nothing to check; `Review`'s conjunct — every
+// `verifiable` unit in a required form APPROVED — is paid here, and RUNTIME
+// §5.5 states the rule it enforces.
 
 import "context"
 
@@ -111,9 +111,15 @@ type TransitionResult struct {
 	Affected []string
 
 	// Missing holds what the destination's `require` still wants, in the same
-	// shape and with the same meaning as `CommitResult.Missing`: editable
-	// paths, one entry per gap, in declaration order across the required
-	// forms. Empty on a transition that committed.
+	// shape and with the same meaning as `CommitResult.Missing`: paths in
+	// declaration order, one entry per gap, empty on a transition that
+	// committed. An entry is usually a field that needs a value, and one kind
+	// is not: a `verifiable` declaration the case has not APPROVED arrives
+	// here too (DESIGN §4.4's `require`), named at the unit rather than at
+	// anything inside it, because the remedy is a `Review` and not an edit.
+	// The two kinds are told apart by asking the definition — the path names a
+	// `verifiable` declaration — and a host that renders one sentence says
+	// which is wanted, which is what `requireSentence` exists for.
 	Missing []string
 }
 
@@ -213,18 +219,32 @@ func (c Case) Transition(ctx context.Context, dest string,
 		var gaps []gap
 		for _, form := range img.requires(to) {
 			gaps = append(gaps, rec.commit.s.incomplete(form)...)
+			// §5.5's second conjunct, and the one `Review` exists to answer: a
+			// required form's `verifiable` units must stand APPROVED (DESIGN
+			// §4.2, §4.4). It joins the same gap list rather than becoming a
+			// new shape, because the question is already "what does the
+			// destination still want", and a host that gets two lists has to
+			// join them itself. The units are read in declaration order after
+			// their form's fields, so one form's answer arrives together.
+			gaps = append(gaps, pendingUnits(&rec.commit.s,
+				rec.commit.reviews, form)...)
 		}
 		if len(gaps) > 0 {
+			var fields, units int
+			for _, g := range gaps {
+				if g.kind == gapVerif {
+					units++
+					continue
+				}
+				fields++
+			}
 			res.Missing = gapPaths(gaps)
 			return res, refuse.now(InvalidOp,
-				quote(dest)+" still requires "+count(len(gaps),
-					"field", "fields")+" with no value")
+				requireSentence(dest, fields, units))
 		}
-		// §5.5's remaining two conjuncts — every `verif` unit in a required
-		// form APPROVED, every signature valid for current content — are
-		// milestone 5's, with `Review` and `Sign` (DESIGN §10). They join as
-		// further gaps on this same list rather than as new shapes: the
-		// question is already "what does the destination still want".
+		// §5.5's third conjunct — every signature valid for current content —
+		// is `Sign`'s, and has nothing to act on until a signature exists to
+		// check (DESIGN §10). It joins this same list when it lands.
 	}
 
 	// The commit. Nothing is grafted, because nothing moved: the new snapshot
@@ -237,8 +257,9 @@ func (c Case) Transition(ctx context.Context, dest string,
 	// `changes` is empty and that is not a no-op: §5.1 counts the stage among
 	// the semantic committed changes, and commitRecord carries the stage of
 	// the entry for exactly the replay that has to land the case where it is.
-	rev, err := c.w.cases.commit(refuse, rec.revision,
-		committedState{s: rec.commit.s, stage: to},
+	rev, err := c.w.cases.commit(refuse, img, rec.revision,
+		committedState{s: rec.commit.s, stage: to,
+			reviews: rec.commit.reviews},
 		committedBy{by: c.actor.User, op: opTransition})
 	if err != nil {
 		// A concurrent commit between the guard above and this one, which the
@@ -252,4 +273,22 @@ func (c Case) Transition(ctx context.Context, dest string,
 	// function is handed, and the answer needs no state.
 	res.Affected = img.viewChanges(roles, from, to)
 	return res, nil
+}
+
+// requireSentence states what a destination's `require` still wants, in the two
+// kinds of remedy it can want: a value nobody has typed, and a decision nobody
+// has made. Both are counted rather than merged into one number because the
+// sentences a host owes the user are different — "fill this in" and "wait for
+// the registrar" — and a refusal that said "2 fields with no value" about an
+// approval would send the user back to a form they had already finished.
+func requireSentence(dest string, fields, units int) string {
+	out := quote(dest) + " still requires "
+	switch {
+	case units == 0:
+		return out + count(fields, "field", "fields") + " with no value"
+	case fields == 0:
+		return out + count(units, "approval", "approvals")
+	}
+	return out + count(fields, "field", "fields") + " with no value, and " +
+		count(units, "approval", "approvals")
 }

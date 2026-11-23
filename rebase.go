@@ -355,6 +355,13 @@ func (m *rebaser) collect(window []commitRecord) {
 					mergedSet{coll: ch.slot, host: ch.path, now: ch.ids})
 				continue
 			}
+			if ch.kind != chgValue {
+				// A third kind is not a question about content, and its address
+				// may name a cell slot all the same: a `verifiable` field carries
+				// both, and a merge that read a decision as a base value would
+				// answer "what did the case hold here" with "who approved it".
+				continue
+			}
 			k := cellKey{slot: ch.slot, steps: pathKey(ch.path)}
 			if i, seen := atCell[k]; seen {
 				m.cells[i].now = ch.v
@@ -485,7 +492,7 @@ func (m *rebaser) resolve(seen []commitRecord) {
 	}
 	for i := len(seen) - 1; i >= 0 && want > 0; i-- {
 		for _, ch := range seen[i].changes {
-			if ch.kind == chgRows {
+			if ch.kind != chgValue {
 				continue
 			}
 			c := atCell[cellKey{slot: ch.slot, steps: pathKey(ch.path)}]

@@ -28,13 +28,19 @@ type gap struct {
 	kind uint8
 }
 
-// The two shapes a gap takes, which a host renders differently because the
+// The shapes a gap takes, which a host renders differently because the
 // remedy is different: a field needs a value, a collection needs an
-// instance. The second is why `Missing` cannot be a flat "empty fields"
-// list — a required `multiple` with no rows has no empty field to point at.
+// instance, a verifiable unit needs a decision. The second is why `Missing`
+// cannot be a flat "empty fields" list — a required `multiple` with no rows
+// has no empty field to point at — and the third is why an entry may name a
+// declaration nobody can type into: DESIGN §4.4's destination `require` asks
+// for approvals as well as values, and §6.4 says a `Review` is the only way to
+// answer it. The kinds are not carried into the rendered list, so a host sees
+// one list of paths it must resolve by looking at what the path is.
 const (
 	gapValue uint8 = iota + 1 // needs a value, holds none or an empty one
 	gapRows                   // needs at least one instance, has none
+	gapVerif                  // a `verifiable` unit is not APPROVED (§4.2)
 )
 
 // incomplete walks one subtree of one state and returns every gap §5.4 would

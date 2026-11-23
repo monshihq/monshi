@@ -52,12 +52,14 @@ package monshi
 //     display it. Both are the same promise: a view whose rows disagree about
 //     when they were read is not a view of anything.
 //
-// What §6.1 asks for and this file does not give is verification and signature
-// state. There is none to read: `Review` and `Sign` are milestone 5's (DESIGN
-// §10), and §4.2's `verifiable` attribute declares a permission target, not a
-// verdict. The node reports the kind the definition declared, so a signature
-// field arrives as `"signature"` and a client can put its box where the author
-// wanted one; the verdict joins `Problems` when there is a review to report.
+// What this file did not give, and now does, is verification state: a node
+// reports the `verifiable` declaration that governs it and what the case has
+// decided about it (RUNTIME §5.9). What it still does not report is signature
+// validity, because `Sign` has not landed (DESIGN §10) and §4.2's `verifiable`
+// attribute declares a permission target, not a verdict. The node reports the
+// kind the definition declared, so a signature field arrives as `"signature"`
+// and a client can put its box where the author wanted one; a signature's
+// verdict joins the same field when there is one to read.
 
 import (
 	"context"
@@ -175,6 +177,34 @@ type ViewNode struct {
 	// is usually a field and the question it is asking is about a button.
 	CanSubmit bool
 
+	// Reviewable is the answer `Review` will give for the node this one's
+	// decision would be made at: the same mask, the same roles, the same stage
+	// (§4.3). It is read at this node rather than at the governing unit, which
+	// is what makes it a promise and not a hint — the path a host holds is the
+	// path a host sends, and RUNTIME §5.9 resolves the permission question at
+	// exactly that slot. A node nobody may review has the same value as the
+	// form it sits in when the grant was written above it, because §3.5's fold
+	// is what put the bit there.
+	Reviewable bool
+
+	// Review is what the case has decided about the `verifiable` declaration
+	// that governs this node, and it is read from the *committed* snapshot
+	// while `Value` above is read from this actor's draft (RUNTIME §5.7's
+	// split, and §4.2's rule that a decision is about committed content). The
+	// two can disagree in the one way that is true rather than misleading: an
+	// APPROVED mark beside values this actor has not submitted says the case
+	// was approved as it stands, and this draft is a proposal about it.
+	// `ReviewInfo.At` is the number to quote when the host decides which of
+	// the two to show.
+	//
+	// A zero value means no `verifiable` declaration governs this node — an
+	// empty `Unit` says so, and no field of a plain form has a verdict to
+	// report. What a node never reports is a *stale* verdict, because §4.2
+	// clears a unit back to PENDING when its content commits: a moved case
+	// shows the absence of a decision, and §5.9 gives the reason that is the
+	// honest rendering.
+	Review ReviewInfo
+
 	// Options is the choice list this field's `Options` hook supplied, in the
 	// order the host returned it. Non-nil only for a declared `options`
 	// field: an enum's choices are declared data and arrive as `Kind`
@@ -266,6 +296,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 		s:        &draft,
 		roles:    img.rolesHeld(c.actor, rec.commit.s),
 		stage:    rec.commit.stage,
+		reviews:  rec.commit.reviews,
 		problems: map[string][]FieldProblem{},
 		opts:     map[hookID][]string{},
 	}
@@ -424,14 +455,21 @@ func contained(outer, inner string) bool {
 // fold over roles and the permission array are computed once rather than per
 // node — §8's point about a walk that re-derives its own preconditions.
 type viewWalk struct {
-	ctx      context.Context
-	refuse   refuser
-	w        *wiring
-	img      *image
-	s        *state // the actor's draft, or the commit where there is none
-	roles    []roleID
-	stage    stageID
-	vis      []bool
+	ctx    context.Context
+	refuse refuser
+	w      *wiring
+	img    *image
+	s      *state // the actor's draft, or the commit where there is none
+	roles  []roleID
+	stage  stageID
+	vis    []bool
+
+	// reviews is the committed decision table, and the one field here that is
+	// not read from `s`: a verdict is a fact about the case and not about this
+	// actor's draft (§4.2, §5.9). Nil when nothing has ever been decided, which
+	// `reviewAt` reads as "everything pending".
+	reviews []reviewState
+
 	problems map[string][]FieldProblem
 	opts     map[hookID][]string
 }
@@ -500,6 +538,17 @@ func (v *viewWalk) node(n nodeID, prefix instPath) (*ViewNode, error) {
 		Required:  v.s.asked(n),
 		CanEdit:   img.mayEdit(v.roles, v.stage, n),
 		CanSubmit: img.maySubmit(v.roles, v.stage, n),
+		// The unit test is `verif == n` and not `verif != 0`: F3 makes only
+		// the outermost `verifiable` declaration govern, so a nested one is
+		// not decidable either, and §4.3's promise that this flag answers the
+		// operation would be false if a member or a governed group could say
+		// it. `Review` refuses both (RUNTIME §5.9). A *row* of the unit is the
+		// same slot at a different address, and the operation refuses that
+		// address too — F4 reviews a collection as a whole — so the flag is the
+		// declaration's node's and never an instance's.
+		Reviewable: sl.verif == n && !endsAt(prefix, n) &&
+			img.mayReview(v.roles, v.stage, n),
+		Review: reviewInfoOf(img, v.reviews, n),
 	}
 	if sl.kind == kindField {
 		// The draft's cell, at this instance. A form, a group and a

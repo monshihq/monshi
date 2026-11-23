@@ -145,6 +145,10 @@ their presence does not imply that the values were previously committed.
   member.
 - A committed content change to a verifiable unit resets its effective
   review state to `PENDING`. Historical decisions remain in history.
+  The reset is part of the commit that changes the content, not a check
+  each operation may remember (RUNTIME §5.6, §5.9), so a `Submit`, a
+  `Transition` and a `Review` all clear a unit the same way; the record
+  of a decision survives its own erasure.
 - Review supports approval, rejection with a required comment, and
   revocation. Revocation is restricted to the author of the current
   active review decision.
@@ -414,11 +418,22 @@ collection is distinguishable from an empty optional group, and an unset
 cell from a cell holding `""` — because a client that cannot tell those
 apart cannot offer the right action.
 
-Verification and signature state is the one part of the list above that
-has no shipped source: nothing approves a unit or signs one until
-`Review` and `Sign` exist, so the fields that would carry §4.2's reset
-and invalidation state wait for milestone 5 (RUNTIME §5.7). A view today
-is complete about content and permissions and silent about that pair.
+Verification state is printed per node: whether a decision may be
+addressed *here*, and what the governing unit's decision is. Both halves
+carry a subtlety worth stating at the spec. The offer is false at a row of
+a `verifiable` collection and at a nested `verifiable` declaration, because
+§4.2 reviews a collection as a whole and lets the outermost annotation
+govern — an address that cannot be decided must not advertise that it can
+(RUNTIME §5.9). And the decision is read from the committed case while the
+value beside it is read from this actor's draft, so a view can honestly
+report an approval of content the caller is looking away from; the two
+statements are about different content, which is invariant 6's split
+(RUNTIME §5.7).
+
+Signature state is the one part of the list above with no shipped source:
+nothing signs until `Sign` exists, so the field that would carry §4.2's
+invalidation waits for milestone 5. A view today is complete about content,
+permissions and decisions and silent about signatures.
 
 Dynamic `Options` hooks are called by the engine when a requested view
 needs the options—not through a separate client `GetOptions` API. One
@@ -489,7 +504,18 @@ UI/user's responsibility, while the engine guarantees revision
 correspondence.
 
 - `Review`: target must be verifiable; authorized reviewer may approve,
-  reject with comment, or revoke their own current active decision.
+  reject with comment, or revoke their own current active decision. The
+  shipping shape adds three things the bullet leaves open. The target is
+  the *governing declaration*: a path that resolves to a nested
+  `verifiable` annotation or through a row of a collection is refused by
+  name of the unit that does answer (§4.2's two rules, enforced rather
+  than warned). One decision is active per unit, so a second approval
+  replaces the first and says whose judgement now stands. And a decision is
+  made about the revision the reviewer was *shown* — the same guard §6.4
+  states for all three operations — while the number stored beside it is the
+  one its own commit produced. §4.2's reset is then the whole of staleness,
+  as the caller experiences it: an approval is not marked stale, it is gone,
+  and the reason it is gone is in history and not in the state.
 - `Sign`: signed form must be fully submitted/valid with approved
   applicable verification units; enforce the signature field's
   authorized user/role, bind to form content and the observed global
@@ -669,25 +695,24 @@ Keep initial milestones small and focused on runnable behavior:
 7. **Optional service:** API wrapper and WebSocket notifications, using
    the same Core semantics.
 
-Milestone 2 has taken four items out of the order above, and the reason
+Milestone 2 has taken five items out of the order above, and the reason
 belongs here because the list is the contract's. `Submit` ships with the
 commit path it cannot be separated from — §6.3's two revision guards,
 completeness and validation against the candidate, the forward diff, and
 the history entry and snapshot swap that must be consistent with each
 other. None of it is reachable through `Update` alone, and a milestone that
-ended at a working
-copy would leave invariants 1, 2, 5 and 6 unexercised. What milestone 5 still
-owns is the half of a commit that has nothing to act on yet: `verif` resets
-and signature invalidation (§4.2), which arrive with `Review` and `Sign`.
-RUNTIME §10 states what exists today.
+ended at a working copy would leave invariants 1, 2, 5 and 6 unexercised.
+What milestone 5 still owns of a commit is signature invalidation (§4.2),
+which arrives with `Sign`; the `verif` half arrived with `Review`, which this
+list comes to last. RUNTIME §10 states what exists today.
 
 `Transition` follows it out of order for the same reason and one of its own:
 it is the other operation that commits, and unlike `Review` and `Sign` it
 needs nothing that does not exist yet — a declared edge, two masks, one
-condition and the completeness pass `Submit` already runs. Milestone 5 keeps
-its half of the destination's `require`, the `verif` units and signature
-validity (§4.2), which have nothing to act on until something approves and
-signs. Two details of §6.4's sketch are refined by the shipping shape: the
+condition and the completeness pass `Submit` already runs. Of the
+destination's `require` it now runs the `verif` units as well, and the
+signature conjunct is all that milestone 5 keeps of it (§4.2). Two
+details of §6.4's sketch are refined by the shipping shape: the
 result is a `TransitionResult` rather than a `CommitResult`, because the
 `affected` path set promised above is a stage move's own answer — paths whose
 *visibility* moved, with no value behind them — while a submit's affected set
@@ -712,13 +737,25 @@ calculation, arrived with the fanout (RUNTIME §5.3).
 
 Two of §6.1's lines are refined by the shipping shape: enforcement is
 pruning rather than flagging, and presence is reported in the data
-rather than as a second flag. The one line with nothing to read yet is
-verification and signature state, and it waits with the rest of
-milestone 5.
+rather than as a second flag. A third is refined by what a decision *is*:
+verification state is offered only at the address that can be decided, so
+the flag and the operation agree instead of one inviting what the other
+refuses. The line with nothing to read yet is signature state, and it
+waits with the rest of milestone 5.
 
-`Rebase` and `Discard` are the fourth item taken out of order, and the
-reason is the one the other three had: everything they need is already
-required to exist. The pair reads the commit history, the committed snapshot
+`Review` is the fifth item taken out of order, and it is the first taken
+from milestone 5 rather than from milestone 2's neighborhood. The reason is
+the same one every other item in this list has had: everything it needs
+already exists, and everything the *next* item needs exists only after it.
+A decision asks the mask, the path seam and the revision guard that
+§6.3 and §6.4 already enforce, and it is the operation §4.2's reset needs
+beside it: a commit that clears a unit whose content it just changed is not
+testable while nothing can stand approved to be cleared, and neither is
+SYNTAX §7's walkthrough, which reaches `company_review` only after somebody
+approves. What stays with milestone 5 is `Sign` and the two
+halves it carries: signature validity as a third conjunct of a
+destination's `require`, and invalidation of a signature bound to content
+that moved. The pair reads the commit history, the committed snapshot
 and the per-user copies invariant 4 forces the store to keep, so it adds no
 state of its own, and invariant 5's "stale working states cannot Submit" has
 been a rule with no operation that could make a state fresh. What stays with

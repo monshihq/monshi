@@ -138,15 +138,18 @@ type storedCase struct {
 // carries an `Operation` because a history entry says more than "the data
 // moved": a review decision, a signature and a content change are different
 // acts on the same case, and §5.1 lists all three among the semantic
-// committed changes. Today only Submit commits, so only one value is
-// declared; the others join it as their operations land, and a stored history
-// that never had to be reshaped to hold them is the point of writing the word
-// now rather than in milestone 5.
+// committed changes. `opSubmit` and `opTransition` were declared before the
+// operations that use them were interesting; `opReview` is the first entry
+// whose act is not about content at all, and `opSign` joins it when `Sign`
+// lands.
+// A stored history that never had to be reshaped to hold them is the point of
+// writing the word early rather than in milestone 5.
 type commitOp uint8
 
 const (
 	opSubmit commitOp = iota + 1
 	opTransition
+	opReview
 )
 
 // commitChange is one entry of a forward diff (DESIGN §5.1): which
@@ -165,15 +168,31 @@ const (
 // by the same stable IDs §5.1 addresses rows with — and RUNTIME §5.8 states
 // why the alternative is a reconstructed snapshot this engine does not keep.
 //
-// The two kinds are the two things §5.1 counts as semantic content changes.
-// `chgValue` says one field's value is now what `v` holds — where an unset
-// `v` is §5.1's *removal* effect, the `Empty` of a field, and so is a change
-// rather than the absence of one. `chgRows` says a collection's instance set
-// is now the `ids` list, whose length `v.i` repeats and whose emptiness
-// `v.set` answers: an instance appearing or vanishing is a change to the
-// declaration's rows rather than to a value, which is the same distinction
+// The two content kinds are the two things §5.1 counts as semantic content
+// changes. `chgValue` says one field's value is now what `v` holds — where an
+// unset `v` is §5.1's *removal* effect, the `Empty` of a field, and so is a
+// change rather than the absence of one. `chgRows` says a collection's
+// instance set is now the `ids` list, whose length `v.i` repeats and whose
+// emptiness `v.set` answers: an instance appearing or vanishing is a change to
+// the declaration's rows rather than to a value, which is the same distinction
 // §5.3's fanout draws between a write and an `Add`. `ids` is empty for the
 // other kind, and a value payload is zero for this one.
+//
+// `chgReview` is the third kind and the first that is not content: one
+// verifiable unit's effective decision, in `v.i`, with its comment in `v.s`.
+// It carries no `by` and no `at` because the entry already has both —
+// `commitRecord`'s `by` and `revision` are the reviewer and the version they
+// decided on, which is DESIGN §4.2's "historical decisions remain in history"
+// stated without duplicating a fact that can drift. `path` is always empty:
+// F4 reviews a `verifiable multiple` as a whole and not per member, so a
+// decision is about a declaration and never about a row.
+//
+// Being non-content is load-bearing twice, and both readers filter by kind
+// rather than by shape. §5.6's reset mapping must skip it — a decision that
+// reset its own unit would unmake itself — and §5.8's value pass must skip it
+// too, because a `verifiable` *field* is a cell slot, and a merge that read
+// `chgReview` as a base value would answer a question about content with an
+// approval.
 //
 // `path` is empty for a value the base row holds. For a member of a
 // collection it names the instances outermost first, in the stable IDs §5.1
@@ -189,8 +208,9 @@ type commitChange struct {
 }
 
 const (
-	chgValue uint8 = iota + 1 // one field's value, at one instance path
-	chgRows                   // one collection's instance count
+	chgValue  uint8 = iota + 1 // one field's value, at one instance path
+	chgRows                    // one collection's instance count
+	chgReview                  // one verifiable unit's decision: not content
 )
 
 // commitRecord is one entry in a case's history: the revision it produced,
@@ -223,13 +243,35 @@ type commitRecord struct {
 }
 
 // committedState is one materialized committed snapshot: the case's values
-// and instance rows, and the stage it is at. Reviews, signatures and
-// verification state join this shape in milestone 5; the fields below it do
-// not move, which is why a host-facing `Committed` can be added later
-// without breaking anything that reads it.
+// and instance rows, the stage it is at, and the decisions reviewers have
+// made about that content (DESIGN §4.2). A host-facing `Committed` can be
+// added over this shape later without breaking a reader, because the state
+// and the stage keep their positions as the struct grows.
+//
+// `reviews` is dense by slot and consulted only at a slot that declares
+// `verifiable` — the governing unit F3 already resolved at lowering — so a
+// case nobody has reviewed holds a nil table and pays nothing for the
+// feature.
+//
+// It sits *beside* `s` and not inside it, and that placement is the whole
+// design decision. A working copy is a clone of the data snapshot, so a
+// review state stored as data would be handed to every draft, compared by
+// §5.8's merge and grafted by a submit — three things no decision is a
+// statement about, since a reviewer approves what the case *holds* and not
+// what somebody is typing. Kept beside it, `Update` cannot write one (a
+// signature field is refused for the same structural reason), §6.3's "other
+// forms' unsubmitted working edits remain intact" needs no exception for
+// reviews, and a rebase has nothing to reconcile.
+//
+// The replace-never-mutate rule stated above is what makes handing this slice
+// to a caller safe: a commit builds a whole new table with `reviewTable` and
+// never writes an entry of the stored one, exactly as `Submit` builds a new
+// state instead of grafting the stored one.
 type committedState struct {
 	s     state
 	stage stageID
+
+	reviews []reviewState
 }
 
 // stageName renders the snapshot's stage as its definition spells it.
@@ -517,6 +559,13 @@ type committedBy struct {
 // operation performed outside the lock it does not hold would be a check that
 // another commit could pass.
 //
+// `img` is the case's own definition, and this method needs it for exactly one
+// reason: §4.2's reset of the review table is part of committing the snapshot,
+// and the store keys cases by definition *name* rather than holding the image
+// the data was built under (DESIGN §3 leaves that pairing to the handle).
+// `by.changes` is the diff the same call is committing, which is what the reset
+// reads.
+//
 // The history append and the snapshot swap are the two halves of one act, and
 // the order inside the lock is worth stating because it is what makes
 // `revision` mean "the count of commits": the snapshot moves, the revision
@@ -546,7 +595,7 @@ type committedBy struct {
 // guard §6.5 exists to make refuse. Lineage is a fact about history, and a
 // commit may only extend a copy's lineage when it was made against the state
 // that copy stands on.
-func (s *caseStore) commit(refuse refuser, want uint64,
+func (s *caseStore) commit(refuse refuser, img *image, want uint64,
 	next committedState, by committedBy) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -558,6 +607,19 @@ func (s *caseStore) commit(refuse refuser, want uint64,
 		return 0, refuse.now(StaleRevision,
 			"the case is at revision "+dec(rec.revision)+", not "+dec(want))
 	}
+	// DESIGN §4.2's reset, applied here and not by the caller, which is the
+	// difference between a rule and a convention: an operation that forgot to
+	// reset its own units would ship a case whose APPROVED mark outlived the
+	// content it approved, and no read could tell that happened. `img` is a
+	// parameter for this line and nothing else — the store keys cases by
+	// definition *name*, and a case's image is the caller's to know.
+	//
+	// It runs after the revision guard and before either write, so a rejected
+	// commit leaves the stored table untouched and an accepted one can never
+	// carry a stale mark. What the reset costs is one array read per diff
+	// entry (§5.6), which is why it is paid on every commit rather than
+	// skipped when the case looks unaffected.
+	next.reviews = resetVerifs(img, next.reviews, by.changes)
 	rec.commit = next
 	rec.revision++
 	rec.hist = append(rec.hist, commitRecord{

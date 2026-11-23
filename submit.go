@@ -31,13 +31,13 @@ package monshi
 //     with the revision it did not move, so a host comparing numbers learns
 //     what happened without a second field saying so.
 //
-// What this file does *not* do is the verification and signature half of
-// §5.4: `verif` units are not reset and `sigEntry` invalidations are not
-// computed, because nothing can approve or sign a unit until Review and Sign
-// exist to do it (DESIGN §10's milestone 5). A submit therefore commits
-// content today and will commit resets alongside it then; the diff, the
-// history entry and the transaction are already shaped to carry that, since
-// a reset is an effect on the same slots.
+// What this file does *not* do is ask about a decision. A submit's diff can
+// erase one — that is §4.2's reset, and §5.9's `resetVerifs` applies it to
+// whatever this call wrote, inside the store and not here — but `Submit`
+// itself neither reads the review table nor refuses for want of an approval,
+// because a form is complete before anybody agrees with it. The half still
+// unpaid is `sigEntry` invalidation, which waits for `Sign` with the
+// signature conjunct of §5.5's `require` (DESIGN §10's milestone 5).
 
 import (
 	"context"
@@ -201,8 +201,9 @@ func (c Case) Submit(ctx context.Context, form string,
 		return res, nil
 	}
 
-	rev, err := c.w.cases.commit(refuse, rec.revision,
-		committedState{s: next, stage: rec.commit.stage},
+	rev, err := c.w.cases.commit(refuse, img, rec.revision,
+		committedState{s: next, stage: rec.commit.stage,
+			reviews: rec.commit.reviews},
 		committedBy{by: c.actor.User, op: opSubmit, changes: changes})
 	if err != nil {
 		// Reachable only through a concurrent commit between the guard above

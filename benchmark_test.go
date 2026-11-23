@@ -803,3 +803,144 @@ func BenchmarkDiscard(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkReview is a decision end to end (RUNTIME §5.9, DESIGN §6.4): the
+// role fold, the §3.9 resolution, the mask test, the unit test, the revision
+// compare, and then a commit whose diff is one entry. The loop alternates
+// approve and revoke so that every iteration commits — a repeated decision is
+// refused work by §6.3's rule, so a benchmark that asked for the same approval
+// twice would be measuring `BenchmarkReviewNoOp` and calling it a commit.
+//
+// The content stays empty on purpose: `Review` decides what the case holds and
+// asks nothing about completeness, which is §5.4's question at `Submit` and
+// §5.5's at a destination's `require`.
+func BenchmarkReview(b *testing.B) {
+	c := benchSpecReview(b)
+	rev := uint64(0)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		act := ReviewApprove
+		if i%2 == 1 {
+			act = ReviewRevoke
+		}
+		res, err := c.Review(ctx(), "application", act, rev, "")
+		if err != nil {
+			b.Fatalf("Review %s: %v", act, err)
+		}
+		rev = res.Revision
+	}
+}
+
+// BenchmarkReviewNoOp is the request that is already true: the same decision by
+// the same hand with the same comment, answered with success and no commit. The
+// gap to `BenchmarkReview` is what the store's three writes, the table copy and
+// the reset cost — everything a decision does rather than decides.
+func BenchmarkReviewNoOp(b *testing.B) {
+	c := benchSpecReview(b)
+	res, err := c.Review(ctx(), "application", ReviewApprove, 0, "")
+	if err != nil {
+		b.Fatalf("the decision every timed call repeats: %v", err)
+	}
+	rev := res.Revision
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		again, err := c.Review(ctx(), "application", ReviewApprove, rev, "")
+		if err != nil {
+			b.Fatalf("Review: %v", err)
+		}
+		if again.Revision != rev {
+			b.Fatalf("the repeat committed at %d, want %d", again.Revision, rev)
+		}
+	}
+}
+
+// BenchmarkReviewRefused is the same call stopped at the door, and the row that
+// says what an unauthorized decision costs a host: the fold, the resolution, one
+// mask test and a refusal. It answers before the unit test and before the
+// revision compare, which is §7's property 7 for this operation — so the
+// message's allocations are the whole bill, and no case fact is read to build
+// it. The actor holds the primary role the definition never granted.
+func BenchmarkReviewRefused(b *testing.B) {
+	rt := NewRuntime()
+	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	if err := rt.Register(d); err != nil {
+		b.Fatalf("Register: %v", err)
+	}
+	c, err := rt.Create(ctx(), "bench", Actor{User: "bo",
+		PrimaryRole: "Auditor"})
+	if err != nil {
+		b.Fatalf("Create: %v", err)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, err := c.Review(ctx(), "application", ReviewApprove,
+			uint64(i), ""); err == nil {
+			b.Fatal("the Auditor's review was granted")
+		}
+	}
+}
+
+// benchGateCase builds a SYNTAX §7 case whose `application` is complete and
+// APPROVED, and hands back the manager who may move it. The applicant writes
+// the content and the manager decides about it, because §7 grants `submit` to
+// one and `review` to the other, and a fixture that faked either with a role
+// the definition does not hold would be measuring a different case.
+//
+// The revision returned is the one the manager's own decision committed at:
+// every timed call starts from it.
+func benchGateCase(b *testing.B) (Case, uint64) {
+	b.Helper()
+	rt := NewRuntime()
+	d := &Definition{img: mustLower(b, "gate", specExample(b))}
+	if err := rt.Register(d); err != nil {
+		b.Fatalf("Register: %v", err)
+	}
+	dana, err := rt.Create(ctx(), "gate",
+		Actor{User: "dana", PrimaryRole: "Applicant"})
+	if err != nil {
+		b.Fatalf("Create: %v", err)
+	}
+	res, err := dana.Update(ctx(), 0,
+		Set("application.kind", Tag("PERSON")),
+		Set("application.full_name", Text("Monshi Ltd")))
+	if err != nil {
+		b.Fatalf("Update: %v", err)
+	}
+	if _, err = dana.Submit(ctx(), "application", res.Working); err != nil {
+		b.Fatalf("Submit: %v", err)
+	}
+	mgr, err := rt.Open(ctx(), dana.ID(),
+		Actor{User: "elliot", PrimaryRole: "Manager"})
+	if err != nil {
+		b.Fatalf("Open: %v", err)
+	}
+	rev, err := mgr.Revision(ctx())
+	if err != nil {
+		b.Fatalf("Revision: %v", err)
+	}
+	said, err := mgr.Review(ctx(), "application", ReviewApprove, rev, "")
+	if err != nil {
+		b.Fatalf("Review: %v", err)
+	}
+	return mgr, said.Revision
+}
+
+// BenchmarkTransitionRequires is `BenchmarkTransition`'s gated twin: the same
+// three commits per iteration, one of which moves into a stage that declares
+// `require application` and so runs §5.5's completeness pass and approval
+// scan. The reject to `correction` and the accept back to `draft` ask nothing
+// — a reject skips completeness, and neither of those stages requires a form —
+// so the row is one gated move in three undated ones, and the claim made from
+// it is the difference to `BenchmarkTransition` rather than an absolute.
+func BenchmarkTransitionRequires(b *testing.B) {
+	mgr, rev := benchGateCase(b)
+	dest := []string{"person_review", "correction", "draft"}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		res, err := mgr.Transition(ctx(), dest[i%3], rev)
+		if err != nil {
+			b.Fatalf("Transition to %q: %v", dest[i%3], err)
+		}
+		rev = res.Revision
+	}
+}

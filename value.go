@@ -415,7 +415,7 @@ func (img *image) storeRole(n nodeID, v Value) (slotValue, string) {
 // same distinction `Set` and `Empty` draw at the other end of the seam.
 //
 // A signature slot has nothing to load. Its content is a `sigEntry`'s answer
-// about who signed what, milestone 5's to render (§3.6), and inventing a
+// about who signed what, `Sign`'s to render (§3.6), and inventing a
 // class for it here would be the engine guessing at a type the language does
 // not have.
 func (img *image) load(n nodeID, v slotValue) Value {

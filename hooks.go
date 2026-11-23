@@ -278,7 +278,7 @@ func (w *wiring) validate(ctx context.Context, refuse refuser, img *image,
 			continue
 		case sl.typ != 0 && img.types[sl.typ].base == baseSignature:
 			// A signature's content is `sigEntry`'s story (§3.6) and the
-			// boundary has no class for it: milestone 5 asks a signature
+			// boundary has no class for it: `Sign` asks a signature
 			// whether it is valid, and this walk does not guess at it.
 			continue
 		}

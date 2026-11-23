@@ -247,8 +247,9 @@ func (c Case) Definition() (*Definition, bool) {
 	return c.w.defs.get(c.def)
 }
 
-// Stage answers the case's current stage name. The operations that change
-// it are milestone 5's.
+// Stage answers the case's current stage name. `Transition` is the operation
+// that changes it (DESIGN §6.4), and no other answer a caller holds can move
+// it: a submit grafts content and keeps the stage it found (RUNTIME §5.1).
 func (c Case) Stage(ctx context.Context) (string, error) {
 	_, rec, err := c.look(ctx, c.refusing("stage"))
 	if err != nil {

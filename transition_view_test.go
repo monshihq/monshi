@@ -520,7 +520,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 			" grant to answer for him")
 	}
 	if _, err := dana.Transition(ctx(), "company_review",
-		sub.Revision); !Failed(err, AccessDenied) {
+		rec.revision); !Failed(err, AccessDenied) {
 		t.Errorf("the Applicant who wrote the case accepted it: %v, want"+
 			" ACCESS_DENIED — Appendix A names this exact refusal", err)
 	}
@@ -553,17 +553,33 @@ func TestAppendixATransitionTrace(t *testing.T) {
 			gapPaths(g))
 	}
 
+	// Step 5's other half, and the reason the trace owes itself a commit before
+	// step 6: `application` is the form-wide unit (F3), so the destination's
+	// `require` wants the committed reviewer's APPROVED as well as the content
+	// above. Manager is in `draft`'s accept mask and holds `review application`,
+	// so one call answers both §5.5's conjuncts that ship today.
+	rvs, err := elliot.Review(ctx(), "application", ReviewApprove,
+		sub.Revision, "")
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if rvs.Revision != sub.Revision+1 || rvs.Stage != "draft" {
+		t.Errorf("the decision committed at %d in stage %q, want %d in draft",
+			rvs.Revision, rvs.Stage, sub.Revision+1)
+	}
+
 	// Step 6: the revision check and one atomic commit, seen from the handle
 	// that was refused three calls ago. Nothing about the content moves, so
 	// the entry this writes is the trace's claim in §5.1: a stage change, and
-	// no diff.
-	res, err := elliot.Transition(ctx(), "company_review", sub.Revision)
+	// no diff. The number checked is the decision's, because a review is a
+	// commit like any other and step 6 asks what the caller was last shown.
+	res, err := elliot.Transition(ctx(), "company_review", rvs.Revision)
 	if err != nil {
 		t.Fatalf("Transition: %v", err)
 	}
-	if res.Revision != sub.Revision+1 || res.Stage != "company_review" {
+	if res.Revision != rvs.Revision+1 || res.Stage != "company_review" {
 		t.Errorf("the case reached %d at %q, want %d at company_review",
-			res.Revision, res.Stage, sub.Revision+1)
+			res.Revision, res.Stage, rvs.Revision+1)
 	}
 	after, err := elliot.w.cases.load(newRefuser("open", dana.ID()))
 	if err != nil {
@@ -578,6 +594,24 @@ func TestAppendixATransitionTrace(t *testing.T) {
 		t.Fatalf("history: %v", err)
 	}
 	tail := hist[len(hist)-1]
+	// The decision's entry sits beside them, and it is the trace's §5.6 claim
+	// in miniature: a commit whose changes are decisions maps no reset, so the
+	// approval the step-5 call wrote is the one step 6 found standing.
+	if len(tail.changes) != 0 {
+		t.Errorf("a stage move wrote %d changes, want the diff §5.6 maps to"+
+			" nothing here", len(tail.changes))
+	}
+	mid := hist[len(hist)-2]
+	if mid.op != opReview || len(mid.changes) != 1 ||
+		mid.changes[0].kind != chgReview || mid.revision != rvs.Revision {
+		t.Errorf("the decision's entry is op %d with %d changes, want one"+
+			" review entry at revision %d", mid.op, len(mid.changes),
+			rvs.Revision)
+	}
+	if reviewAt(after.commit.reviews,
+		slotByPath(t, img, "application")).code != verifApproved {
+		t.Error("the transition's commit lost the approval step 5 made")
+	}
 	if tail.op != opTransition || len(tail.changes) != 0 {
 		t.Errorf("the trace's commit is op %d with %d changes, want a"+
 			" transition and no diff: §5.6 maps nothing here", tail.op,

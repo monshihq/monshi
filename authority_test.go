@@ -356,7 +356,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	by := committedBy{by: "dana", op: opSubmit, changes: []commitChange{
 		{kind: chgValue, slot: 1, v: slotValue{set: true, s: "x"}},
 	}}
-	_, err = st.commit(newRefuser(submit, id), 7, rec.commit, by)
+	_, err = st.commit(newRefuser(submit, id), img, 7, rec.commit, by)
 	if !Failed(err, StaleRevision) {
 		t.Errorf("commit over revision 0 as revision 7 = %v, want STALE_REVISION", err)
 	} else if errors.As(err, &ce) && ce.Op != submit {
@@ -369,7 +369,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 		t.Errorf("history after a refused commit = %d entries (%v), want 0",
 			len(h), err)
 	}
-	next, err := st.commit(newRefuser(submit, id), 0, rec.commit, by)
+	next, err := st.commit(newRefuser(submit, id), img, 0, rec.commit, by)
 	if err != nil {
 		t.Fatalf("guarded commit: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 			return err
 		}(),
 		func() error {
-			_, err := st.commit(newRefuser(submit, 9999), 0, rec.commit, by)
+			_, err := st.commit(newRefuser(submit, 9999), img, 0, rec.commit, by)
 			return err
 		}(),
 		func() error {
@@ -677,7 +677,8 @@ func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	by := committedBy{by: "dana", op: opSubmit}
-	if _, err := st.commit(newRefuser(submit, id), 0, rec.commit, by); err != nil {
+	if _, err := st.commit(newRefuser(submit, id), img, 0, rec.commit,
+		by); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 
@@ -713,7 +714,8 @@ func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if _, err := st.commit(newRefuser(submit, id), 1, rec.commit, by); err != nil {
+	if _, err := st.commit(newRefuser(submit, id), img, 1, rec.commit,
+		by); err != nil {
 		t.Fatalf("second commit: %v", err)
 	}
 	if h, err = st.history(newRefuser(open_, id)); err != nil || len(h) != 2 {
@@ -735,7 +737,8 @@ func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 	plain := newCaseStore()
 	pid := plain.create(&Definition{img: img})
 	before := time.Now()
-	if _, err := plain.commit(newRefuser(submit, pid), 0, rec.commit, by); err != nil {
+	if _, err := plain.commit(newRefuser(submit, pid), img, 0, rec.commit,
+		by); err != nil {
 		t.Fatalf("commit on a default clock: %v", err)
 	}
 	if h, err := plain.history(newRefuser(open_, pid)); err != nil || len(h) != 1 ||

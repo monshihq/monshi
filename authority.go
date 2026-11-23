@@ -76,8 +76,9 @@ func (img *image) rolesHeld(a Actor, s state) []roleID {
 // this actor, at this stage, hold `edit` on it (DESIGN §6.2). It is
 // stated here rather than open-coded at the call sites so that the role
 // *source* — the committed state, never the candidate — has exactly one
-// place to be wrong. Milestone 5's Review, Sign and Transition ask the
-// same question of `review`, `sign` and the stage masks.
+// place to be wrong. `Review` asks the same question of `review` (§5.4);
+// Transition asked the stage masks in its own file, and Sign asks it of
+// `sign` when that operation lands.
 func (img *image) canEdit(a Actor, s state, stage stageID, n nodeID) bool {
 	return img.mayEdit(img.rolesHeld(a, s), stage, n)
 }
@@ -109,4 +110,20 @@ func (img *image) mayEdit(roles []roleID, stage stageID, n nodeID) bool {
 // draft that would satisfy some other stage's grant does not submit under it.
 func (img *image) maySubmit(roles []roleID, stage stageID, form nodeID) bool {
 	return img.effective(roles, stage, form)&permSubmit != 0
+}
+
+// mayReview is the question `Review` asks, and it is asked at the slot the
+// caller's path resolves to. SYNTAX P3 requires a `review` grant's target to
+// be a `verifiable` declaration and P2 guarantees the runtime never resolves a
+// target, so the bit at a member's slot can only have arrived there by
+// inheritance — meaning asking a *unit's* own slot is the same answer with one
+// fewer questions to get wrong, and asking at the resolved slot is what lets an
+// actor who cannot decide there learn nothing about what governs it.
+//
+// A `verifiable` *group* therefore has no grant of its own unless the
+// definition writes one: its slot inherits its parent's, which is §3.5's
+// inheritance and not an exception. A host that wants only a specific reviewer
+// for one group says so at that group's path.
+func (img *image) mayReview(roles []roleID, stage stageID, n nodeID) bool {
+	return img.effective(roles, stage, n)&permReview != 0
 }
