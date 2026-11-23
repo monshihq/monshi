@@ -275,7 +275,11 @@ Storage persists exactly three kinds of case state:
 Storage contains **data, not the schema**. The definition is resolved
 separately. Working states may be stored in full; no delta-only
 optimization is required. History is the authority for committed
-changes. A working state is private, uncommitted data.
+changes — and an authority somebody has to be able to consult: RUNTIME
+§5.11 reads the entries back to a caller, and its fold rebuilds a state from
+them and compares it with the snapshot at every revision, which is what makes
+"the latest state is an optimization" a checked claim rather than a property of
+a format nobody has replayed. A working state is private, uncommitted data.
 
 Conceptual types:
 
@@ -395,7 +399,12 @@ History(cursor uint64, limit int) ([]Commit, error)
 
 Actual functions performing I/O should accept Go's `context.Context`
 for cancellation/deadlines. These are semantic signatures, not a
-requirement to expose stateful receiver methods.
+requirement to expose stateful receiver methods. `History` is the one line
+whose shipped shape says more than `([]Commit, error)` can: the answer carries
+where to continue from, the head as the call read it, and a count of the
+entries the actor's permission did not reach (RUNTIME §5.11), because a page of
+history that silently omitted what a caller may not see would be an audit with
+holes punched in it instead of an audit with a fence.
 
 ### 6.1 View
 
@@ -738,8 +747,10 @@ ended at a working copy would leave invariants 1, 2, 5 and 6 unexercised.
 Milestone 5's commit work is whole now: the seam §4.2 asked for runs both of
 its erasures on every commit, the `verif` half arriving with `Review` and the
 `sigEntry` half with `Sign`, which is why the pair is one list the store owns
-rather than two rules each operation has to remember. RUNTIME §10 states what
-exists today.
+rather than two rules each operation has to remember. So is its last noun:
+historical replay landed with the read that asked for it (RUNTIME §5.11), which
+is where the two verdict entries §5.6 justified per operation stop being
+provisions and start being answers. RUNTIME §10 states what exists today.
 
 `Transition` follows it out of order for the same reason and one of its own:
 it is the other operation that commits, and unlike `Review` and `Sign` it

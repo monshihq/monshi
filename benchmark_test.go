@@ -1116,3 +1116,141 @@ func BenchmarkSigReset(b *testing.B) {
 		}
 	})
 }
+
+// benchTrail is a case with a long past: `commits` whole-form submits, each
+// changing the fee so §5.1's diff has something to record. It is the fixture the
+// two reads below need and the one `BenchmarkSubmit` deliberately is not — that
+// one measures a commit, and a commit's cost cannot be separated from the trail
+// it appends to, because the trail grows as the benchmark runs.
+//
+// The image comes back beside the handle because `BenchmarkReplayTo` folds the
+// entries without an operation around them: the derivation is §5.11's internal
+// claim, and a host never calls it.
+func benchTrail(tb testing.TB, commits int) (Case, *image) {
+	tb.Helper()
+	rt := NewRuntime()
+	img := mustLower(tb, "bench", specExample(tb))
+	d := &Definition{img: img}
+	if err := rt.Register(d); err != nil {
+		tb.Fatalf("Register: %v", err)
+	}
+	c, err := rt.Create(ctx(), d.ID(),
+		Actor{User: "dana", PrimaryRole: "Applicant"})
+	if err != nil {
+		tb.Fatalf("Create: %v", err)
+	}
+	base := uint64(0)
+	for i := 0; i < commits; i++ {
+		res, err := c.Update(ctx(), base, completeApplication(i)...)
+		if err != nil {
+			tb.Fatalf("Update: %v", err)
+		}
+		base = res.Working
+		if _, err := c.Submit(ctx(), "application", base); err != nil {
+			tb.Fatalf("Submit: %v", err)
+		}
+	}
+	return c, img
+}
+
+// BenchmarkHistory measures the trail read (RUNTIME §5.11) two ways over the
+// same thousand-commit case, and the two rows' difference is the section's cost
+// claim: a page costs its page. `page` asks for twenty records from the middle,
+// `whole` asks for everything — a thousand records, three entries each — and the
+// second is not fifty times the first: the per-record cost of the two is the
+// same, and what the small page pays extra is the mask fold and the result it
+// carries, which a call does once however long the trail is. Nothing in the read
+// searches or copies the trail, so a caller who pages through history pays for
+// what they read and nothing else.
+//
+// It is also the reason §5.11 can say the read does not replay: the entries
+// render from their own record, and the fold that answers a question about a
+// *state* is the benchmark below, not this one.
+func BenchmarkHistory(b *testing.B) {
+	c, _ := benchTrail(b, 1000)
+	b.Run("page", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			res, err := c.History(ctx(), 500, 20)
+			if err != nil {
+				b.Fatalf("History: %v", err)
+			}
+			if len(res.Commits) != 20 || res.Next != 520 {
+				b.Fatalf("the page is %d records with next %d",
+					len(res.Commits), res.Next)
+			}
+		}
+	})
+	b.Run("whole", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			res, err := c.History(ctx(), 0, 0)
+			if err != nil {
+				b.Fatalf("History: %v", err)
+			}
+			if len(res.Commits) != 1000 {
+				b.Fatalf("the whole trail is %d records", len(res.Commits))
+			}
+		}
+	})
+}
+
+// BenchmarkReplayTo measures the derivation the exported read declines to run:
+// folding every entry into a state is what "what did this case hold at revision
+// 500?" costs, and §5.11's answer is that it is O(trail), not O(page) — which is
+// why `History` renders entries from their own records and a host is given the
+// trail rather than a snapshot of a past it did not ask to rebuild.
+//
+// The two rows are the same call at the two ends of the early break, and the
+// gap between them is the trail: folding to the head walks the thousand records
+// and their three entries each, while folding to revision 1 builds the base
+// state and stops at the second record. The second row is therefore what *any*
+// derivation costs — a fresh state and its defaults, which is the part a host
+// pays even to ask about the case as it stands — and the first is that plus
+// every commit the case has ever made.
+func BenchmarkReplayTo(b *testing.B) {
+	c, img := benchTrail(b, 1000)
+	hist, err := c.w.cases.history(newRefuser("bench", c.id))
+	if err != nil {
+		b.Fatalf("history: %v", err)
+	}
+	if len(hist) != 1000 {
+		b.Fatalf("the fixture's trail holds %d records", len(hist))
+	}
+	// The fee is what the fixture changed on every commit, so reading it out of
+	// the derived state says the fold stopped where it was told to: 1500 after
+	// the first, 1999 after the thousandth.
+	fee := nodeID(0)
+	for i := range img.slots {
+		if img.path(nodeID(i)) == "application.fee" {
+			fee = nodeID(i)
+		}
+	}
+	if fee == 0 {
+		b.Fatal("the §7 example lost its fee")
+	}
+	held := func(to uint64) string {
+		st := replayTo(img, hist, to)
+		c, ok := st.s.cellAt(fee, nil)
+		if !ok {
+			b.Fatalf("revision %d has no cell for the fee", to)
+		}
+		return img.load(fee, c.get()).Decimal().String()
+	}
+	b.Run("head", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if got := held(1000); got != "1999" {
+				b.Fatalf("the head derives a fee of %s, want 1999", got)
+			}
+		}
+	})
+	b.Run("first", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if got := held(1); got != "1500" {
+				b.Fatalf("revision 1 derives a fee of %s, want 1500", got)
+			}
+		}
+	})
+}

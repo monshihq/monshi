@@ -17,6 +17,7 @@ package monshi
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -785,6 +786,348 @@ func TestAppendixARequiredSignatureTrace(t *testing.T) {
 		t.Error("a content commit left the attestation standing at " +
 			"company_review")
 	}
+}
+
+// TestAppendixAHistoryTrace is Appendix A's step 8: the trail the trace above
+// left, read through the exported seam (RUNTIME §5.11). The other two traces in
+// this file ask what the operations did to the case. This one asks what the case
+// says about having done them, and it uses the second trace's script for the
+// reason §10 gives: it is the only sequence the conformance corpus runs in which
+// all four commits happen — content, a decision, an attestation, an edge — and
+// the attestation is then erased by content, which is the one fact a state
+// cannot keep and a trail can.
+//
+// Three claims, in the order the read has to be able to make them: the six
+// records are the six acts in order, with the hands and the stages; the erased
+// attestation and the replaced decision are still there in the entries, in the
+// shapes the view reports a standing one; and an actor who may not see a form
+// sees no entry of a commit about it, while still seeing that the commit
+// happened — which is §7's property 7 applied to the past, and the half of it the
+// two traces above have no way to state.
+func TestAppendixAHistoryTrace(t *testing.T) {
+	src := strings.Replace(specExample(t),
+		"approved_by : signature(.reviewer);",
+		"approved_by : signature(.reviewer) required;", 1)
+	rt := NewRuntime()
+	img := mustLowerSource(t, src)
+	d := &Definition{img: img}
+	if err := rt.Register(d); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// 1. The Applicant's content, as the two traces above commit it.
+	dana, err := rt.Create(ctx(), d.ID(),
+		Actor{User: "dana", PrimaryRole: "Applicant"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	base := mustUpdate(t, dana, 0,
+		Set("application.kind", Tag("COMPANY")),
+		Set("application.full_name", Text("Monshi Ltd")),
+		Set("application.reviewer", User("elliot")),
+		Add("application.shareholders"),
+		Set("application.shareholders.1.holder_name", Text("Ada")),
+		Set("application.shareholders.1.shares",
+			Decimal(decimal.RequireFromString("10.00"))))
+	sub, err := dana.Submit(ctx(), "application", base)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	// 2 and 3. The approval and the attestation the destination wants, from the
+	// hand the committed content named. The comment and the reference are the
+	// two payloads the trail is the only keeper of.
+	elliot, err := rt.Open(ctx(), dana.ID(), Actor{User: "elliot"})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	rvs, err := elliot.Review(ctx(), "application", ReviewApprove,
+		sub.Revision, "clean")
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	sig, err := elliot.Sign(ctx(), "application.approved_by", rvs.Revision,
+		"reviewer-note")
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+
+	// 4. The edge, which is the only act of the six that commits no content.
+	moved, err := elliot.Transition(ctx(), "company_review", sig.Revision)
+	if err != nil {
+		t.Fatalf("Transition: %v", err)
+	}
+
+	// 5. Content at the new stage, and the reason this trace is the one to read
+	// a history with: the commit erases the attestation that opened the door, so
+	// after it the case holds no answer to "whose hand stood behind
+	// `approved_by`" and §5.10's claim is that the trail still has one.
+	if _, err := dana.Rebase(ctx()); err != nil {
+		t.Fatalf("Rebase: %v", err)
+	}
+	work, err := dana.w.cases.working(newRefuser("open", dana.ID()), "dana",
+		img)
+	if err != nil {
+		t.Fatalf("working: %v", err)
+	}
+	later := mustUpdate(t, dana, work.rev, Set("application.note",
+		Text("late")))
+	note, err := dana.Submit(ctx(), "application", later)
+	if err != nil {
+		t.Fatalf("Submit at the new stage: %v", err)
+	}
+
+	// 6. A form the Applicant has no grant on at all, committed by the role the
+	// new stage handed the archive.
+	rolf, err := rt.Open(ctx(), dana.ID(), Actor{User: "rolf",
+		PrimaryRole: "Registrar"})
+	if err != nil {
+		t.Fatalf("Open as the Registrar: %v", err)
+	}
+	arch := mustUpdate(t, rolf, 0,
+		Set("archive.filed_at", DateTime(time.Date(2026, 2, 1, 9, 0, 0, 0,
+			time.UTC))),
+		Set("archive.note", Text("bound")))
+	archived, err := rolf.Submit(ctx(), "archive", arch)
+	if err != nil {
+		t.Fatalf("Submit the archive: %v", err)
+	}
+
+	// The trail, from the actor who saw all of it. Six records, in the order the
+	// calls above were made, with `Revision` naming the head and no continuation.
+	full, err := rolf.History(ctx(), 0, 0)
+	if err != nil {
+		t.Fatalf("History as the Registrar: %v", err)
+	}
+	if len(full.Commits) != 6 || full.Revision != archived.Revision ||
+		full.Next != 0 || full.Withheld != 0 {
+		t.Fatalf("the page is %d records at head %d, next %d, withheld %d, "+
+			"want six of six with nothing withheld", len(full.Commits),
+			full.Revision, full.Next, full.Withheld)
+	}
+	want := []struct {
+		rev     uint64
+		op      CommitOp
+		by      UserID
+		stage   string
+		what    ChangeKind
+		entries int
+	}{
+		{sub.Revision, CommitSubmit, "dana", "draft", ChangeValue, 6},
+		{rvs.Revision, CommitReview, "elliot", "draft", ChangeReview, 1},
+		{sig.Revision, CommitSign, "elliot", "draft", ChangeSign, 1},
+		{moved.Revision, CommitTransition, "elliot", "company_review", "", 0},
+		{note.Revision, CommitSubmit, "dana", "company_review", ChangeValue, 1},
+		{archived.Revision, CommitSubmit, "rolf", "company_review",
+			ChangeValue, 2},
+	}
+	for i, w := range want {
+		c := full.Commits[i]
+		if c.Revision != w.rev || c.Op != w.op || c.By != w.by ||
+			c.Stage != w.stage {
+			t.Errorf("record %d is %s by %s at %s rev %d, want %s by %s at "+
+				"%s rev %d: the trail is the acts in the order they happened",
+				i, c.Op, c.By, c.Stage, c.Revision, w.op, w.by, w.stage, w.rev)
+		}
+		if len(c.Changes) != w.entries {
+			t.Errorf("record %d (%s) holds %d entries, want %d", i, c.Op,
+				len(c.Changes), w.entries)
+			continue
+		}
+		if w.entries > 0 && c.Changes[0].Kind != w.what {
+			t.Errorf("record %d's first entry is %s, want %s", i,
+				c.Changes[0].Kind, w.what)
+		}
+		if c.At.IsZero() {
+			t.Errorf("record %d carries no moment, and a commit that happened"+
+				" at no time is not an audit", i)
+		}
+	}
+
+	// Step 5's content is the six declarations §5.1's diff walks, in preorder,
+	// and the rows entry is the one that lists instances rather than a value.
+	first := full.Commits[0].Changes
+	if got := first[0].Path; got != "application.kind" {
+		t.Errorf("the content commit begins at %q, want the form's first field",
+			got)
+	}
+	var listed []string
+	for _, ch := range first {
+		if ch.Kind == ChangeRows {
+			listed = ch.Rows
+		}
+	}
+	if len(listed) != 1 || listed[0] != "application.shareholders.1" {
+		t.Errorf("the content commit lists the collection as %v, want the one"+
+			" instance the batch added", listed)
+	}
+
+	// The decision, in the shape `View` prints a standing one, and the two facts
+	// a state keeps nowhere: the comment the reviewer typed and the reference the
+	// signer brought. `At` is each record's own revision, which is §5.9's and
+	// §5.10's "the revision this act's commit produced" read back by a caller who
+	// was not the one who made the call.
+	decisions := entries(t, full.Commits[1], ChangeReview)
+	if len(decisions) != 1 {
+		t.Fatalf("the decision record holds %d entries", len(decisions))
+	}
+	if got := decisions[0].Review; got.Unit != "application" ||
+		got.State != ReviewApproved || got.By != "elliot" || got.At != 2 ||
+		got.Comment != "clean" {
+		t.Errorf("the decision entry reports %+v, want elliot's clean approve"+
+			" of application at 2", got)
+	}
+	attested := entries(t, full.Commits[2], ChangeSign)
+	if len(attested) != 1 {
+		t.Fatalf("the attestation record holds %d entries", len(attested))
+	}
+	field := slotByPath(t, img, "application.approved_by")
+	if got := attested[0]; got.Path != "application.approved_by" {
+		t.Errorf("the attestation entry addresses %q, want the field", got.Path)
+	} else if s := got.Signature; s.By != "elliot" || s.At != 3 ||
+		s.Evidence != "reviewer-note" {
+		t.Errorf("the attestation entry reports %+v, want elliot at 3 with"+
+			" reviewer-note", s)
+	}
+
+	// The pair that makes this the milestone's claim and not §5.6's promise: the
+	// case now answers for no attestation, and the trail answers for the one it
+	// got. The record that erased it says nothing about erasing it — a content
+	// commit's diff is content, and §4.2's reset is not an entry.
+	if g := sigAt(committedFrame(t, rolf, dana).sigs, field); g.at != 0 {
+		t.Fatalf("the case still holds an attestation by %q at %d, want the"+
+			" content commit to have erased it", g.by, g.at)
+	}
+	if got := entries(t, full.Commits[4], ChangeValue); len(got) != 1 ||
+		got[0].Path != "application.note" {
+		t.Errorf("the erasing commit's entries are %+v, want the one note it"+
+			" wrote and no account of what it unmade", got[0])
+	}
+	if s := attested[0].Signature; s.At == 0 || s.By != "elliot" {
+		t.Error("the trail lost the attestation the case lost")
+	}
+
+	// The edge, which is the record that would vanish if a read filtered by
+	// content: it holds no entries at all, and it is the only place in the trail
+	// that says how the case got to `company_review`.
+	edge := full.Commits[3]
+	if edge.Op != CommitTransition || edge.Stage != "company_review" ||
+		len(edge.Changes) != 0 {
+		t.Errorf("the fourth record is %s at %s with %d entries, want the move"+
+			" and nothing else", edge.Op, edge.Stage, len(edge.Changes))
+	}
+
+	// The same trail for the actor who may not see the archive. Every record
+	// survives; two entries do not, and the count says so rather than leaving a
+	// caller to guess whether six acts is all there was.
+	hers, err := dana.History(ctx(), 0, 0)
+	if err != nil {
+		t.Fatalf("History as the Applicant: %v", err)
+	}
+	if len(hers.Commits) != 6 || hers.Withheld != 2 {
+		t.Fatalf("the Applicant's page is %d records with %d withheld, want 6"+
+			" and 2: the archive's entries, not its commits", len(hers.Commits),
+			hers.Withheld)
+	}
+	for i, c := range hers.Commits {
+		if other := full.Commits[i]; c.Revision != other.Revision ||
+			c.By != other.By || c.Op != other.Op || c.Stage != other.Stage ||
+			!c.At.Equal(other.At) {
+			t.Errorf("record %d's envelope differs by reader: %+v", i, c)
+		}
+	}
+	if got := len(hers.Commits[5].Changes); got != 0 {
+		t.Errorf("the archive commit shows %d entries to an actor with no"+
+			" grant on the form, want none", got)
+	}
+	// And withholding is not ignorance about the acts the Applicant *is* in:
+	// §5.9's disclosure rule read in the past, so dana may now read the approval
+	// and the attestation she could never have made.
+	if got := entries(t, hers.Commits[1], ChangeReview); len(got) != 1 ||
+		got[0].Review.Comment != "clean" {
+		t.Errorf("the Applicant cannot read the decision about her form: %+v",
+			got)
+	}
+	if got := entries(t, hers.Commits[2], ChangeSign); len(got) != 1 ||
+		got[0].Signature.Evidence != "reviewer-note" {
+		t.Error("the Applicant cannot read the attestation her case carries")
+	}
+	// A withheld entry is not a zero-valued one either: nothing on this page
+	// names the archive, not even as an empty slot in a list.
+	for _, c := range hers.Commits {
+		for _, ch := range c.Changes {
+			if strings.HasPrefix(ch.Path, "archive") {
+				t.Errorf("the page leaks %q", ch.Path)
+			}
+		}
+	}
+
+	// Paging over the same six: two at a time, following `Next`, and the seventh
+	// ask is the empty page that ends the loop.
+	var walked []uint64
+	for cursor := uint64(0); ; {
+		page, err := rolf.History(ctx(), cursor, 2)
+		if err != nil {
+			t.Fatalf("History(%d, 2): %v", cursor, err)
+		}
+		for _, c := range page.Commits {
+			walked = append(walked, c.Revision)
+		}
+		if page.Next == 0 {
+			break
+		}
+		cursor = page.Next
+	}
+	if len(walked) != 6 || walked[0] != 1 || walked[5] != 6 {
+		t.Errorf("two at a time walked %v, want the six in order", walked)
+	}
+	past, err := rolf.History(ctx(), walked[len(walked)-1]+1, 1)
+	if err != nil {
+		t.Fatalf("History past the head: %v", err)
+	}
+	if len(past.Commits) != 0 || past.Next != 0 || past.Revision != 6 {
+		t.Errorf("the ask after the last page is %d records, next %d, head %d,"+
+			" want an empty page that still says where the case is",
+			len(past.Commits), past.Next, past.Revision)
+	}
+
+	// The addresses the trail printed are the ones `Update` takes, which is what
+	// makes a page of history a thing a host can act on rather than a transcript
+	// to read. The rows entry's instance and the note's field both resolve at the
+	// stage the case sits at now, four commits after either was written.
+	again, err := rolf.w.cases.working(newRefuser("open", dana.ID()), "rolf",
+		img)
+	if err != nil {
+		t.Fatalf("working: %v", err)
+	}
+	var text string
+	for _, ch := range entries(t, full.Commits[5], ChangeValue) {
+		if ch.Value.Kind() == KindText {
+			text = ch.Path
+		}
+	}
+	if text == "" {
+		t.Fatal("the archive commit recorded no text field to write back")
+	}
+	written := mustUpdate(t, rolf, again.rev, Set(text, Text("rebound")),
+		Set(listed[0]+".holder_name", Text("Ada Lovelace")))
+	if written <= again.rev {
+		t.Errorf("writing back the trail's own addresses left the copy at %d",
+			written)
+	}
+}
+
+// entries is one record's entries of one kind, which is how the trace above
+// reads a commit it expects to hold exactly one thing about one declaration.
+func entries(t *testing.T, c Commit, kind ChangeKind) []CommitChange {
+	t.Helper()
+	var out []CommitChange
+	for _, ch := range c.Changes {
+		if ch.Kind == kind {
+			out = append(out, ch)
+		}
+	}
+	return out
 }
 
 // committedFrame is the committed state the trace's step 5 asks about, read

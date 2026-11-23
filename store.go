@@ -748,17 +748,44 @@ func (s *caseStore) commit(refuse refuser, img *image, want uint64,
 	return rec.revision, nil
 }
 
-// history is one case's commits, in the order they landed. It hands out a
-// copy of the entry list, never the record's own slice, for the reason
-// `load` gives: a reader must not be able to write through a pointer into
-// stored data. DESIGN §5's "ordered, immutable commits" is a claim about
-// what a reader can do as much as about what the store keeps, and this is
-// the only way in that is not the commit path itself.
+// window is the part of a case's history a reader asked for: the entries from
+// revision `from` forward, at most `limit` of them, and all of them when limit
+// is 0. It is a slice of the stored array and not a copy, because of the fact
+// §5.8 states about the read it needs: the trail is *dense* — the entry at index
+// 0 is the commit that produced revision 1, since a revision is the count of
+// commits and creating a case appends nothing — so a cursor into history and a
+// revision number are the same integer, and the answer is arithmetic rather
+// than a search.
 //
-// Today it has no caller outside the tests: a host reads history through the
-// audit view and the rebase, and both are later slices (DESIGN §6.5). It
-// exists now because the history is the store's third kind of state, and
-// because milestone 4's transaction needs the same read to replay from.
+// Handing out the stored array is safe for the reason `load` handing out a
+// copied struct is: an operation reads entries and renders values of its own,
+// and the store's rule is replace-never-mutate rather than never-alias.
+// `History` is that rule's exported case — every entry it answers with is a
+// `Commit` this package built — and `history` is the in-package form that
+// copies, for a caller that keeps the list it was given.
+func (rec *storedCase) window(from uint64, limit int) []commitRecord {
+	if from < 1 {
+		// Revision 0 has no entry, so a caller who asks to start there means
+		// "from the beginning" — which is also what a zero continuation token
+		// says, and the two agree rather than one of them being an error.
+		from = 1
+	}
+	lo := int(from) - 1
+	if lo >= len(rec.hist) {
+		return nil
+	}
+	out := rec.hist[lo:]
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out
+}
+
+// history is a case's whole trail, copied. It is the read the derivation wants
+// — replay folds from the beginning whether or not a caller asked for a page —
+// and the one the tests assert against. The exported read does not use it: a
+// host that asked for twenty commits should not pay for a hundred and twenty,
+// which is `window`'s job and RUNTIME §5.11's cost claim.
 func (s *caseStore) history(refuse refuser) ([]commitRecord, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -766,11 +793,12 @@ func (s *caseStore) history(refuse refuser) ([]commitRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(rec.hist) == 0 {
+	all := rec.window(1, 0)
+	if len(all) == 0 {
 		return nil, nil
 	}
-	out := make([]commitRecord, len(rec.hist))
-	copy(out, rec.hist)
+	out := make([]commitRecord, len(all))
+	copy(out, all)
 	return out, nil
 }
 

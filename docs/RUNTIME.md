@@ -1061,10 +1061,9 @@ unit rather than an address, and carries that unit's state, author and
 comment (SYNTAX F4, §5.9). It exists because a table holding one active
 decision per unit cannot answer "who approved this, when, and what did they
 say" after the next reviewer replaces it, and the commit record is the only
-place with room for the trail. It is written by the commit and read by
-neither operation that runs today: `History` and `Commit` are not exported
-yet, and historical replay is where a decision's account gets asked
-(DESIGN §10).
+place with room for the trail. It is written by the commit and read back
+by §5.11, which is where the question this kind exists to answer turns out to
+have an answer at a revision the state moved past long ago.
 
 The fourth kind is the other act, and it carries the third discipline to
 its limit: a signature entry says *which field* was attested and nothing
@@ -1097,8 +1096,10 @@ because neither act carries a path to test, and both are in the driver
 rather than in the effects — which is what makes a fourth kind safe to
 add: it arrives at two mapping loops that had already learned to filter,
 and neither effect is told it exists. The last consumer is the record
-itself, which is written and read by nothing yet (§5.1, DESIGN §10's
-replay).
+itself: §5.11 renders its entries for a host to address, and the same section
+folds the whole list back into a state, which is what turns §5.1's "forward
+diffs, replayed" from a description of the format into a claim somebody
+checks.
 
 ### 5.7 The view walk
 
@@ -1590,12 +1591,14 @@ flag.
 
 What `Review` does not pay, on the record: no `Affected` set, for the reason
 §9 gives and in the company of `Submit`'s missing one; and no `OnCommit`
-notification, which waits for milestone 6's observers. The history entry a
-decision writes has no reader yet either — DESIGN §10's historical replay
-is where "what did this unit stand at revision 12?" gets asked — and it is
-written now because a history that cannot say who decided what is one
-milestone 5 would have to rewrite. Its §5.10 counterpart, the `chgSign`
-entry, is written for the same reason and waits for the same reader.
+notification, which waits for milestone 6's observers. What it does pay is the
+history entry, and §5.11 reads it back in this section's own shape: the same
+`ReviewInfo`, at the record's revision, with the hand the record's envelope
+names. It is written now because a history that cannot say who decided what is
+one the milestone that asks would have to rewrite, and because a reset writes
+no entry beside it — the trail holds both acts, so the state is free to keep
+only the standing one (§4.2). Its §5.10 counterpart, the `chgSign` entry, is
+written for the same reason and read the same way.
 
 ### 5.10 Sign — an attestation about committed content
 
@@ -1758,10 +1761,165 @@ signable because nothing about the definition changed.
 What `Sign` does not pay, on the record: no `Affected` set, in the company
 of `Submit`'s and `Review`'s missing ones for §9's reason; no `OnCommit`,
 which waits for milestone 6's observers; and no verifier interface, which
-DESIGN §9 keeps as a deployment's. The `chgSign` entry has no reader yet —
-historical replay is where "whose hand stood at revision 12" gets asked —
-and it is written now for the reason §5.9 gives: a history that cannot say
-who attested to what is one the next milestone would have to rewrite.
+DESIGN §9 keeps as a deployment's. What it does pay is the entry, and §5.11
+reads it back for the reason §5.9 gives: "whose hand stood at revision 12, and
+against what artifact" has no other answer once a second signer or a content
+commit has moved the state. Appendix A's step 8 asks that of the conformance
+corpus, where a later submit erases the attestation and the trail is the only
+place it still is.
+
+### 5.11 History — the account the entries were written for
+
+```text
+History(actor A, cursor c, limit L, case at stage s):
+  d, rec = the case's record and definition   // NOT_FOUND; §4's drift refuses
+  if L < 0:                    INVALID_OPERATION  // a page has no size
+  roles = A's primary role ∪ committed role-typed assignments (T4)
+  vis[] = viewable(img, roles, s)             // §5.7's fold, once per call
+  page  = rec.window(c, L)                    // arithmetic on a dense index
+  for com in page:
+    out = {com.revision, com.at, com.by, com.op, com.stage}  // the envelope
+    for ch in com.changes:
+      if !disclosed(img, roles, s, vis, ch): withheld++; continue
+      out.changes += entry(img, com, ch)      // from the record alone
+  next = last revision + 1, or 0 when the page reached the head
+```
+
+**Why a section, and not a store method.** Four sentences in this document are
+claims about a reader. §5.1's, that a commit records new values and never old
+ones; §4.2's, that a reset is not recorded because a replay derives it; §5.6's,
+that the two verdict kinds exist because history is where an erased decision and
+an invalidated attestation survive; and §5.9's and §5.10's, that neither
+operation owes a `Stale` flag because the state erases what moved and the trail
+keeps the account. None of those was checkable until something folded the
+entries back into an answer, and this slice is that reader: the read, the fold,
+and the tests that turn the four sentences from hopes into claims.
+
+**The page is the cost.** `window` is arithmetic on a dense index — revision *i*
+is the entry at slot *i-1*, and creating a case appends nothing, which is why
+revision 0 has no entry — so a call costs the mask fold, bounded by the
+definition, plus one render per entry it answers with. A page of twenty records
+from a thousand-commit case costs 2.3 µs and the whole trail 87 µs: 50× the work
+for 50× the entries, at 87 ns a record however far back the cursor starts, and
+nothing in the read searches, copies or rebuilds the past. §8 has the rows.
+
+**Paging is forward and total.** `c` is the first revision to read and `L` how
+many to answer with, and each has one word for "no preference": `c` of 0 is the
+beginning, because there is no entry at revision 0 to start at, and `L` of 0 is
+everything remaining. A negative `L` is refused rather than read as 0 — a caller
+who meant everything has a word for it, and one who meant the newest ten is
+about to be handed the oldest. A cursor past the head is an empty page and
+not a refusal, because the trail is dense, so "nothing at 900" and "nothing
+left" are the same fact. `Next` is the revision to ask again with, or 0 when the
+page reached the head. That zero is also the cursor for the beginning, which is
+the one trap the contract has: a loop that copies `Next` back in without reading
+it reads the whole history a second time. `Revision` is on the result for a
+caller who would rather check than trust, and the test that walks a trail to its
+end names the trap instead of papering over it with an error.
+
+**Permission is the view's, asked now.** §7's property 7 is that permission is
+enforced before anything is read, and this is a read of content that is old. The
+rule is not a second account of what somebody could see *then* — such a rule
+would be a disclosure the definition no longer grants — but §5.7's own fold, at
+the roles the committed state carries and the stage the case sits at. A
+stage-scoped subtree grant the case has moved out of therefore stops disclosing
+entries it once reached, and a widened grant discloses entries the same stored
+trail already held. The mask is a function of the reader and the case now; the
+entries are a function of what happened.
+
+**One question a trail has to ask harder than a view does.** A rows entry names
+a collection's instances, and §5.7 shows a container to anyone it shows a child
+to, so `viewable`'s reachability is the right test for it: a page that listed
+addresses its reader could not address would be a page that cannot be read on.
+Everything else — a value, a decision *about* a unit, an attestation on a
+field — is asked at the node itself, through the same `effective` lookup §3.5's
+fold serves, so a trail and a form cannot disagree about who sees what. The
+cost is one array read per entry rather than a second fold. The difference
+matters once, and it is worth the separate rule: `viewable` marks every
+ancestor of a granted node reachable, because a container nobody may view
+carrying content somebody may cannot explain where its own child came from — so
+reachability alone would let an actor who may read a form's rows read the
+registrar's decision *about* the form, which is content of the unit and not a
+path to a row. A view is not exposed to that: it renders a verdict at the node
+the grant names, and a trail renders it at a record.
+
+**The record survives its content.** An entry the mask does not reach is
+dropped and counted, and the commit it belonged to stays on the page: revision,
+moment, author and operation are what an audit is made of, and §5.9's argument
+about a rejection nobody may see — that a wall is not a refusal — is the
+argument for a silent page being visible too. Filtering envelopes would also
+withhold nothing `View` already hands over: the head revision and the current
+stage arrive in every view result, and the trail's length *is* the head
+revision (§5.6). What it would destroy is the case's stage history, because a
+`Transition` commit carries no entries at all and would be the first record to
+vanish. And `Withheld` is a count and not a list for the other half of the same
+rule: that this page is not the whole story is a fact the caller is owed, which
+declaration moved is not.
+
+**Addresses, including dead ones.** Every entry's `Path` is the spine `View`
+addresses nodes by and §5.4's gap reports name fields by, and a page's addresses
+are the ones `Update` takes back — Appendix A's step 8 writes a recorded path
+into a new batch for exactly that reason. A rows entry lists instances at §5.1's
+addresses, and an instance it names may be gone: an address that stops
+resolving because the row went is the truth about a past commit — the same rule
+§5.9 states about a decision whose unit is gone. Rendering an entry consults no
+case data, which is what lets a trail name a dead instance at all.
+
+**The one refusal, and why a rename is structural here.** A stored entry keys
+its slot ordinal and not its name, so everything above is stable only while the
+ordinal space is: `compat.go`'s drift check compares each slot's *path* for that
+reason and refuses a definition that renamed, moved or re-typed what a slot
+holds rather than reinterpret committed history into nonsense. `History`
+therefore refuses a relabel with `SCHEMA_MISMATCH`, as `View` and `Rebase` do —
+the one place in the package where that refusal does real work, since a view
+addresses what the caller named and a trail addresses what a past call recorded.
+Purely semantic edits are read through: a permission word, a guard, a default, a
+decimal scale. Those change what a value means, or who may see it, which is
+DESIGN §3's reinterpretation, and not where it lives. A value renders under the
+definition the case is read under now, which is the same sentence from the other
+side, and it is why this section can say the trail is frozen about addresses and
+deliberately not about meaning.
+
+**Verdict entries are the reason the read exists.** A decision arrives in
+`ReviewInfo` — the unit, the state, the comment — and an attestation in
+`SignatureInfo`, carrying the reference §5.10 says the case keeps without
+interpreting. Both take author and revision from the record's envelope instead
+of a payload that copies them, which is §5.9's rule that a commit carries no
+second copy of an author, read back by a caller who was not the one who made the
+call. It is also what makes a retraction legible: the table answers who stands
+behind a *standing* verdict, so a revoked decision renders as nothing standing
+and the hand that revoked it is the record's `By` — the fact in the state, the
+account in the trail, a year after either stopped being true.
+
+**The derivation is a test, not a read.** `replayTo` folds a case's entries onto
+an empty state and then hands the same entry list to `applyCommitEffects`, the
+driver every real commit ran with the same effects list, so a reset no commit
+recorded is derived rather than executed twice. It is deliberately not a second
+interpreter: it takes no context, calls no hook and cannot fail, because DESIGN
+§5.2 forbids revalidating old commits and §5.4's no-hooks rule gives the
+reason — host code that answered differently last quarter is a different
+answer, not a different case. `TestReplayLandsOnTheStoredSnapshot` runs it at
+every revision of an eleven-commit case whose trail holds content, nested rows,
+a decision and an attestation, and the derived state answers every address the
+way the stored snapshot does. The tests beside it run §4.2's erasure and §5.1's
+cascade out of the same entries, and one reads the trail through a definition
+whose defaults moved, to show the fold lands on what the case holds now rather
+than on the numbers a past revision printed.
+
+Two limits keep the fold inside the package, and they are the reason nothing
+like a `StateAt` is exported. The instance counter is not recoverable: §5.1
+forbids reusing an ID, and a draft that added a row and dropped it before
+submitting advanced the counter without any entry saying so, so a derived state
+tracks the largest ID an entry *listed* — enough never to reissue an address a
+host may still be holding, not enough to sit behind a case whose counter moved
+in an unrecorded way. And the fold's base is the definition's defaults, which a
+semantic reload may have moved, so a value nobody ever wrote is not in the trail
+at all. Reading a derived state through a *replaced* definition is a further
+question DESIGN §10 keeps open, the versioning policy that is milestone 4's and
+not this slice's. So the exported read answers with entries that carry their own
+payloads — true across a reload that would make a derived state lie — and §8
+prices the fold it declines to run: 34 µs to derive the head of a thousand
+commits, against 2.3 µs to read twenty of them.
 
 ---
 
@@ -1923,16 +2081,28 @@ produced, one per distinct binding.
    *is* is disclosed the other way: state, author and comment are printed
    to any actor who may view the unit's content, including one who may not
    decide it, since a rejection no one can read is a wall and not an
-   answer. The merge is held to the same rule in the opposite
-   direction (§5.8): `Rebase` grants nothing, because the only state it
-   writes is the caller's own draft, but every clash it reports is a
-   statement about content, so a clash at a slot the actor may not view
-   is counted and named by its form rather than by the row and field
-   inside it. `Discard` asks no permission at all, and the reason is the
-   same fold: the copy it destroys belongs to the actor asking (invariant
-   4), and the only numbers its refusals name are that copy's own working
-   revision and the one the caller held — no case fact, no other actor's
-   draft.
+   answer. `History` is the same fold over a past (§5.11), and it is this
+   rule's second half: one `viewable`, at the roles the committed state
+   carries and the stage the case sits at *now*, consulted per entry, so a
+   trail cannot disclose what a form withholds and no rule about what somebody
+   could have seen at revision 12 ever has to be written, maintained, or
+   drifted from. Content is what gets filtered and the record of an act is not
+   — a `Transition` commit has no content to show, and an audit whose
+   revisions go missing silently is not an audit — and what a caller is owed
+   about the gap is `Withheld`, a count that names no declaration.
+   Reachability is the test for a row set and the grant at the node the test
+   for everything else, the one place a trail asks harder than a view:
+   `viewable` marks a container reachable to whoever may see a child of it,
+   and a decision about the unit that owns it is content, not a path. The
+   merge is held to the same rule in the opposite direction (§5.8): `Rebase`
+   grants nothing, because the only state it writes is the caller's own draft,
+   but every clash it reports is a statement about content, so a clash at a
+   slot the actor may not view is counted and named by its form rather than by
+   the row and field inside it. `Discard` asks no permission at all, and the
+   reason is the same fold: the copy it destroys belongs to the actor asking
+   (invariant 4), and the only numbers its refusals name are that copy's own
+   working revision and the one the caller held — no case fact, no other
+   actor's draft.
 
 ---
 
@@ -1976,8 +2146,12 @@ an `Update` on it impossible.
 | `BenchmarkSignRefused` | an attestation not granted | 208 ns, 5 allocs |
 | `BenchmarkSigReset/standing` | one entry, signature live | 193 ns, 4 allocs |
 | `BenchmarkSigReset/empty` | one entry, none live | 98 ns, 1 alloc |
+| `BenchmarkHistory/page` | 20 of a 1,000-commit trail | 2.3 µs, 28 allocs |
+| `BenchmarkHistory/whole` | all 1,000, 3 entries each | 86.9 µs, 1,015 allocs |
+| `BenchmarkReplayTo/head` | the fold to the trail's head | 34.3 µs, 7 allocs |
+| `BenchmarkReplayTo/first` | the fold to revision 1 | 408 ns, 7 allocs |
 
-The eight rows at the bottom are §5.9's and §5.10's, and the five that go
+The eight rows above §5.11's are §5.9's and §5.10's, and the five that go
 through an operation were measured in one process, twice each, with
 `BenchmarkReview` re-run beside them so the comparison is worth making. The
 re-run printed 338 to 344 ns against the 340 above, 81 against 79 and 140
@@ -2258,6 +2432,25 @@ comparison. So §6.5's cheaper exit is free in the engine and its price in a
 host is the work it throws away — which is the claim the row is here to make
 legible rather than impressive.
 
+§5.11's two pairs are the same claim asked of a case with a past, and each row
+of a pair is the reason the other is cheap. A page of twenty records of a
+thousand-commit trail costs 2.3 µs and that trail's whole thousand 86.9 µs:
+87 ns a record at both ends, with the mask fold and the result's own assembly
+paid once per call however far back the cursor starts. Nothing searched or
+copied the trail to answer either, which is what `window` being index arithmetic
+and an entry rendering from its own record buys — and it is why the pair's
+ratio, 37× for 50× the records, is the section's cost claim rather than the
+absolute row. The other pair is the fold the exported read declines: 34.3 µs to
+derive the head against 408 ns to derive revision 1, and the 84× between them is
+the trail itself. Reading history and rebuilding a past state are the same
+entries; what differs is that one answers with what an entry recorded and the
+other applies every one of them, which is why §5.11's exported word is a trail
+and the derivation's price is paid by the test that checks §5.1's claim. The
+four rows were measured in one process with `BenchmarkSubmit`, which re-ran at
+2,291 and 2,279 ns — the 2.3 µs and 42 allocations the synchronization
+paragraph takes as its baseline — so these are the same clock and not a
+borrowed one.
+
 Nor is any "× faster than the compiled tree" ratio measured: that would
 mean an interpreted-tree harness, and building one to prove a point the
 absolute numbers already make is a cost of its own. The multiples this
@@ -2351,7 +2544,7 @@ commits, and the first whose affected set is about masks rather than values.
 §5.7's view walk is behind `View`, milestone 3's first item: the mask folded
 once per call, the draft read without a copy being made, the selections merged
 on address, and `Options` fetched and `Validate` re-asked through that mask.
-Milestone 5's operations have all landed, and one item of it has not.
+Milestone 5 is whole now, and the noun that finished it was its last.
 `Review` came early and for a reason of its own (§5.9): the SYNTAX §7
 walkthrough reaches `company_review` *after* an approval, so the conformance
 trace this section is graded against needed a reviewer before it needed a
@@ -2367,19 +2560,26 @@ Appendix A's trace runs the attestation as well as the approval, in a second
 trace beside the first, because the shipped §7 example marks no signature
 `required` and the claim needs both shapes to be true rather than one.
 
-The item is the milestone's last noun: historical replay. `History` and
-`Commit` are not exported (§5.6), so the two verdict entries a commit writes
-have no reader, and DESIGN §5.2's second version of the state — the read
-model that *derives* what stood at revision *i* — is a claim the package
-cannot yet make to a host. What exists is the store's own seam and nothing
-beside it: `caseStore.history` copies one case's entries in the order they
-landed, tested from eight places, awaiting the operation that calls it; §5.8's
-merge is the only reader today, and it reads a window the caller chose rather
-than a past it was asked to reconstruct. The derivation is therefore
-implemented twice in spirit and once in fact, and the slice that lands
-`History` owes §7's property 7 the test that closes the gap — replaying the
-entries must land on the stored snapshot, at every revision of a case whose
-history holds content, rows, a decision and an attestation.
+§5.11 is that noun: `History` exported, and the fold behind it. The two
+verdict entries §5.6 argued for one commit at a time now have their reader, in
+the two shapes a standing verdict is reported in, and DESIGN §5.2's second
+version of the state — the read model that *derives* what stood at revision
+*i* — is a claim the package can make to itself and check: `replayTo` writes
+each entry's payload onto an empty state, hands the same list to the driver
+every real commit ran, and `TestReplayLandsOnTheStoredSnapshot` compares the
+result with the stored snapshot at every revision of a case whose trail holds
+content, nested rows, a decision and an attestation. The claim §5.1 had been
+making since it was written — forward diffs, replayed — is now the thing a test
+fails on. What is *not* exported is the derived state, and the two reasons are
+§5.11's: an instance counter no entry recorded, and a defaults baseline a
+semantic reload may have moved, beside the definition-versioning policy
+DESIGN §10 leaves open for milestone 4. `View`'s mask is the read's mask, asked
+now, and §7's property 7 closes with the test that says a page of history
+cannot disclose what a form withholds.
+
+§5.8's merge remains the trail's other consumer, and the two do not overlap: a
+merge reads a window the caller's draft is behind and reconstructs nothing,
+while the read here answers what a case did and the fold answers what it held.
 
 DESIGN §10's milestone 6 has landed in part, and early: `Rebase` and
 `Discard` are here (§5.8) — the third version read out of the store's own
@@ -2505,6 +2705,44 @@ type ViewNode struct {
     Children   []*ViewNode
 }
 
+// The trail a case left, read forward from the beginning (§5.11). `cursor` 0
+// is the first commit, because creating a case writes none; `limit` 0 is
+// everything remaining, and a negative one is refused. An entry the actor's
+// mask does not reach is off the page and in `Withheld`; the commit it
+// belonged to stays, because a stage move has no entries to show and an audit
+// is made of the acts. The read refuses a definition whose slot paths moved,
+// as `View` and `Rebase` do — an entry keys a slot ordinal, so a relabel would
+// otherwise read the whole trail through the wrong field.
+func (c Case) History(ctx, cursor uint64, limit int) (HistoryResult, error)
+type HistoryResult struct {
+    Commits  []Commit // oldest first, the order a replay consumes
+    Next     uint64   // the cursor to ask again with, 0 when the page ended
+    Revision uint64   // the head, as this call read it
+    Withheld int      // entries this actor may not see
+}
+type Commit struct {
+    Revision uint64
+    At       time.Time
+    By       UserID
+    Op       CommitOp  // SUBMIT · TRANSITION · REVIEW · SIGN
+    Stage    string    // where the case stood after it
+    Changes  []CommitChange
+}
+// Exactly one payload, the one `Kind` names. `Path` is the address `Update`
+// takes back and may name a row, or even a unit, that no longer exists: an
+// address that stopped resolving is the truth about a past commit (§5.1). A
+// verdict's `Review` and `Signature` are the view's own shapes, and their
+// author and revision are the record's rather than a payload's, which is the
+// half of §5.9 and §5.10 that only a trail can say.
+type CommitChange struct {
+    Kind      ChangeKind // VALUE · ROWS · REVIEW · SIGN
+    Path      string
+    Value     Value
+    Rows      []string
+    Review    ReviewInfo
+    Signature SignatureInfo
+}
+
 // Bringing a draft forward to the commits it has not seen, and giving it up
 // instead (§5.8, DESIGN §6.5). Neither commits: the case's revision is not
 // what these move.
@@ -2574,10 +2812,11 @@ no `Affected` set. `Sign` is the fourth and the second of both kinds (§5.10),
 and it takes no working copy for the same reason and a `Missing` list for a
 different one: a review refuses a caller who was not asked to decide, while
 a signature refuses a form that is not ready, and readiness is a list of
-paths. What §6 names and this list still does not is `History` and its
-`Commit` shape — the trail every operation writes and no read answers (§5.6)
-— beside `OnCommit`, §6.5's way of telling a user the case moved, which waits
-with milestone 6's observers.
+paths. `History` reads the trail those four wrote (§5.11), which is the last
+of §6's case-scoped reads this list was missing; what remains named there and
+not here is `OnCommit`, §6.5's way of telling a user the case moved, which
+waits with milestone 6's observers.
+
 `Submit` commits content, `Transition` commits a stage, `Review` commits a
 verdict about content, `Sign` commits a verdict about a *revision*, `View`
 reads all four beside an actor's own draft, and §5.8's two operations settle
@@ -2650,7 +2889,12 @@ in this package reads or resolves one.
   runs the same corpus with one word added to make the attestation
   something the destination asks for. Both shapes are in the gate because
   both are in the language, and a single trace could only have shown one.
-  Step 7's `OnCommit` is what still waits for milestone 6.
+  The trace's step 8 — the trail the second script left, read through the
+  exported seam — is `TestAppendixAHistoryTrace`, and it belongs in the gate
+  for the reason the two conjuncts do: §5.11's read is where the entries the
+  other steps wrote turn out to have been worth writing, so the corpus is
+  asked what it *recorded* as well as what it decided. Step 7's `OnCommit` is
+  what still waits for milestone 6.
   §6.5's synchronization has no step in this trace, because the trace is one
   actor moving one case forward: it is tested as the two actors §6.5
   describes, against the exported surface, in `rebase_test.go` (§5.8).
@@ -2757,16 +3001,44 @@ Runtime steps for `Transition(reviewer-user → "draft" →
 7. `OnCommit` fires after the commit is durable with the actual
    `Commit` and post-commit frame (§6), never inside the transaction.
    Milestone 6's, like the same step after a submit.
+8. `History(cursor 0, limit 0)` reads the trail those steps left, and it is the
+   step that turns the other seven into claims: the entries §5.6 says a commit
+   records are rendered for a caller who was not the actor that made the call.
+   The second trace's script, with one commit added — the archive the new stage
+   made the `Registrar` editable — answers with six records in the order the
+   calls happened, each carrying its own hand, its operation word and the stage
+   the case stood at after it: content, a decision, an attestation, an edge,
+   content again, and content in a form the Applicant may not see. The
+   transition record holds no entries at all, because what a stage move's diff
+   is is the stage, and the trail is its only record. The decision's entry is
+   this section's own `ReviewInfo` at the unit, comment and all, and the
+   attestation's is `SignatureInfo` with `reviewer-note`; both take author and
+   revision from the record's envelope, which is what lets the Applicant read a
+   decision she was never asked to make.
+
+   Two halves of §5.11 are checkable only here. The attestation step 5's third
+   conjunct demanded, which a later content commit then erased from the state,
+   survives in the trail: the state answers with nothing and the page answers
+   with the hand, the revision and the reference, which is the sentence §5.10
+   could write only as a promise until a reader existed. And the Applicant's
+   page holds all six records with two entries off it and `Withheld` at two,
+   because §5.7's mask reaches `application` and not `archive` — the record of
+   an act outlives its content, and the count says this page is not the whole
+   story without naming the declaration it does not name. The addresses the
+   page printed are the ones `Update` takes back, so the step writes one
+   recorded field and one recorded instance into a new batch.
 
 The trace touches: three integer sets (role set, accept mask, requires
 bitset), one `condFn`, one decision-table read and the subtree walks
-bounded by definition size. That read is step 5's approval conjunct, and it
-is a slot-field lookup plus an array index — the reason §5.5 can say the
-conjunct arrives "as further gaps on the same list rather than as new
-shapes" and mean it in the machine as well as in the document. The
-signature conjunct beside it is the same shape one field over: two reads of
-`slots[n].sig` for the form's span and one index into a table that this
-case never fills, since §7 marks neither field `required` (step 5).
+bounded by definition size. Step 8 adds one mask fold, plus index arithmetic
+on the trail and a render per entry the page answers with. That decision-table
+read is step 5's approval conjunct, and it is a slot-field lookup plus an
+array index — the reason §5.5 can say the conjunct arrives "as further gaps on
+the same list rather than as new shapes" and mean it in the machine as well as
+in the document. The signature conjunct beside it is the same shape one field
+over: two reads of `slots[n].sig` for the form's span and one index into a
+table that this case never fills, since §7 marks neither field `required`
+(step 5).
 §3.9 turned the caller's `"company_review"` into a `stageID` before any
 of it ran, so the interpretation itself does no name comparison and no
 type dispatch, and probes no map — a case's only data-keyed lookup is a

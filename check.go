@@ -150,49 +150,11 @@ func (s *state) cellValue(n nodeID, p instPath) slotValue {
 	return c.get()
 }
 
-// addr spells the path a report gives for a slot at an instance path — the
-// text a host reads, and the text `Update` accepts back to fix it.
-//
-// The rule is DESIGN §5.1's: instances are addressed by their stable IDs,
-// spelled after the collection they belong to, so "application.holders.42.who"
-// names one member of one instance and resolves through §3.9's walk to the
-// cell that gap is about. A report whose paths could not be edited would be
-// a screenshot rather than a result.
-//
-// The splice works because a declaration path is the ancestor names in
-// order: each step's collection path is a prefix of the slot's own, so the
-// step's ID goes at that prefix's end and the remaining names follow it,
-// outermost first. Nothing is looked up in the data, so a removed instance
-// keeps the address it was reported at — which is what a host that still has
-// it on screen needs.
-func (s *state) addr(n nodeID, p instPath) string {
-	full := s.img.path(n)
-	if len(p) == 0 {
-		return full
-	}
-	// Each step's ID goes at the end of its collection's own path, which is
-	// cumulative: `f.holders.homes.city` takes holder 1 after "f.holders"
-	// and home 3 after "f.holders.homes", so the second splice starts where
-	// the first stopped and the text between them — the inner declaration's
-	// own name — is emitted once. A step whose collection path is not this
-	// slot's prefix is not a step of this slot, and the loop stops rather
-	// than emitting text resolution would refuse: the declaration path alone
-	// is a degraded answer, and a wrong one is not.
-	var b []byte
-	last := 0
-	for _, st := range p {
-		cp := s.img.path(st.coll)
-		if len(cp) < last || len(cp) > len(full) ||
-			full[:len(cp)] != cp {
-			break
-		}
-		b = append(b, full[last:len(cp)]...)
-		b = append(b, '.')
-		b = append(b, dec(uint64(st.id))...)
-		last = len(cp)
-	}
-	return string(append(b, full[last:]...))
-}
+// addr is the image's spelling of an address (image.go), reachable from a
+// state because every walk that reports a path has one of these to hand. The
+// renderer consults no data, so a state is not needed to answer it and the
+// history read asks the image the same question.
+func (s *state) addr(n nodeID, p instPath) string { return s.img.addr(n, p) }
 
 // gapPaths renders gaps as the list DESIGN §6.1's response carries: paths in
 // the order they were found, with the duplicates a per-instance walk can
