@@ -599,17 +599,30 @@ decide, and what a conflict may say — is RUNTIME §5.8.
 provides access to case identity, actor, stage, values, reviews,
 signatures and effective roles without giving hooks mutation or storage
 privileges. It is a logical interface, not necessarily a copy of the
-state.
+state. What it answers is bounded by the same permission as the screen:
+a value the calling actor may not view is not available to a host rule
+either, because a hook's read discloses exactly as a rendered node does,
+and a wider channel wearing a host's function is the one hole this
+design's containment argument cannot close by itself.
 
 Keep hook contracts separate:
 
 ```text
-Validate(context, path, value) -> Valid(normalizedValue)
-                               | Invalid(errors)
-                               | Failure(error)
-Options(context, path)         -> options | Failure(error)
-OnCommit(context, commit)      -> observer result
+Validate(goCtx, case, path, value) -> Valid(normalizedValue)
+                                    | Invalid(errors)
+                                    | Failure(error)
+Options (goCtx, case, path)        -> options | Failure(error)
+OnCommit (goCtx, case, commit)     -> observer result
 ```
+
+`case` is the read-only context above and `goCtx` the request's
+cancellation and deadline: a hook that does I/O needs the first, a host
+rule that consults the case needs the second, and naming them apart is
+what stops "context" from meaning two things in one signature. Two of
+`Validate`'s three sketched results ship — an error refuses, a returned
+value is stored — and the third, *invalid and keep it*, is a decision
+about what an accepted `Update` reports rather than a signature detail,
+so RUNTIME §9 leaves it open instead of inventing it.
 
 `Validate` performs both validation and normalization; any normalized
 value becomes the value used for subsequent checks and eventual commit.
@@ -775,12 +788,14 @@ the two that already shipped. `Update` answers with an affected set and
 a client that can render the paths they name — so without a read there
 is no way to observe half of what milestone 2 built, and no place for
 invariant 7 or for §7's hook contract to be tested at all. Milestone 3's
-*views* half is therefore paid here, and its `CaseContext` half is not:
-exporting a hook's signature means giving the host a read-only context
-to pass into it, and the registry seam stays unexported one slice longer
-rather than shipping an `Options` binding a commit could invalidate
-behind a caller's back. Milestone 3's last item, affected-path
-calculation, arrived with the fanout (RUNTIME §5.3).
+*views* half is therefore paid here, and its hook half was owed beside it:
+a view that fetched an `Options` list through an unexported registry had
+been testing the engine's own wiring, and exporting a signature means
+handing the host the read-only context to pass into it as well, which is
+one contract and not two changes — which is why RUNTIME §6 exports both at
+once and not a signature a slice ahead of its `CaseContext`. Milestone 3's
+last item, affected-path calculation, arrived with the fanout (RUNTIME
+§5.3).
 
 Two of §6.1's lines are refined by the shipping shape: enforcement is
 pruning rather than flagging, and presence is reported in the data
@@ -815,7 +830,9 @@ state of their own, and invariant 5's "stale working states cannot Submit" was
 a rule with no operation that could make a state fresh. What stays with
 milestone 6 is the half that needs a host: `OnCommit`, its observers and
 their delivery, because §6.5's "hosts may notify users via post-commit
-hooks" is hook work and `CaseContext` is not shipped yet. The deferral at the
+hooks" is hook work, and the shape of what an observer is told depends on
+the affected-path policy RUNTIME §9 still owes it. The other two hooks
+of §7 are shipped, signature and read-only context together. The deferral at the
 end of §6.5 survives its own implementation — the merge takes a side nobody
 moved and refuses to choose between two sides that did, so the detailed
 automatic merge rules and conflict presentation this section leaves out are

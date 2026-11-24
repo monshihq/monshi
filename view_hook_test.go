@@ -139,7 +139,7 @@ func renderNodes(nodes []*ViewNode) string {
 // path, because a provider bound by §6's path key has no business being asked
 // about a field it was not registered for.
 func catalogue(rt *Runtime, path string, list []string, calls *int) {
-	rt.w.hooks.bindPath(path, func(_ context.Context, asked string) (
+	rt.RegisterOptions(path, func(_ context.Context, _ CaseContext, asked string) (
 		[]string, error) {
 		*calls++
 		if asked != path {
@@ -152,7 +152,7 @@ func catalogue(rt *Runtime, path string, list []string, calls *int) {
 // brokenProvider counts too, and is the sharper probe of the two: one call is
 // not a slow answer, it is a failed view.
 func brokenProvider(rt *Runtime, path string, calls *int) {
-	rt.w.hooks.bindPath(path, func(_ context.Context, _ string) (
+	rt.RegisterOptions(path, func(_ context.Context, _ CaseContext, _ string) (
 		[]string, error) {
 		*calls++
 		return nil, errors.New("the catalogue is closed")
@@ -162,8 +162,8 @@ func brokenProvider(rt *Runtime, path string, calls *int) {
 // refusesBinds the fixture's `Validate` hook for `money`, refusing any value
 // under `min` and counting what it was asked about.
 func refusesValues(rt *Runtime, min int64, calls *int) {
-	rt.w.hooks.bindType("money", func(_ context.Context, v Value) (
-		Value, error) {
+	rt.RegisterValidate("money", func(_ context.Context, _ CaseContext,
+		_ string, v Value) (Value, error) {
 		*calls++
 		if v.d.LessThan(decimal.NewFromInt(min)) {
 			return Value{}, errors.New("below the floor")
@@ -288,8 +288,8 @@ func TestViewRefusesWhenTheProviderRefuses(t *testing.T) {
 	rt, _, c := viewHookCase(t, viewOwner)
 	var called int
 	broken := errors.New("the catalogue is closed")
-	rt.w.hooks.bindPath("application.city",
-		func(_ context.Context, _ string) ([]string, error) {
+	rt.RegisterOptions("application.city",
+		func(_ context.Context, _ CaseContext, _ string) ([]string, error) {
 			called++
 			return nil, broken
 		})
@@ -450,8 +450,8 @@ func TestViewAsksNoRuleThatCouldRefuseTheWholeView(t *testing.T) {
 	base := mustUpdate(t, c, 0,
 		Set("application.owed", Decimal(decimal.NewFromInt(3))))
 	var asked int
-	rt.w.hooks.bindType("money", func(_ context.Context, v Value) (
-		Value, error) {
+	rt.RegisterValidate("money", func(_ context.Context, _ CaseContext,
+		_ string, v Value) (Value, error) {
 		asked++
 		return Decimal(v.d.Add(decimal.NewFromInt(1))), nil
 	})

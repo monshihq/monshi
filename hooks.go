@@ -9,55 +9,60 @@ package monshi
 // engine's job is the mapping §6 describes: key to function, in a registry
 // this package owns.
 //
-// Only the `Validate` half ran inside an edit until the view arrived; the
-// `Options` binding it fetches through is mapped here too now, because
-// DESIGN §6.1 gives the engine the option fetch and RUNTIME §6 makes it the
-// view's, gated by the same `view` permission as the values beside it. The
-// two kinds share nothing but this file: a normalizer is keyed by a custom
-// type's name and its output is stored, a provider is keyed by a field path
-// and its output is shown, and the maps below are separate so neither
-// lookup can ever answer for the other (§6's "never mistaken" rule, held by
-// structure rather than by discipline).
+// Only the `Validate` half runs everywhere: an edit and a submit and a view
+// all ask it. The `Options` half is the view's, because DESIGN §6.1 gives the
+// engine the option fetch and RUNTIME §6 gates that fetch by the same `view`
+// permission as the values beside it. The two kinds share nothing but this
+// file: a normalizer is keyed by a custom type's name and its output is
+// stored, a provider is keyed by a field path and its output is shown, and
+// the maps below are separate so neither lookup can ever answer for the other
+// (§6's "never mistaken" rule, held by structure rather than by discipline).
 //
-// Registration itself is not exported yet. A hook's signature carries a
-// read-only `CaseContext` (DESIGN §7), and exporting the seam before that
-// type exists would fix a signature the next milestone has to break. Until
-// then this is an in-package registry, and the code that reads it —
-// `settle` below, which an edit calls per assignment, `validate`, which
-// Submit calls per stored value, and the view walk, which asks `provider`
-// per visible options field and `normalizer` per visible stored value — is
-// written as the whole §6 contract: looked up by the binding the definition
-// declared, run before the value is stored, its output checked by the same
-// test the input passed, and a failure heard as a failure.
+// Registration is exported, in context.go: `RegisterValidate` by custom
+// type's name and `RegisterOptions` by field path, the two keys §3.8 interns.
+// A seam that is a signature has to say what a hook is told, and this one's
+// answer is the case: a normalizer is handed the address its value sits at,
+// beside a read-only `CaseContext` (DESIGN §7), and a provider is handed its
+// own binding beside the same snapshot.
+//
+// What reads the registry decides nothing of its own: `settle` below, which an
+// edit calls per assignment, `validate`, which Submit and the view call per
+// stored value, and the view's option fetch, which asks a provider per
+// visible `options` field. All of it is the §6 contract — looked up by the
+// binding the definition declared, run before the value is stored, its output
+// checked by the same test the input passed, and a failure heard as a failure.
+//
+// §6's remaining hook is still not here: the `OnCommit` observer needs the
+// post-commit state and the `Affected` set §9 leaves undecided. The derived
+// value resolver was superseded, not deferred — §5.4's answer to "what does a
+// stored value validate against" is to re-ask the normalizer rather than cache
+// its output.
 
 import (
 	"context"
 	"sync"
 )
 
-// normFunc is a `Validate` hook's normalization step: it takes the value a
-// host assigned and returns the value the engine stores and re-checks.
-// Because what comes back is a `Value` and not a row payload, a hook speaks
-// the boundary's language rather than the image's, and the caller settles it
+// normFunc is the engine's name for one of the two halves of a `Validate`
+// hook — the normalization step, spelled by the host-facing contract as
+// `ValidateFunc` (context.go). What is this file's business is what comes
+// back: because it is a `Value` and not a row payload, a hook speaks the
+// boundary's language rather than the image's, and the caller settles it
 // through the same `img.store` that settled the input. That is not
 // belt-and-braces: a hook that returns the wrong class, or a decimal its
 // type cannot hold, is a host bug with the row as its blast radius, so §6's
 // "stores the normalized value for all later checks" means *after the same
 // check*, never instead of it.
-type normFunc func(ctx context.Context, v Value) (Value, error)
+type normFunc = ValidateFunc
 
-// optsFunc is an `Options` hook's choice list: what a declared `options`
-// field may hold, as the texts the field stores (§3.3 — an options value is
-// the chosen option's text, so the list that answers "which values may this
-// hold" is a list of texts too). It takes the declared path it is bound at,
-// which is the question the definition asked in the only words the host
-// registered it with; the list it returns is display data, never stored and
-// never asked by a condition (E2). A failure is heard as `HOOK_FAILURE`
-// about the binding, and a *missing* provider refuses the same way: SYNTAX
-// Appendix A says a missing hook is a runtime error and not silent success,
-// and DESIGN §7 says an options field with nobody to ask has no list to
-// invent.
-type optsFunc func(ctx context.Context, path string) ([]string, error)
+// optsFunc is the same alias for a choice provider, whose host-facing name is
+// `OptionsFunc`. The rules that live here rather than there are about
+// absence: a failure is heard as `HOOK_FAILURE` about the binding, and a
+// *missing* provider refuses the same way, because SYNTAX says a missing hook
+// is a runtime error and not silent success and DESIGN §7 says an options
+// field with nobody to ask has no list to invent. The list itself is display
+// data, never stored and never asked by a condition (§3.3, E2).
+type optsFunc = OptionsFunc
 
 type hookSet struct {
 	mu     sync.RWMutex
@@ -154,6 +159,16 @@ func (h *hookSet) provider(img *image, id hookID) (optsFunc, bool) {
 // function registered for it, that is the settling of the input, which costs
 // one map lookup and no second conversion.
 //
+// The hook is handed the cell's own address — `at`'s state spelled at `n` and
+// `p`, the same text `Update` takes back — because §7 wants a normalizer to be
+// able to consider its dependencies, and a value with no address cannot say
+// which row it belongs to. The address is only computed when there is a
+// function to hand it to: an unbound assignment pays for the lookup and
+// nothing else, which is what keeps this the cheapest hook call site. And for
+// a field outside a collection the address is the declaration's own interned
+// path, so even a bound assignment builds no text — a cell inside a row is the
+// one shape that has to be spelled.
+//
 // The binding consulted is the field's *type*'s — `Validate` by custom type
 // (DESIGN §7). A slot's own `hook` is deliberately not consulted here: an
 // options field's binding is `Options` by path, which answers "which values
@@ -175,7 +190,7 @@ func (h *hookSet) provider(img *image, id hookID) (optsFunc, bool) {
 // line of its own code. It arrives bound rather than as a word the hook layer
 // re-types, which is how `validate` below answers in the same voice.
 func (w *wiring) settle(ctx context.Context, refuse refuser, img *image,
-	n nodeID, in Value) (slotValue, error) {
+	n nodeID, p instPath, at CaseContext, in Value) (slotValue, error) {
 	out, bad := img.store(n, in)
 	if bad != "" {
 		return slotValue{}, refuse.now(InvalidOp, bad)
@@ -184,16 +199,17 @@ func (w *wiring) settle(ctx context.Context, refuse refuser, img *image,
 	if fn == nil {
 		return out, nil
 	}
-	binding := quote(img.bindingName(hook))
-	normalized, err := fn(ctx, in)
+	normalized, err := fn(ctx, at, at.addrOf(n, p), in)
 	if err != nil {
 		return slotValue{}, refuse.caused(HookFailure,
-			"the Validate hook for "+binding+" refused the value", err)
+			"the Validate hook for "+quote(img.bindingName(hook))+
+				" refused the value", err)
 	}
 	out, bad = img.store(n, normalized)
 	if bad != "" {
 		return slotValue{}, refuse.now(HookFailure, "the Validate hook for "+
-			binding+" returned a value its type does not hold: "+bad)
+			quote(img.bindingName(hook))+
+			" returned a value its type does not hold: "+bad)
 	}
 	return out, nil
 }
@@ -245,18 +261,21 @@ func (w *wiring) forType(img *image, n nodeID) (normFunc, hookID) {
 // check, so a hook that is not a fixed point on its own output has a bug to
 // fix, and a refusal naming the binding is where it learns so.
 //
-// `only` is the caller's filter on that walk, and the two callers differ for
-// one reason. Submit passes nil: the actor presenting a form has the grant the
-// rules are being asked about, so every reached field of that subtree is its
-// business. The view passes the slots this actor may see, because a host's
-// rule is not entitled to run over content the caller could not render — both
-// as work and as disclosure. A problem about a withheld field would be a
-// message naming a value the caller may not see, and a hook that broke the
-// fixed-point rule there would refuse the whole view with that path in the
-// sentence. Neither is a fact about what the caller is allowed to know, so
-// neither is computed.
-func (w *wiring) validate(ctx context.Context, refuse refuser, img *image,
-	s *state, root nodeID, only []bool) ([]FieldProblem, error) {
+// The caller's filter rides in the snapshot as `only`, and the two callers
+// differ for one reason. Submit's carries none: the actor presenting a form has
+// the grant the rules are being asked about, so every reached field of that
+// subtree is its business. The view's carries the slots this actor may see,
+// because a host's rule is not entitled to run over content the caller could
+// not render — both as work and as disclosure. A problem about a withheld field
+// would be a message naming a value the caller may not see, and a hook that
+// broke the fixed-point rule there would refuse the whole view with that path
+// in the sentence. Neither is a fact about what the caller is allowed to know,
+// so neither is computed. The filter is applied here rather than left to
+// `CaseContext`'s own mask rule because a walk that reports paths must not even
+// ask about one it will not report.
+func (w *wiring) validate(ctx context.Context, refuse refuser, at CaseContext,
+	root nodeID) ([]FieldProblem, error) {
+	img, s, only := at.img, at.s, at.only
 	var out []FieldProblem
 	lo, hi := img.subtree(root)
 	for n := lo; n < hi; n++ {
@@ -292,11 +311,17 @@ func (w *wiring) validate(ctx context.Context, refuse refuser, img *image,
 			if !v.set {
 				continue
 			}
+			// The address is computed once per cell here rather than on the
+			// two paths that report it, because the hook is handed the same
+			// text: a problem about a value and the question about it are
+			// stated in one vocabulary, which is what lets a host line a
+			// refusal up with the field it was asked about.
+			addr := s.addr(n, p)
 			in := img.load(n, v)
-			got, err := fn(ctx, in)
+			got, err := fn(ctx, at, addr, in)
 			if err != nil {
 				out = append(out, FieldProblem{
-					Path: s.addr(n, p), Code: invalidValue,
+					Path: addr, Code: invalidValue,
 					Msg: "the Validate hook for " + quote(binding) +
 						" refused this value: " + err.Error()})
 				continue
@@ -309,8 +334,7 @@ func (w *wiring) validate(ctx context.Context, refuse refuser, img *image,
 			}
 			if !img.same(n, v, back) {
 				return nil, refuse.now(HookFailure, "the Validate hook for "+
-					quote(binding)+" rewrote a stored value, at "+
-					s.addr(n, p))
+					quote(binding)+" rewrote a stored value, at "+addr)
 			}
 		}
 	}

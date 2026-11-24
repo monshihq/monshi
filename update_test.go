@@ -419,8 +419,8 @@ func TestValidateNormalizesTheValueItIsGiven(t *testing.T) {
 	// interned at lowering from `money`), and what the hook returns is what
 	// the row holds.
 	var given Value
-	rt.w.hooks.bindType("money", func(_ context.Context, v Value) (
-		Value, error) {
+	rt.RegisterValidate("money", func(_ context.Context, _ CaseContext,
+		_ string, v Value) (Value, error) {
 		given = v
 		return Decimal(v.d.Mul(decimal.NewFromInt(100))), nil
 	})
@@ -442,8 +442,8 @@ func TestValidateNormalizesTheValueItIsGiven(t *testing.T) {
 	// refusal also names the binding, because a host knows its function only
 	// by the words its definition wrote.
 	sentinel := errors.New("that amount is not a payable one")
-	rt.w.hooks.bindType("money", func(_ context.Context, v Value) (
-		Value, error) {
+	rt.RegisterValidate("money", func(_ context.Context, _ CaseContext,
+		_ string, v Value) (Value, error) {
 		return Value{}, sentinel
 	})
 	_, err := c.Update(ctx(), base,
@@ -480,8 +480,8 @@ func TestValidateNormalizesTheValueItIsGiven(t *testing.T) {
 	// have at all: a normalizer cannot put a value in a row that §3.3's own
 	// bounds test would refuse, so the type is the last word about a payload
 	// whoever produced it.
-	rt.w.hooks.bindType("money", func(_ context.Context, v Value) (
-		Value, error) {
+	rt.RegisterValidate("money", func(_ context.Context, _ CaseContext,
+		_ string, v Value) (Value, error) {
 		return Text("not a decimal"), nil
 	})
 	_, err = c.Update(ctx(), base,
@@ -517,7 +517,7 @@ func TestAHookBindingIsKeyedByKindAndName(t *testing.T) {
 		t.Errorf("no binding rendered as %q, want nothing", got)
 	}
 
-	rt.w.hooks.bindPath("money", func(_ context.Context, _ string) (
+	rt.RegisterOptions("money", func(_ context.Context, _ CaseContext, _ string) (
 		[]string, error) {
 		return []string{"an option list is not a normalizer"}, nil
 	})
@@ -539,8 +539,8 @@ func TestAHookBindingIsKeyedByKindAndName(t *testing.T) {
 
 	// The key a host would register against is the name the definition
 	// spelled, which `bindingName` reads back out of the image's own table.
-	rt.w.hooks.bindType(img.bindingName(hook),
-		func(_ context.Context, v Value) (Value, error) {
+	rt.RegisterValidate(img.bindingName(hook),
+		func(_ context.Context, _ CaseContext, _ string, v Value) (Value, error) {
 			return Decimal(v.d.Add(decimal.NewFromInt(1))), nil
 		})
 	mustUpdate(t, c, base, Set("application.fee",

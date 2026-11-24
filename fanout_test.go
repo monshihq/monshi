@@ -312,8 +312,8 @@ func TestAFanoutDoesNotSeeWhatWasWritten(t *testing.T) {
 	// DESIGN §7's ordering. A client that refreshed `internal` because the
 	// engine named it is refreshing a subtree the normalization opened, and
 	// nothing but the report could have told it to look.
-	rt.w.hooks.bindType("legal", func(_ context.Context, _ Value) (
-		Value, error) {
+	rt.RegisterValidate("legal", func(_ context.Context, _ CaseContext,
+		_ string, _ Value) (Value, error) {
 		return Tag("COMPANY"), nil
 	})
 	gated, forced := one("PERSON")

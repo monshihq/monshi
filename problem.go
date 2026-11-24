@@ -58,10 +58,11 @@ type FieldProblem struct {
 // (DESIGN §9's field-level list). It says "this value is not acceptable here"
 // and nothing more, because *why* is the hook's sentence rather than the
 // engine's, and a code invented here would be the engine guessing at what a
-// host meant. Machine-readable reasons therefore need a hook signature that
-// can *return* a code, which is DESIGN §7's `CaseContext` slice to settle:
-// the view is the first caller to report these problems, and it reports the
-// one code the engine honestly owns.
+// host meant. A machine-readable reason needs a hook result that *returns* a
+// code instead of failing with a Go error, which is §7's tri-state question
+// and stays open: `CaseContext` gave a host the case and the address, and not
+// a vocabulary. The view is the first caller to report these problems, and it
+// reports the one code the engine honestly owns.
 const invalidValue = "INVALID_VALUE"
 
 // String renders one field problem the way a log line wants it: where, then

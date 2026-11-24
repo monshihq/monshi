@@ -1249,7 +1249,10 @@ values move.
 `Options` is fetched once per binding per call, keyed by `hookID`, and the
 cache is what keeps a collection honest: a field with two hundred rows is one
 host call and two hundred renderings of the same list, because the binding is
-by field path and the provider was never offered a row. A missing provider is
+by field path and the provider was never offered a row. The text handed to it
+is that binding, with no instance in it, beside the caller's own snapshot — so
+a provider that consults case data is asked a question about the case, which
+is what §6's mask then answers. A missing provider is
 `HOOK_FAILURE` naming the binding rather than an empty list, and a provider
 that errors is the same with its cause attached; both refuse the whole view,
 because the alternative is a form on screen with a dropdown that cannot open.
@@ -1271,18 +1274,20 @@ rule about its siblings, because the report is a subtree answer indexed by
 address and not a per-row question; the answers about rows nobody selected are
 dropped by never being looked up.
 
-Deferred, all of it on the record so the shape of the gap is known. Both
-halves of §6.1's node fields are here now: `Reviewable` and `Review` print
-§3.6's `verif` answer, and §5.9 says where each is read from and which
-nodes may not carry it; `Signable` and `Signature` print the `sigEntry`
-answer, and §5.10 says which of the two conjuncts the view reports and
-why the other one is not asked of a rendering. `CaseContext` is why an
-option key is a field path rather than a field instance, and why
-registration stays unexported (§6). And the question §6.5 leaves open
-about a draft whose committed content moved is answered in §5.8, not
-here: `View` renders the draft it
-is handed, unchanged in shape whether or not that draft is behind the
-case, and `Rebase` is the operation that changes what the draft holds.
+Deferred no longer, and the record of the gap is kept because its shape
+explains the shape of the answer. Both halves of §6.1's node fields are
+here: `Reviewable` and `Review` print §3.6's `verif` answer, and §5.9
+says where each is read from and which nodes may not carry it;
+`Signable` and `Signature` print the `sigEntry` answer, and §5.10 says
+which of the two conjuncts the view reports and why the other one is not
+asked of a rendering. `Options` is keyed by a field path rather than by
+a field instance because the binding is a
+declaration's, and the `CaseContext` handed beside it is a case's snapshot
+and not a row's (§6). And the question §6.5 leaves open about a draft
+whose committed content moved is answered in §5.8, not here: `View`
+renders the draft it is handed, unchanged in shape whether or not that
+draft is behind the case, and `Rebase` is the operation that changes what
+the draft holds.
 
 ### 5.8 Synchronization — `Rebase` and `Discard`
 
@@ -1930,6 +1935,49 @@ intercept. Hooks are host code: the containment argument in §7 covers
 definition content, and hooks sit outside it, bound by the read-only
 `CaseContext` contract instead.
 
+- **The seam is exported, and its keys are the definition's.** A host
+  binds one normalizer per custom *type name* with
+  `Runtime.RegisterValidate` and one provider per *field path* with
+  `Runtime.RegisterOptions`. Registering again replaces what was bound
+  rather than refusing, and the lookup goes through the registry on
+  every call rather than through a table a handle copied: a deployment
+  can fix its wiring without a new runtime, and every case it ever
+  opened speaks through the function that arrived last. There is no
+  error to return, because a key that matches no declaration is not a
+  mistake the runtime can see — it holds no definition at that moment,
+  and §3.8's binding is a key rather than a symbol. What a wrong key
+  costs is the pair of absence rules below.
+- **Two contexts, and they are different things.** Go's
+  `context.Context` is cancellation and deadline, which §10 requires
+  of anything that may do I/O — and for a hook that means an
+  RPC-backed host rule. `CaseContext` is the case: identity
+  (case, definition name, actor, stage, the committed revision and the
+  copy's number), the effective role names, and by path a stored value,
+  the decision governing a unit, and a signature field's attestation.
+  A normalizer is handed, beside those, the value being assigned and
+  the §5.1 address it is being assigned *at*; a provider is handed its
+  own declared path, with no instance in it. The address matters
+  because it is one vocabulary: the text a hook is handed, the text a
+  later `FieldProblem` names, and the text `Update` takes back are the
+  same string, so a host rule that considers the cell beside its own
+  can say which cell it meant.
+- **`CaseContext` is a snapshot, and neither a copy nor a lease.** It
+  is pointers into state the operation already owns, because the store
+  clones on the way out (§5.7) — so the bytes behind a context
+  are written by nobody, before the call ends or after. A context kept
+  past its call reads the state its own batch left, including a write
+  that landed after the hook returned, and never a later batch's
+  draft; DESIGN §7's "no hook result may be cached across a commit" is
+  therefore a property of the shape rather than a rule to police, and
+  reading a retained snapshot from another goroutine is safe because
+  it is inert. The type has no exported constructor, and its zero value
+  answers every read the way a withheld path does. The shape is not free,
+  and what it costs is one small object per operation that pins a
+  snapshot: naming the draft a batch writes means the working copy's own
+  header is heap-allocated, whether or not any hook is registered,
+  because an escape is decided by the compiler and a registry is not
+  (§8). That allocation is the mechanism rather than the tax — a
+  snapshot that pointed at stack would be the dangling kind.
 - **`Validate` is bound by custom type** (DESIGN §7 lookup rule).
   `typeInfo.hook` carries it; the engine calls it for every value
   assigned to a field of that type and stores the *normalized* value
@@ -1964,10 +2012,13 @@ definition content, and hooks sit outside it, bound by the read-only
 - **`Options` is asked once per binding per call**, keyed by `hookID`, so
   a repeated field with two hundred rows costs one fetch and two hundred
   renderings of the list (§5.7). The key is the field path and not the
-  instance, which is what `CaseContext` changes (DESIGN §7): a provider
-  cannot see a row until the context carries one, so pretending it could
-  would be asking one question two hundred times and calling the answers
-  independent.
+  instance because the *binding* is a declaration's — which is the same
+  reason `CaseContext`, now that it ships, carries no row: a provider is
+  never told which instance is being rendered, and SYNTAX §7's rule 11
+  is what makes that a shape rather than a gap, because nothing in this
+  language asks a question of one instance and not of the field.
+  Pretending otherwise would be asking one question two hundred times
+  and calling the answers independent.
 - **Re-evaluation order:** apply edits → normalize per field
   (`Validate`) → re-evaluate the §5.3 closure → report validation
   errors against final values. Submit re-asks `Validate` of the values the
@@ -1989,6 +2040,19 @@ definition content, and hooks sit outside it, bound by the read-only
   `HOOK_FAILURE` naming the path may say something the mask withholds.
   The two are the same code with one argument different, which is the
   cheapest way to keep a view's report and a commit's from disagreeing.
+- **And who may answer what a hook asks.** The same array gates a
+  `CaseContext` read, so a host function cannot ask by path about a
+  cell its caller was pruned from: the snapshot is pinned with the
+  operation's own visibility fold where one was computed, and with the
+  node's reachability — §5.7's rule and not a stricter one — where it
+  was not. The two readings are required to agree, because a context
+  that hid a value on a read and handed it over on a write hid
+  nothing. A withheld path answers the way an absent one does, which is
+  §7's property 7 with a host function as its subject: the channel this
+  closes is wider than a rendered node's, because a read takes
+  arbitrary text. §8 prices both branches: one array lookup where a view
+  holds the fold, and a scan bounded by declaration breadth where an edit
+  does not.
 - **Failures:** hook execution failures, structural errors and forbidden
   edits reject the whole `Update` atomically — the batch is one act, so a
   refused one leaves the working copy exactly as it was, at the revision
@@ -2061,9 +2125,17 @@ produced, one per distinct binding.
    rather than rendered and filtered, so its options provider is never
    fetched and its `Validate` hook never runs. That closes the two
    channels a filtered output would leave open — work performed on
-   withheld content, and a refusal whose message names it. The same rule
-   decides what a *refusal* discloses: a path with no permission behind
-   it is `ACCESS_DENIED`, decided by the mask alone and never by whether
+   withheld content, and a refusal whose message names it. The fold
+   answers a hook's own questions the same way (§6): a `CaseContext`
+   read is gated at the nodes the caller could have rendered, so a host
+   function cannot ask by path about a cell its caller was pruned from,
+   and a withheld value and an absent one are one answer. This is the
+   wider of the two channels, because a read takes arbitrary text where
+   a render takes only what the walk reached, and it is why the
+   snapshot carries the caller's fold rather than the case's contents.
+   The same rule decides what a *refusal* discloses: a path with no
+   permission behind it is `ACCESS_DENIED`, decided by the mask alone
+   and never by whether
    a row exists, and `NOT_FOUND` is answered only where the caller may
    see the node the walk stopped at — so an unseen instance of a
    collection in the caller's scope reads the same as a mistyped name,
@@ -2109,9 +2181,14 @@ produced, one per distinct binding.
 ## 8. Cost model and benchmarks
 
 The rows below are measured, with `go test -bench . -benchtime=1s`, on
-an Apple M4 (Go 1.27.4, darwin/arm64). `benchmark_test.go` is the
-harness; a number here without a benchmark in that file is a target, not
-a result. The reference corpus is the SYNTAX §7 example (20 slots) plus
+an Apple M4 (Go 1.27.4, darwin/arm64). `benchmark_test.go` is the harness
+for everything through §5.11 and `hook_benchmark_test.go` for §6's seam,
+whose rows were printed at the fixed `-benchtime=200000x` an isolated
+harness needs rather than the timed default, and are the median of five
+counts. Every pair compared below was measured in one process, so the
+pairs differ by the code and not by the clock. A number here without a
+benchmark in either file is a target, not a result. The
+reference corpus is the SYNTAX §7 example (20 slots) plus
 §8's generated wide case: one form, 40 fields, one 8-field `multiple`
 group, 6 roles, 5 stages — 51 slots. Its roles carry `view, edit all`
 rather than `view` alone, because a fixture an operation can put content
@@ -2150,6 +2227,10 @@ an `Update` on it impossible.
 | `BenchmarkHistory/whole` | all 1,000, 3 entries each | 86.9 µs, 1,015 allocs |
 | `BenchmarkReplayTo/head` | the fold to the trail's head | 34.3 µs, 7 allocs |
 | `BenchmarkReplayTo/first` | the fold to revision 1 | 408 ns, 7 allocs |
+| `BenchmarkHookSeam/update/bound` | writes under a rule | 3.38 µs, 74 allocs |
+| `BenchmarkHookSeam/view/bound` | a view re-asked | 10.52 µs, 260 allocs |
+| `BenchmarkCaseContextReads/value_fold` | one masked read | 54.6 ns, 0 allocs |
+| `BenchmarkCaseContextReads/value_range` | by scan | 57.2 ns, 0 allocs |
 
 The eight rows above §5.11's are §5.9's and §5.10's, and the five that go
 through an operation were measured in one process, twice each, with
@@ -2449,7 +2530,96 @@ and the derivation's price is paid by the test that checks §5.1's claim. The
 four rows were measured in one process with `BenchmarkSubmit`, which re-ran at
 2,291 and 2,279 ns — the 2.3 µs and 42 allocations the synchronization
 paragraph takes as its baseline — so these are the same clock and not a
-borrowed one.
+borrowed one. What that call prints on this branch, and which two
+allocations the exported hook seam added to it, is §8's paragraph on the
+seam.
+
+The seam's rows come from one process that also re-ran `BenchmarkUpdate`,
+`BenchmarkSubmit` and `BenchmarkViewWide/all`, so every comparison drawn here is
+same-clock: the fixed count is the price of putting a whole-case view, a batch,
+and the isolated reads on one machine at one hour.
+
+The seam is priced against an empty registry first, because that is the shape
+most deployments run. `BenchmarkHookSeam/update/no_binding` is five writes of a
+custom decimal type with nothing registered against it, at 2.98 µs and 54
+allocations, and the same corpus read whole costs 9.42 µs and 230. That unbound
+`View` is `BenchmarkViewWide/all`'s own corpus but for a type declared instead
+of a built-in repeated, and the re-run of that row beside it printed 9.05 µs
+against 9.42, the same 230 allocations, and 40,258 bytes against 40,257: naming
+a type costs a read four percent and no memory, which is §3.8's point that a
+binding is a key rather than work. A declaration binds nothing by itself. What a
+binding costs is the next two rows.
+
+With an identity rule bound the batch is 3.38 µs and 74 allocations — 80 ns and
+four objects per call, against a host function whose whole body is `return v,
+nil`. The objects are the contract's rather than the host's, and they are one
+rule of it: every one of the twenty a bound batch adds over an unbound one is
+`img.store` reached from `settle`, where checking a decimal against its declared
+precision builds a big integer to test — `decimalFits` is the frame, three and a
+half objects a visit, and a bound call is settled twice because §6 treats what a
+host returns like what a caller sent. The unbound row pays three and a half of
+the same objects a write for the values it settled anyway, and a third of either
+row's objects are the store's clone of the state — neither of which the seam
+adds or removes. The row is a floor, not a sample of host work.
+
+Adding one masked read to the same rule costs 292 ns over the batch, 58 ns a
+read, and no allocations at all: the snapshot is a struct of pointers the
+operation already held, and reading it indexes them.
+
+A whole-case `View` asks ten times rather than five, because §5.4's second
+reading is asked of every value and a field holding its declared default holds a
+value, so 9.42 µs and 230 allocations become 10.52 and 260: 111 ns and three
+objects per re-asked cell, dearer per cell than a write's 80 ns because the walk
+loads the stored payload into a `Value` before asking and settles the answer
+after. One masked read per call adds 525 ns there, the fold's one array lookup
+ten times over, at no allocations.
+
+`BenchmarkCaseContextReads` prices the reads apart from any operation, on
+snapshots pinned by real batches, and each pair is the two branches of §6's mask
+rule asked of one path. A visible leaf is 54.6 ns where the caller's fold
+answers it and 57.2 where the preorder scan does, at zero allocations either
+way: on a corpus that grants this role everything the scan stops at the node
+itself, so the two readings are the same work, which is what §6 requires of
+them. They part where a subtree is withheld, which is the case the rule exists
+for. A leaf of a form this actor may not render is 30.6 ns against 34.2 — a
+leaf's own span is one node — and a container of it is 24.8 against 178.1,
+forty-one `effective` lookups that must every one answer no before the walk may
+say so. That 153 ns is the widest the mask can be made to cost a read: four
+nanoseconds a node, against the eight `BenchmarkPermResolve` spends per slot to
+fold a whole definition, and a function of declaration breadth rather than of
+anything the case holds (§7's property 3). Absence is cheaper than either
+branch: a path no declaration is reached by fails resolution before the mask is
+asked, at 44.8 ns, and a verdict read that finds no unit governing its field is
+31.8. And `Roles` is the one read that allocates, 9.7 ns and one slice, because
+the list belongs to the host after the call. These rows may inline what a hook
+cannot, since a function reached through the registry is an indirect call; that
+is why each of them is also priced inside its operation above.
+
+Charged against the previous commit — a worktree of it, one machine, one day,
+one fixed count — the seam costs an operation that binds nothing one small
+object. Allocation counts are exact; times are medians of repeated counts in two
+processes, so what this paragraph claims is objects. `BenchmarkUpdate` went from
+means of 865 to 873 ns and 18 allocations to 891 to 899 and 19, and
+`BenchmarkSubmit` from 2,298 to 2,328 and 42 allocations to 2,339 to 2,346 and
+44 — the 42 the history paragraph above takes as its baseline.
+`BenchmarkViewWide` did not move in memory at all, 230 allocations and 40,260
+bytes on either side of the change, and its times came out inside each other's
+spread at 8,819 to 8,905 ns against 8,872 to 8,963. `Rebase` and `Discard` moved
+by exactly their own arithmetic, 61 allocations to 63 and 20 to 21, because the
+loop each one times contains a batch: `BenchmarkRebaseClean` is an `Update`, a
+`Submit` and a merge, and `BenchmarkDiscard/draft` an `Update` and the drop of
+it. The extra object is the operation's own working copy: `pinned` hands the
+snapshot the draft by address, so the compiler moves the batch's `workingState`
+header to the heap — `go build -gcflags=-m` reports `moved to heap: w` at the
+two sites and did not report it at the previous commit — and that is the
+mechanism by which §6's rule that a context kept past its call reads the state
+its own batch left is *sound* rather than dangling. It is paid whether or not a
+hook is registered, because an escape is a compile-time fact and the registry is
+a runtime one, and it stops being the seam's business when milestone 4's read
+transaction hands back a snapshot that cannot be written at all (DESIGN §8). One
+object in eighteen, two in forty-two, and no byte of the whole-case read: what a
+bound batch pays the seam is the two percent of wall time it adds, and that is
+the registry's lookups and the snapshot's construction rather than this header.
 
 Nor is any "× faster than the compiled tree" ratio measured: that would
 mean an interpreted-tree harness, and building one to prove a point the
@@ -2517,6 +2687,18 @@ a re-run shows.
   content, so an affected set for either could only name a subtree to say
   that a verdict landed, which is a notification payload and not a §5.3
   walk.
+- **A hook result that carries a code is still undecided.** The exported
+  signature answers a value with `(Value, error)`, and the one error word
+  means two things depending on the call: against a value arriving it
+  abandons the batch with `HOOK_FAILURE`, and against a stored value at
+  commit or in a view it becomes a `FieldProblem`. DESIGN §7's tri-state
+  — `Valid | Invalid | Failure` — would give a host a way to say
+  "invalid, and keep it", which is a decision about what an accepted
+  `Update` reports and how a draft may hold a value a rule refused.
+  `CaseContext` settled the *input* half of that sketch; the output half
+  stays where the design left it, and `INVALID_VALUE` is still the only
+  field code the engine owns, because inventing more would be this
+  package guessing at what a host meant.
 - **No per-instance condition paths** (SYNTAX Appendix B item 11): F6
   uniformity is load-bearing for §3.4's one-closure-per-collection. If
   instance-relative conditions are ever added, `condFn` gains an
@@ -2531,8 +2713,11 @@ a re-run shows.
 ## 10. Handoff from the front end
 
 Milestone status (DESIGN §10): 1 is complete — the `schema` package,
-its tests and the two language documents. Milestone 2 (*pure case
-semantics*) is in progress. The image of §3, the lowering of §4, the
+its tests and the two language documents. So are 2 (*pure case semantics*)
+and 3 (*views and hooks*), and the item that closed the pair is §6's seam.
+Milestone 4 is the one in progress: its contract is what the in-memory
+store has honoured since §4, and its storage implementation is not
+written. The image of §3, the lowering of §4, the
 `Load` seam, the frame and instance rows of §5.1, §5.2's presence and
 requiredness and §3.9's resolution seam are in place and tested, and so
 is the exported half that reads them: `Runtime` and `Case` (DESIGN §6),
@@ -2586,17 +2771,22 @@ DESIGN §10's milestone 6 has landed in part, and early: `Rebase` and
 history rather than replayed, a merge that takes an unchanged side and
 refuses to choose between two moved ones, nothing saved when it cannot, and
 a refusal that counts the clashes it may not address. Its other half, the
-observers, waits for `OnCommit`. What remains of milestone 2's semantics is
-the *registration* half of §6's hook contract: a declared `Validate`
-normalization runs three times today — against a value as it arrives,
-against the stored one at commit, and against what a view renders — and
-exporting its signature waits for the read-only context DESIGN §7
-describes.
+observers, waits for `OnCommit`. And §6's hook contract is exported now,
+which is what closes milestone 2's validation item and milestone 3's hook
+item in one piece: `RegisterValidate` keyed by
+a custom type's name, `RegisterOptions` keyed by a field path, and the
+read-only `CaseContext` DESIGN §7 describes arriving as the argument both
+signatures carry. A declared `Validate` normalization runs three times —
+against a value as it arrives, against the stored one at commit, and
+against what a view renders — and it is now one function asked about one
+cell at one address each time, which is what makes the third asking a
+check rather than a second opinion.
 
-Contract at the seam. Two halves are exported: the definition seam this
-handoff was written for, and the case operations milestone 2 has grown
-beside it. `ctx` stands for `context.Context`, and the operations that
-read the store take it and can refuse.
+Contract at the seam. Three halves are exported: the definition seam this
+handoff was written for, the case operations milestone 2 has grown beside
+it, and the hook seam §6 a host wires into a runtime. `ctx` stands for
+`context.Context`, and the operations that read the store take it and can
+refuse.
 
 ```go
 // Source in, an immutable definition out.
@@ -2788,12 +2978,49 @@ type ReviewInfo struct {
     Comment string
 }
 
+// The seam a host wires (§6). The keys are the definition's, and a
+// registration replaces what was bound at that key rather than refusing.
+// `path` is the §5.1 address `Update` takes back, so what a rule was told
+// and what the engine later reports about it are one string.
+func (r *Runtime) RegisterValidate(typeName string, fn ValidateFunc)
+func (r *Runtime) RegisterOptions(fieldPath string, fn OptionsFunc)
+type ValidateFunc func(ctx context.Context, at CaseContext, path string,
+    v Value) (Value, error)
+type OptionsFunc func(ctx context.Context, at CaseContext,
+    path string) ([]string, error)
+
+// What a hook is told about the case it was called for, and nothing more:
+// no writes, no storage, no compiled definition — `Definition` is a name,
+// because handing out the image would hand out a way to walk it unmasked.
+// A read is answered at the *caller's* permission (§7's property 7), so a
+// path the caller may not render answers the way an absent one does.
+// `Revision` is the committed head; `Working` is the copy's number as the
+// operation found it, which during a batch is the number the batch started
+// at. The snapshot is pointers into state the store already cloned: kept
+// past its call it reads the state its own batch left and never a later
+// one's, which is what §6 means by a snapshot rather than a lease.
+type CaseContext struct{ /* unexported */ }
+func (at CaseContext) Case() CaseID
+func (at CaseContext) Definition() string
+func (at CaseContext) Actor() Actor
+func (at CaseContext) Stage() string
+func (at CaseContext) Revision() uint64
+func (at CaseContext) Working() uint64
+func (at CaseContext) Roles() []string
+func (at CaseContext) Value(path string) (Value, bool)
+func (at CaseContext) Review(path string) (ReviewInfo, bool)
+func (at CaseContext) Signature(path string) (SignatureInfo, bool)
+
 func Failed(err error, want Category) bool
 ```
 
 `Definition`, `Case`, `Edit` and `Value` have no exported fields, which
 is what lets §5.1's class tagging and §6's hook contract stay decisions
 of this package rather than a struct literal a host assembles by hand.
+`CaseContext` has none either, and for the same reason twice over: a host
+that could assemble one could choose the actor and the mask it is read
+at, and the type is handed to a hook by the operation that already decided
+both.
 The results — `ChangeResult` and the five that read like it — have the
 opposite shape, and `ViewNode` follows them for the same reason §5.1
 gives: a *write* a caller assembles is a value to be validated, so it

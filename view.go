@@ -236,10 +236,13 @@ type ViewNode struct {
 	// order the host returned it. Non-nil only for a declared `options`
 	// field: an enum's choices are declared data and arrive as `Kind`
 	// "enum", and a string has none. The same list is shown by every instance
-	// of a repeated field, which is the one instance of a §6.1 hook whose
-	// answer is not per-instance — a provider is bound by field path, so
-	// until a hook can see a row (DESIGN §7's `CaseContext`) it cannot have
-	// been asked about one.
+	// of a repeated field, and that is the rule rather than a limitation: a
+	// provider is bound to a *declaration*, so its answer is the field's, and
+	// §5.7 pays one fetch per binding per walk instead of one per row. A
+	// `CaseContext` is a case's snapshot and not a row's — a normalizer can
+	// read one instance's cell by naming its address, but a provider is never
+	// told which instance is being rendered, which is the same side of
+	// SYNTAX §7's rule 11 a uniform condition stands on.
 	Options []string
 
 	// Problems holds the `Validate` refusals about the value at this node,
@@ -329,6 +332,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 		opts:     map[hookID][]string{},
 	}
 	v.vis = viewable(img, v.roles, v.stage)
+	v.hook = c.pinned(img, rec, v.s, v.roles, working, v.vis)
 
 	if len(paths) == 0 {
 		// The whole case is one scope, so it gets one validation walk over the
@@ -427,7 +431,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 // rendered a form while pretending not to know its hook is broken would be a
 // quieter version of the bug the rule exists to catch.
 func (v *viewWalk) check(root nodeID) error {
-	probs, err := v.w.validate(v.ctx, v.refuse, v.img, v.s, root, v.vis)
+	probs, err := v.w.validate(v.ctx, v.refuse, v.hook, root)
 	if err != nil {
 		return err
 	}
@@ -499,6 +503,13 @@ type viewWalk struct {
 	// reads as "everything pending" and `sigAt` as "nothing signed".
 	reviews []reviewState
 	sigs    []sigState
+
+	// hook is the snapshot handed to every host function this walk calls
+	// (§6.1, DESIGN §7). One for the walk rather than one per call: its state,
+	// mask and tables are fixed before its first node is built, so a choice
+	// list and a validation report are read from one answer, which is the same
+	// soundness `opts` buys for the fetch count.
+	hook CaseContext
 
 	problems map[string][]FieldProblem
 	opts     map[hookID][]string
@@ -692,7 +703,7 @@ func (v *viewWalk) optionsFor(n nodeID) ([]string, error) {
 		return nil, v.refuse.now(HookFailure,
 			"no Options hook is registered for "+quote(path))
 	}
-	list, err := fn(v.ctx, path)
+	list, err := fn(v.ctx, v.hook, path)
 	if err != nil {
 		return nil, v.refuse.caused(HookFailure, "the Options hook for "+
 			quote(path)+" refused this field", err)

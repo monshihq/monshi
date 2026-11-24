@@ -148,6 +148,12 @@ func (c Case) Submit(ctx context.Context, form string,
 				", the case is at "+dec(rec.revision))
 	}
 
+	// The snapshot the re-ask is handed. It is the *candidate* rather than the
+	// committed state, which is the same frame §5.4's requiredness walk reads,
+	// and it carries no visibility fold: a submit reports every problem in the
+	// subtree it publishes, not the subset of them the actor could render.
+	at := c.pinned(img, rec, &w.s, roles, w.rev, nil)
+
 	// §5.4's content checks, both over the submitted subtree alone. They run
 	// against the *candidate*, which is what §6.2's evaluation frame is:
 	// a requiredness or a hook asked of the committed state would report a
@@ -159,7 +165,7 @@ func (c Case) Submit(ctx context.Context, form string,
 	if len(gaps) > 0 {
 		res.Missing = gapPaths(gaps)
 	}
-	problems, err := c.w.validate(ctx, refuse, img, &w.s, n, nil)
+	problems, err := c.w.validate(ctx, refuse, at, n)
 	if err != nil {
 		// A hook that misbehaved rather than refused: HOOK_FAILURE, and no
 		// list to render, because the defect is in host code and not in any

@@ -104,11 +104,17 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 	// inside the same batch that wrote it (§4.3, T4).
 	img := d.img
 	roles := img.rolesHeld(c.actor, rec.commit.s)
+
+	// The snapshot every host function this batch calls is handed (§6,
+	// DESIGN §7). It is built once for the batch, over the draft the edits land
+	// in and the committed tables and roles beside it, with no visibility fold:
+	// an edit is gated per path by `edit` (§4.3), which is a stricter question
+	// than the view's `view`, so a hook's read here is the node's own bit.
+	at := c.pinned(img, rec, &w.s, roles, w.rev, nil)
 	fan := newFanout(img)
 	var out ChangeResult
 	for _, e := range edits {
-		created, err := c.apply(ctx, refuse, img, &w.s, roles,
-			rec.commit.stage, e, fan)
+		created, err := c.apply(ctx, refuse, img, at, e, fan)
 		if err != nil {
 			return ChangeResult{}, err
 		}
@@ -141,9 +147,17 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 // — that is the batch's job rather than the edit's, because §6.2's whole point
 // is that a guard reading two fields in one batch is asked once, after both
 // landed (RUNTIME §5.3).
+//
+// The state it writes and the snapshot a hook reads are the same object: the
+// edit takes `at` instead of a state pointer, so there is no way for the write
+// to land somewhere the normalizer was not shown. That is the property §7's
+// "candidate-state context" wants — an earlier edit of the same batch is
+// visible to a later one's hook, a later edit is not — and stating it as a
+// parameter rather than as a comment is what keeps it true when the batch
+// grows a step.
 func (c Case) apply(ctx context.Context, refuse refuser, img *image,
-	s *state, roles []roleID, stage stageID, e Edit,
-	fan *fanout) (string, error) {
+	at CaseContext, e Edit, fan *fanout) (string, error) {
+	s := at.s
 	// An edit that names no path is a batch element nobody filled in, and it
 	// is worth saying so about the edit rather than letting §3.9's walk answer
 	// that no declaration is reached: the difference is between a host whose
@@ -187,10 +201,10 @@ func (c Case) apply(ctx context.Context, refuse refuser, img *image,
 	// held from committed data. An `Add` or `Remove` is granted on the
 	// collection's own slot — the group, not its members — which is the same
 	// shape the language spells: `edit application.shareholders`.
-	if !img.mayEdit(roles, stage, n) {
+	if !img.mayEdit(at.roles, at.stage, n) {
 		return "", refuse.now(AccessDenied,
 			"editing "+quote(e.path)+" is not granted at stage "+
-				quote(img.stageName(stage)))
+				quote(img.stageName(at.stage)))
 	}
 
 	switch e.kind {
@@ -199,7 +213,7 @@ func (c Case) apply(ctx context.Context, refuse refuser, img *image,
 		fan.wroteField(n)
 		return "", nil
 	case editSet:
-		v, err := c.w.settle(ctx, refuse, img, n, e.v)
+		v, err := c.w.settle(ctx, refuse, img, n, r.path(), at, e.v)
 		if err != nil {
 			return "", err
 		}
