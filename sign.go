@@ -232,7 +232,7 @@ func (c Case) Sign(ctx context.Context, target string, observed uint64,
 
 	tbl := signTable(img, rec.commit.sigs)
 	tbl[field] = next
-	rev, err := c.w.cases.commit(refuse, img, rec.revision,
+	out, err := c.w.cases.commit(refuse, img, rec.revision,
 		committedState{s: rec.commit.s, stage: rec.commit.stage,
 			reviews: rec.commit.reviews, sigs: tbl},
 		committedBy{by: c.actor.User, op: opSign,
@@ -244,7 +244,8 @@ func (c Case) Sign(ctx context.Context, target string, observed uint64,
 		// told about a revision this call did not reach belongs in the result.
 		return SignResult{}, err
 	}
-	res.Revision = rev
+	res.Revision = out.rec.revision
+	c.notify(ctx, img, rec, out)
 	return res, nil
 }
 

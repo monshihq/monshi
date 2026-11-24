@@ -488,3 +488,68 @@ func BenchmarkCaseContextReads(b *testing.B) {
 		}
 	})
 }
+
+// commitSink keeps an observer's body from being dead code. A host's real
+// fan-out does I/O; the row here is the engine's share of the cost — the
+// folds, the render and the snapshot — with the cheapest possible body.
+var commitSink int
+
+// BenchmarkCommitNotify prices §6's dispatch on the operation that pays it
+// most: a submit, whose commit also runs §5.6's effects, and whose observer
+// is handed the widest record. The flow inside each iteration is one edit
+// and one submit, so every row after `none` differs from it by exactly the
+// notification — and `none` is the claim that an unwired host pays one nil
+// slice read for a seam it does not use.
+func BenchmarkCommitNotify(b *testing.B) {
+	shapes := []struct {
+		name string
+		n    int
+	}{
+		{"none", 0}, {"one", 1}, {"three", 3},
+	}
+	for _, sh := range shapes {
+		b.Run(sh.name, func(b *testing.B) {
+			rt := NewRuntime()
+			d := &Definition{img: mustLower(b, "notified", wideHookSrc(b))}
+			if err := rt.Register(d); err != nil {
+				b.Fatalf("Register: %v", err)
+			}
+			// R0 because stage s0 is the one that grants it the submit.
+			c, err := rt.Create(ctx(), "notified",
+				Actor{User: "dana", PrimaryRole: "R0"})
+			if err != nil {
+				b.Fatalf("Create: %v", err)
+			}
+			res, err := c.Update(ctx(), 0, hookEdits()...)
+			if err != nil {
+				b.Fatalf("Update: %v", err)
+			}
+			work, rev := res.Working, uint64(0)
+			for i := 0; i < sh.n; i++ {
+				rt.RegisterOnCommit(func(context.Context, CaseContext,
+					Commit) {
+					commitSink++
+				})
+			}
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				// A fresh value each round: a submit of content the case
+				// already holds commits nothing and notifies nobody, and
+				// that row is the one §8 already prices elsewhere.
+				up, err := c.Update(ctx(), work, Set("f.i0", Int(int64(i))))
+				if err != nil {
+					b.Fatalf("Update: %v", err)
+				}
+				work = up.Working
+				sub, err := c.Submit(ctx(), "f", work)
+				if err != nil {
+					b.Fatalf("Submit: %v", err)
+				}
+				if sub.Revision != rev+uint64(i)+1 {
+					b.Fatalf("revision = %d, want %d", sub.Revision,
+						rev+uint64(i)+1)
+				}
+			}
+		})
+	}
+}

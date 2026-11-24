@@ -650,6 +650,21 @@ func addHit(hits []nodeID, n nodeID) []nodeID {
 	return hits
 }
 
+// committed is what a successful commit hands back: the entry the store
+// appended and the snapshot it installed, both by value. The operations need
+// the pair because §5.6's effects run here and not in the caller — a submit
+// cannot know from its own `next` whether the commit erased a decision — and
+// §6's observer contract says the notification carries *that* state, the one
+// the commit left, at the number the commit produced. Handing values out is
+// safe for the standing reason (the store aliases, never mutates): `post`'s
+// state and tables are replaced by the next commit and never written through
+// this copy, and `rec.changes` is the caller's own diff.
+type committed struct {
+	rec  commitRecord
+	post committedState
+	copy uint64 // the committer's own copy number, as this commit left it
+}
+
 // commit replaces a case's committed snapshot, appends the commit that says
 // why, and rebases the submitting actor's working copy onto the revision the
 // commit produced — the three writes DESIGN §6.3 requires to be consistent,
@@ -700,15 +715,15 @@ func addHit(hits []nodeID, n nodeID) []nodeID {
 // commit may only extend a copy's lineage when it was made against the state
 // that copy stands on.
 func (s *caseStore) commit(refuse refuser, img *image, want uint64,
-	next committedState, by committedBy) (uint64, error) {
+	next committedState, by committedBy) (committed, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, err := s.check(refuse)
 	if err != nil {
-		return 0, err
+		return committed{}, err
 	}
 	if rec.revision != want {
-		return 0, refuse.now(StaleRevision,
+		return committed{}, refuse.now(StaleRevision,
 			"the case is at revision "+dec(rec.revision)+", not "+dec(want))
 	}
 	// DESIGN §4.2's two erasures, applied here and not by the caller, which is
@@ -732,20 +747,25 @@ func (s *caseStore) commit(refuse refuser, img *image, want uint64,
 	rec.commit = next
 	applyCommitEffects(img, &rec.commit, by.changes, commitEffects)
 	rec.revision++
-	rec.hist = append(rec.hist, commitRecord{
+	entry := commitRecord{
 		revision: rec.revision,
 		at:       s.stamp(),
 		by:       by.by,
 		op:       by.op,
 		stage:    next.stage,
 		changes:  by.changes,
-	})
-	if w, have := rec.work[by.by]; have && w.base == want {
-		rebased := *w
-		rebased.base = rec.revision
-		rec.work[by.by] = &rebased
 	}
-	return rec.revision, nil
+	rec.hist = append(rec.hist, entry)
+	copyRev := uint64(0)
+	if w, have := rec.work[by.by]; have {
+		if w.base == want {
+			rebased := *w
+			rebased.base = rec.revision
+			rec.work[by.by] = &rebased
+		}
+		copyRev = w.rev
+	}
+	return committed{rec: entry, post: rec.commit, copy: copyRev}, nil
 }
 
 // window is the part of a case's history a reader asked for: the entries from

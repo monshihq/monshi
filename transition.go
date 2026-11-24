@@ -272,7 +272,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 	// `changes` is empty and that is not a no-op: §5.1 counts the stage among
 	// the semantic committed changes, and commitRecord carries the stage of
 	// the entry for exactly the replay that has to land the case where it is.
-	rev, err := c.w.cases.commit(refuse, img, rec.revision,
+	out, err := c.w.cases.commit(refuse, img, rec.revision,
 		committedState{s: rec.commit.s, stage: to,
 			reviews: rec.commit.reviews,
 			sigs:    rec.commit.sigs},
@@ -282,12 +282,13 @@ func (c Case) Transition(ctx context.Context, dest string,
 		// store answers in its own voice for the reason submit.go gives.
 		return TransitionResult{}, err
 	}
-	res.Revision = rev
+	res.Revision = out.rec.revision
 	res.Stage = img.stageName(to)
 	// The actor's roles are unchanged by the move — a transition assigns
 	// nothing — so the two stages are the only difference in what §3.5's
 	// function is handed, and the answer needs no state.
 	res.Affected = img.viewChanges(roles, from, to)
+	c.notify(ctx, img, rec, out)
 	return res, nil
 }
 

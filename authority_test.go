@@ -373,8 +373,8 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("guarded commit: %v", err)
 	}
-	if next != 1 {
-		t.Errorf("committed revision = %d, want 1", next)
+	if next.rec.revision != 1 {
+		t.Errorf("committed revision = %d, want 1", next.rec.revision)
 	}
 
 	// The other two writes §6.3 requires to be consistent with the snapshot

@@ -654,6 +654,17 @@ and must not cause that commit to roll back on failure. The Host/service
 owns delivery and retries; durable notification may use an outbox.
 Stable commit identity supports idempotent redelivery.
 
+The shipped shape (RUNTIME §6) is that paragraph in Go: a void function
+on a runtime-registered list, dispatched at the tail of the operation
+that committed, after the store's lock releases, handed the record the
+trail renders at the committing actor's mask. The sketch's
+`observer result` dropped by subtraction: the only fact the engine could
+act on is the commit's outcome, and acting on it is exactly what this
+section forbids, so there is nothing left for a return type to carry. An
+observer that panics unwinds to the caller with the commit durable and
+nothing recovers it — deciding what a broken host function means is
+delivery policy, which is the host's half and stays the host's.
+
 Embedded execution may call hook functions directly; a standalone
 service may invoke external providers over RPC. Core should expose one
 domain contract irrespective of deployment. External hooks should not be
@@ -827,11 +838,16 @@ this one writes a signature field. `Rebase` and `Discard` read the commit
 history, the committed snapshot
 and the per-user copies invariant 4 forces the store to keep, so they add no
 state of their own, and invariant 5's "stale working states cannot Submit" was
-a rule with no operation that could make a state fresh. What stays with
-milestone 6 is the half that needs a host: `OnCommit`, its observers and
-their delivery, because §6.5's "hosts may notify users via post-commit
-hooks" is hook work, and the shape of what an observer is told depends on
-the affected-path policy RUNTIME §9 still owes it. The other two hooks
+a rule with no operation that could make a state fresh. Milestone 6's observer
+half has landed from the engine's side: `OnCommit` is a runtime seam
+(RUNTIME §6), dispatched at the tail of each operation that commits and
+handed the trail's own record, masked at the actor whose act it was.
+What remains the host's is the half this section always assigned it —
+delivery, retries, the fan-out to whoever else should hear — and the
+deferral lost the dependency it had claimed: a notification renders the
+commit's own diff, so the results that still lack an affected-path list
+neither starve the observer nor force RUNTIME §9's policy to be written
+early. The other two hooks
 of §7 are shipped, signature and read-only context together. The deferral at the
 end of §6.5 survives its own implementation — the merge takes a side nobody
 moved and refuses to choose between two sides that did, so the detailed

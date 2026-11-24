@@ -208,7 +208,7 @@ func (c Case) Submit(ctx context.Context, form string,
 		return res, nil
 	}
 
-	rev, err := c.w.cases.commit(refuse, img, rec.revision,
+	out, err := c.w.cases.commit(refuse, img, rec.revision,
 		committedState{s: next, stage: rec.commit.stage,
 			reviews: rec.commit.reviews,
 			sigs:    rec.commit.sigs},
@@ -221,7 +221,8 @@ func (c Case) Submit(ctx context.Context, form string,
 		// claiming a consistency it does not hold the lock for.
 		return CommitResult{}, err
 	}
-	res.Revision = rev
+	res.Revision = out.rec.revision
+	c.notify(ctx, img, rec, out)
 	return res, nil
 }
 

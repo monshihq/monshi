@@ -33,8 +33,9 @@ package monshi
 
 import "context"
 
-// CaseContext is what a `Validate` or `Options` hook is handed: the snapshot
-// the operation was already reading, pinned to the actor it is reading for.
+// CaseContext is what a `Validate` or `Options` hook is handed — and what an
+// `OnCommit` observer is handed after the commit — the snapshot the operation
+// was already reading, pinned to the actor it is reading for.
 //
 // It has no methods that write, and it holds no handle: a host cannot reach
 // `Update` from inside a hook, which is DESIGN §7's "hooks are read-only with
@@ -81,6 +82,34 @@ func (c Case) pinned(img *image, rec storedCase, s *state, roles []roleID,
 		actor:   c.actor,
 		rev:     rec.revision,
 		work:    work,
+	}
+}
+
+// pinnedPost cuts the snapshot an `OnCommit` observer is handed: the state the
+// store *installed*, not one the operation prepared. That difference is the
+// whole reason it exists — §5.6's effects erase verdicts inside the store's
+// commit, so the caller's `next` can be a state the commit did not leave. Every
+// field here is what the commit produced: `rev` is the number the entry got,
+// the tables are post-erasure, and `work` is the committer's copy as the same
+// locked act left it. `only` is the fold the dispatcher rendered the record
+// through, so an observer's read of a path and its copy of the entry naming
+// that path answer with one mask — §6's agreement rule again, one construction
+// away.
+func (c Case) pinnedPost(img *image, rec storedCase, got committed,
+	roles []roleID, only []bool) CaseContext {
+	return CaseContext{
+		img:     img,
+		s:       &got.post.s,
+		reviews: got.post.reviews,
+		sigs:    got.post.sigs,
+		roles:   roles,
+		stage:   got.post.stage,
+		only:    only,
+		id:      c.id,
+		def:     rec.def,
+		actor:   c.actor,
+		rev:     got.rec.revision,
+		work:    got.copy,
 	}
 }
 
@@ -309,4 +338,49 @@ func (r *Runtime) RegisterValidate(typeName string, fn ValidateFunc) {
 // definition uses it.
 func (r *Runtime) RegisterOptions(fieldPath string, fn OptionsFunc) {
 	r.w.hooks.bindPath(fieldPath, fn)
+}
+
+// OnCommitFunc is the observer §6 and DESIGN §7 describe: it is told that a
+// commit happened, with the record the store actually wrote and a snapshot of
+// the state that commit left.
+//
+// It returns nothing, and that absence is the contract. DESIGN's sketch ends
+// "→ observer result", but the only fact the runtime could act on is the
+// commit's outcome, and the design forbids an observer from changing it: a
+// result the engine must ignore is a result the signature should not carry. A
+// void function states "never vetoes" in the type, the way `CaseContext`'s
+// missing methods state invariant 9. What an observer does with a delivery
+// failure — retry, queue, alert — is the host's, and DESIGN §7's outbox lives
+// there: the engine holds no queue and runs no retry, because a runtime that
+// delivered reliably would be a service, and this package is not one.
+//
+// An observer that panics propagates to the caller *after* the commit is
+// durable: the act stands, and the panic is the host's bug to hear about.
+// Nothing recovers it, because deciding what a broken host function means is
+// exactly the policy this seam refuses to own.
+type OnCommitFunc func(ctx context.Context, at CaseContext, com Commit)
+
+// RegisterOnCommit appends one observer to the runtime's list; they are called
+// in registration order, once per durable commit, by every operation that
+// commits (RUNTIME §6 — an `Update` never commits, and a `Submit` whose form
+// already held the content commits nothing and notifies nobody). A nil function
+// is not added: an observer that observes nothing has no place in a list whose
+// order is a host's own.
+//
+// It is a list and not a key, and the reason is §6's closing rule: the image
+// records bindings only for the hooks a definition declares, and no declaration
+// names an observer. An observer dispatches on `at.Definition()` if it cares
+// which case moved — the same text §3.8 interned, and no new key the runtime
+// could get wrong.
+func (r *Runtime) RegisterOnCommit(fn OnCommitFunc) {
+	r.w.hooks.bindCommit(fn)
+}
+
+// ClearOnCommit empties the observer list — the replace-not-refuse convenience
+// the keyed registrations get by overwriting their map entry, stated for a list
+// that has no key to overwrite. A deployment that wired an observer it must fix
+// or stop mid-run does not need a new runtime for it, and cases opened before
+// the call speak through the emptied list like any other registration change.
+func (r *Runtime) ClearOnCommit() {
+	r.w.hooks.clearCommit()
 }

@@ -27,16 +27,20 @@ package monshi
 //
 // What reads the registry decides nothing of its own: `settle` below, which an
 // edit calls per assignment, `validate`, which Submit and the view call per
-// stored value, and the view's option fetch, which asks a provider per
-// visible `options` field. All of it is the §6 contract — looked up by the
-// binding the definition declared, run before the value is stored, its output
-// checked by the same test the input passed, and a failure heard as a failure.
+// stored value, the view's option fetch, which asks a provider per visible
+// `options` field, and `notify` at the end of this file, which runs the
+// observers once a commit is durable. All of it is the §6 contract — looked up
+// by the binding the definition declared, run when the contract says, its
+// output checked by the same tests the engine runs on its own data, and a
+// failure heard as a failure or, for the observer, heard by nobody because
+// there is nothing left to fail.
 //
-// §6's remaining hook is still not here: the `OnCommit` observer needs the
-// post-commit state and the `Affected` set §9 leaves undecided. The derived
-// value resolver was superseded, not deferred — §5.4's answer to "what does a
-// stored value validate against" is to re-ask the normalizer rather than cache
-// its output.
+// The observer list is the one registration the image knows nothing about,
+// which is what §6's closing paragraph means by a binding and a function: a
+// definition declares `Validate` and `Options` keys and nothing else, and an
+// observer is the host's own wiring. The derived value resolver was superseded,
+// not deferred — §5.4's answer to "what does a stored value validate against"
+// is to re-ask the normalizer rather than cache its output.
 
 import (
 	"context"
@@ -65,9 +69,10 @@ type normFunc = ValidateFunc
 type optsFunc = OptionsFunc
 
 type hookSet struct {
-	mu     sync.RWMutex
-	byType map[string]normFunc
-	byPath map[string]optsFunc
+	mu       sync.RWMutex
+	byType   map[string]normFunc
+	byPath   map[string]optsFunc
+	onCommit []OnCommitFunc
 }
 
 func newHookSet() *hookSet {
@@ -93,6 +98,74 @@ func (h *hookSet) bindPath(name string, fn optsFunc) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.byPath[name] = fn
+}
+
+// bindCommit appends one observer, skipping a nil: §6's list answers "who is
+// told when a commit lands", and a nil entry would be an empty seat at it.
+func (h *hookSet) bindCommit(fn OnCommitFunc) {
+	if fn == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onCommit = append(h.onCommit, fn)
+}
+
+// clearCommit empties the observer list. Replacing the whole list rather than
+// one entry is honest about what this seam is: an unkeyed host wiring, where
+// entry-by-entry surgery would mean the runtime invented keys §6 says only the
+// definition's two bindings have.
+func (h *hookSet) clearCommit() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onCommit = nil
+}
+
+// commitFns hands out the header under the read lock. Safe to call after the
+// lock drops for the standing replace-never-mutate reason: an append either
+// copies the array or writes past a length this reader's header does not
+// reach, and a clear replaces the header rather than emptying the array.
+func (h *hookSet) commitFns() []OnCommitFunc {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.onCommit
+}
+
+// notify runs §6's `OnCommit` observers for one durable commit, at the tail
+// of the operation that made it — after the store's lock is released, which is
+// how DESIGN §7's "never inside a long-held storage transaction" lands in an
+// in-memory store: the transaction is a few array swaps, and the rule is about
+// not calling host code while holding it, so an observer may re-enter the case
+// (read it, even write a fresh batch against the new revision) without meeting
+// a lock the engine still holds.
+//
+// The order is the contract's, and it is not the design's: `Commit` carries
+// the store's own `at`, and observers registered earlier are called earlier,
+// because a host that put its audit before its fan-out meant that. An
+// unwired host pays one nil-slice read here and nothing else — no fold, no
+// render, no snapshot — which is what keeps §1's minimal-dependency promise
+// true of a feature a deployment does not use.
+//
+// The record and the snapshot are cut from the same fold: the roles are the
+// committing actor's, re-derived from the state *this* commit installed — a
+// submit that assigns a role has granted it by the time the observer is told —
+// and the visibility array is the one `commitView` renders through, so an
+// entry the record does not name is a path the context answers as absent. That
+// is §7's property 7 with a notification as its subject: the observer is host
+// code, and it sees what its caller saw, no more.
+func (c Case) notify(ctx context.Context, img *image, rec storedCase,
+	got committed) {
+	fns := c.w.hooks.commitFns()
+	if len(fns) == 0 {
+		return
+	}
+	roles := img.rolesHeld(c.actor, got.post.s)
+	vis := viewable(img, roles, got.post.stage)
+	com, _ := commitView(img, got.rec, roles, got.post.stage, vis)
+	at := c.pinnedPost(img, rec, got, roles, vis)
+	for _, fn := range fns {
+		fn(ctx, at, com)
+	}
 }
 
 // bindingName renders what a definition declared a hook against — a custom

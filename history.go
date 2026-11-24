@@ -266,26 +266,40 @@ func (c Case) History(ctx context.Context, cursor uint64,
 
 	page := rec.window(cursor, limit)
 	for _, com := range page {
-		commit := Commit{
-			Revision: com.revision,
-			At:       com.at,
-			By:       com.by,
-			Op:       com.op.name(),
-			Stage:    img.stageName(com.stage),
-		}
-		for _, ch := range com.changes {
-			if !disclosed(img, roles, stage, vis, ch) {
-				res.Withheld++
-				continue
-			}
-			commit.Changes = append(commit.Changes, entryOf(img, com, ch))
-		}
+		commit, hid := commitView(img, com, roles, stage, vis)
+		res.Withheld += hid
 		res.Commits = append(res.Commits, commit)
 	}
 	if last := len(page) - 1; last >= 0 && page[last].revision < rec.revision {
 		res.Next = page[last].revision + 1
 	}
 	return res, nil
+}
+
+// commitView renders one stored entry as §5.11's exported `Commit` under a
+// reader's mask, and counts the entries it withheld. `History` pages it per
+// trail, and hooks.go's `notify` runs it once per commit: the same function for
+// both, so a notification and a later read of the same entry cannot drift
+// about what one commit said — the pair is §5.11's whole argument for making
+// the renderer an export-shaped function rather than a loop body.
+func commitView(img *image, com commitRecord, roles []roleID,
+	stage stageID, vis []bool) (Commit, int) {
+	out := Commit{
+		Revision: com.revision,
+		At:       com.at,
+		By:       com.by,
+		Op:       com.op.name(),
+		Stage:    img.stageName(com.stage),
+	}
+	withheld := 0
+	for _, ch := range com.changes {
+		if !disclosed(img, roles, stage, vis, ch) {
+			withheld++
+			continue
+		}
+		out.Changes = append(out.Changes, entryOf(img, com, ch))
+	}
+	return out, withheld
 }
 
 // disclosed answers the one question this read cannot borrow an answer to from a

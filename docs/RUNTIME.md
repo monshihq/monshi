@@ -1021,8 +1021,11 @@ before it starts — the row §8 lists is unchanged by this conjunct, and
 Appendix A's trace asserts the emptiness instead of assuming it. Its
 second variant adds one word of the same definition to make the same step
 refuse, which is the claim that the scan is a rule and not a rendering.
-`OnCommit`, step 7 of that trace, still waits for the reason it waits
-everywhere else (§6, DESIGN §10's milestone 6).
+Step 7 of that trace, `OnCommit`, no longer waits: this operation's tail
+dispatches it like the other three (§6), handing the record the trail
+renders, and `TestVerdictAndTransitionRecords` reads a transition's back —
+no entries and the new stage, which is §5.1 saying a stage move is recorded
+as an act and not as content.
 
 ### 5.6 Commit effects precomputed
 
@@ -1460,7 +1463,11 @@ a merge asks no hook (§6): it moves committed values into a draft that has
 never been normalized or checked by host code, and the two calls that would
 notice — §5.4's completeness at submit, §5.7's masked report at view — are
 the caller's next request. `OnCommit` notification, which §6.5 says a host
-may use to tell a user the case moved, waits for milestone 6's observers.
+may use to tell a user the case moved, is silent here — and no longer for
+the reason this line used to give: the observers exist (§6), and this
+operation commits nothing, so a dispatch bound to the commit and not the
+call has nothing to say. The merge is news the host reads off the result;
+the case's next commit is what tells the trail.
 Of §5.6's two effects the merge turned out to owe nothing at all, and not
 because either arrived late: a decision and an attestation each belong to
 the case and never to a draft, so neither table is carried across a sync
@@ -1595,12 +1602,15 @@ unit, which §5.7's rule about absence states as a zero value rather than a
 flag.
 
 What `Review` does not pay, on the record: no `Affected` set, for the reason
-§9 gives and in the company of `Submit`'s missing one; and no `OnCommit`
-notification, which waits for milestone 6's observers. What it does pay is the
-history entry, and §5.11 reads it back in this section's own shape: the same
-`ReviewInfo`, at the record's revision, with the hand the record's envelope
-names. It is written now because a history that cannot say who decided what is
-one the milestone that asks would have to rewrite, and because a reset writes
+§9 gives and in the company of `Submit`'s missing one. What it pays is the
+history entry and a notification (§6): the dispatch runs at this commit's
+tail and hands the verdict entry the trail will render, the same
+`ReviewInfo` either way, which is what `TestVerdictAndTransitionRecords`
+asks of both shapes at once. And §5.11 reads the entry back in this
+section's own form: the same `ReviewInfo`, at the record's revision, with
+the hand the record's envelope names. It is written now because a history
+that cannot say who decided what is one the milestone that asks would have
+to rewrite, and because a reset writes
 no entry beside it — the trail holds both acts, so the state is free to keep
 only the standing one (§4.2). Its §5.10 counterpart, the `chgSign` entry, is
 written for the same reason and read the same way.
@@ -1764,10 +1774,12 @@ again on the read side, and an erased attestation leaves the field
 signable because nothing about the definition changed.
 
 What `Sign` does not pay, on the record: no `Affected` set, in the company
-of `Submit`'s and `Review`'s missing ones for §9's reason; no `OnCommit`,
-which waits for milestone 6's observers; and no verifier interface, which
-DESIGN §9 keeps as a deployment's. What it does pay is the entry, and §5.11
-reads it back for the reason §5.9 gives: "whose hand stood at revision 12, and
+of `Submit`'s and `Review`'s missing ones for §9's reason, and no verifier
+interface, which DESIGN §9 keeps as a deployment's. What it pays is §5.9's
+pair — the entry and the notification — and the record carries the
+attestation with the hand and the number its own commit produced, which is
+what `TestVerdictAndTransitionRecords` reads from it. §5.11 reads the entry
+back for the reason §5.9 gives: "whose hand stood at revision 12, and
 against what artifact" has no other answer once a second signer or a content
 commit has moved the state. Appendix A's step 8 asks that of the conformance
 corpus, where a later submit erases the attestation and the trail is the only
@@ -1807,6 +1819,10 @@ definition, plus one render per entry it answers with. A page of twenty records
 from a thousand-commit case costs 2.3 µs and the whole trail 87 µs: 50× the work
 for 50× the entries, at 87 ns a record however far back the cursor starts, and
 nothing in the read searches, copies or rebuilds the past. §8 has the rows.
+The paragraph's one caller has since become two: §6's observer record renders
+the same entries through the same fold, one function with two callers and no
+room to answer them differently, which is what makes §6's identity claim a
+property of the code rather than a hope that two renderers keep agreeing.
 
 **Paging is forward and total.** `c` is the first revision to read and `L` how
 many to answer with, and each has one word for "no preference": `c` of 0 is the
@@ -2067,7 +2083,43 @@ definition content, and hooks sit outside it, bound by the read-only
   invalidate a durable commit (DESIGN §7 and DESIGN §9). Hooks never
   rerun during replay of old commits (DESIGN §5.2) and are not called
   inside long-held storage transactions (DESIGN §7 and DESIGN §8). It
-  reads the image, never modifies it.
+  reads the image, never modifies it. The shipped shape says where each
+  of those words lives. `Runtime.RegisterOnCommit` appends to a list
+  called in registration order, and `Runtime.ClearOnCommit` empties it —
+  a list and not a key, because no declaration names an observer (§6's
+  closing rule survives: the image still records only the bindings
+  `Validate` and `Options` produce, and a host dispatches on
+  `at.Definition()` when it cares which definition moved). The signature
+  returns nothing, which is the design's tri-state question answered by
+  subtraction: the only fact the engine could act on is the commit's
+  outcome, and DESIGN forbids an observer from changing it, so a void
+  function states "never vetoes" in the type the way `CaseContext`'s
+  missing methods state invariant 9. The dispatch runs at the tail of
+  the operation that committed — submit, review, sign, transition —
+  after the store's lock is released, which is why an observer may
+  re-enter the case, read the trail of the commit announcing it, and
+  even start a fresh batch; an observer that panics unwinds to the
+  caller with the commit already durable, and nothing recovers it,
+  because deciding what a broken host function means is the policy this
+  seam refuses to own. What a non-committing success does not announce
+  is stated once and tested: a `Submit` whose form already held the
+  content commits nothing (§6.3), and it notifies nobody.
+- **The record an observer is told and the trail it later reads are one
+  rendering.** `commitView` is §5.11's renderer with two callers: the
+  page `History` answers with, and the single `Commit` handed to the
+  observers, both masked at the committing actor's roles folded from
+  the state *this* commit installed — installed, not prepared, because
+  §5.6's erasures run inside the store and the caller's snapshot cannot
+  see past them. The fold widening with the commit is not a courtesy: a
+  submit that assigns a role has conferred it by dispatch time, and a
+  notification narrower than the actor's own next read would hide a
+  fact the same actor can now ask for. A notification *wider* than the
+  caller's mask is the hole §7's property 7 exists to close, so an entry
+  the record does not name is a path the context answers as absent, and
+  a host that must tell other actors re-reads the case as each of them
+  — which is the same per-actor discipline §5.3 leaves to "whoever
+  decides whom to notify", and the reason the observer list is the
+  host's to fan out from rather than the engine's to fan out over.
 
 What the image records is a *binding*, never host code: `image.hooks` is
 indexed by `hookID` and each entry is one `hookKey` of the two kinds
@@ -2174,7 +2226,13 @@ produced, one per distinct binding.
    reason is the same fold: the copy it destroys belongs to the actor asking
    (invariant 4), and the only numbers its refusals name are that copy's own
    working revision and the one the caller held — no case fact, no other
-   actor's draft.
+   actor's draft. A notification is this rule's third subject (§6): the
+   record an observer is handed is rendered by the same function the trail
+   pages through, at the roles the installed state confers, and the same
+   fold gates the observer's own reads — so what a commit announces to a
+   host and what it shows to an actor are one permission asked twice, and
+   `TestObserverReadsAtItsCallersMask` is the pair that says it cannot be
+   asked twice with different answers.
 
 ---
 
@@ -2231,6 +2289,8 @@ an `Update` on it impossible.
 | `BenchmarkHookSeam/view/bound` | a view re-asked | 10.52 µs, 260 allocs |
 | `BenchmarkCaseContextReads/value_fold` | one masked read | 54.6 ns, 0 allocs |
 | `BenchmarkCaseContextReads/value_range` | by scan | 57.2 ns, 0 allocs |
+| `BenchmarkCommitNotify/none` | a commit, no observers | 3.80 µs, 32 allocs |
+| `BenchmarkCommitNotify/one` | the same, one no-op | 4.45 µs, 36 allocs |
 
 The eight rows above §5.11's are §5.9's and §5.10's, and the five that go
 through an operation were measured in one process, twice each, with
@@ -2621,6 +2681,21 @@ object in eighteen, two in forty-two, and no byte of the whole-case read: what a
 bound batch pays the seam is the two percent of wall time it adds, and that is
 the registry's lookups and the snapshot's construction rather than this header.
 
+`BenchmarkCommitNotify` prices §6's dispatch on the operation that pays it
+most, a submit, whose commit also runs §5.6's effects and whose record is the
+widest one; each iteration is one edit and one commit, so what separates the
+rows is only whether an observer was registered. Silence costs a median of
+3,877 ns over five repeats in one process, 32 allocations; the first no-op
+observer costs 656 ns more and exactly four objects, and they have names —
+the role list the fold reads, the `viewable` array record and context
+consult together, the entry slice the record carries, the pinned snapshot
+handed beside it. A third observer adds 43 ns and no object, because every
+one of those is allocated per dispatch and not per listener; a host with
+real work in its callback pays its own cost, which is the engine's share
+and not the feature's price. What an unwired host pays is none of it: the
+tail reads a nil list and returns, one lookup for a seam with no bindings,
+the same shape §8 priced for the other two.
+
 Nor is any "× faster than the compiled tree" ratio measured: that would
 mean an interpreted-tree harness, and building one to prove a point the
 absolute numbers already make is a cost of its own. The multiples this
@@ -2679,10 +2754,13 @@ a re-run shows.
 - **One `Affected` policy is a milestone 5–6 decision.** DESIGN §6.4
   promises an affected set for every committing operation; `Submit`,
   `Review` and `Sign` ship without one and `Transition` with the §5.5
-  definition walk, because notification is the only consumer of such a
-  list and it is `OnCommit`'s shape that decides what the lists must
-  contain. The four are decided together, not one operation at a time —
-  and the two acts ask the question that makes deferral the honest answer
+  definition walk. The observer seam has since landed (§6), and it settled
+  the half of this question it could settle: a notification is a commit's
+  own diff rendered at the caller's mask, so it needs nothing any result
+  carries. What remains is therefore a results question and not a hooks
+  one — whether the four operations grow the §5.3 walk at all — and the
+  four are decided together, not one operation at a time. The two verdict
+  acts keep asking the question that makes deferral the honest answer
   rather than a gap: a decision and an attestation each change no
   content, so an affected set for either could only name a subtree to say
   that a verdict landed, which is a notification payload and not a §5.3
@@ -2770,8 +2848,12 @@ DESIGN §10's milestone 6 has landed in part, and early: `Rebase` and
 `Discard` are here (§5.8) — the third version read out of the store's own
 history rather than replayed, a merge that takes an unchanged side and
 refuses to choose between two moved ones, nothing saved when it cannot, and
-a refusal that counts the clashes it may not address. Its other half, the
-observers, waits for `OnCommit`. And §6's hook contract is exported now,
+a refusal that counts the clashes it may not address. Its other half landed
+from the front: §6's `OnCommit` is a runtime seam now, a commit's record
+dispatched at the tail of each of the four operations that make one, and
+what remains of notification was never the engine's to ship — delivery is
+the host's, which is why the seam hands a value and no queue (DESIGN §7).
+And §6's hook contract is exported now,
 which is what closes milestone 2's validation item and milestone 3's hook
 item in one piece: `RegisterValidate` keyed by
 a custom type's name, `RegisterOptions` keyed by a field path, and the
@@ -2989,6 +3071,15 @@ type ValidateFunc func(ctx context.Context, at CaseContext, path string,
 type OptionsFunc func(ctx context.Context, at CaseContext,
     path string) ([]string, error)
 
+// The observer seam (§6), shaped apart from the keyed pair on purpose: no
+// declaration names an observer, so the image still records bindings only
+// for the other two. A list appended in registration order, cleared whole,
+// and a signature that returns nothing — the type states that an observer
+// never vetoes the commit it was told about.
+func (r *Runtime) RegisterOnCommit(fn OnCommitFunc)
+func (r *Runtime) ClearOnCommit()
+type OnCommitFunc func(ctx context.Context, at CaseContext, com Commit)
+
 // What a hook is told about the case it was called for, and nothing more:
 // no writes, no storage, no compiled definition — `Definition` is a name,
 // because handing out the image would hand out a way to walk it unmasked.
@@ -3040,9 +3131,11 @@ and it takes no working copy for the same reason and a `Missing` list for a
 different one: a review refuses a caller who was not asked to decide, while
 a signature refuses a form that is not ready, and readiness is a list of
 paths. `History` reads the trail those four wrote (§5.11), which is the last
-of §6's case-scoped reads this list was missing; what remains named there and
-not here is `OnCommit`, §6.5's way of telling a user the case moved, which
-waits with milestone 6's observers.
+of §6's case-scoped reads this list was missing; what was named there and
+not here was `OnCommit`, and it is here: the runtime that keys the other two
+seams also holds the observer list (§6), dispatching at the tail of each
+operation that commits — §6.5's way of telling a user the case moved, arriving
+as the record the trail already holds.
 
 `Submit` commits content, `Transition` commits a stage, `Review` commits a
 verdict about content, `Sign` commits a verdict about a *revision*, `View`
@@ -3120,8 +3213,15 @@ in this package reads or resolves one.
   exported seam — is `TestAppendixAHistoryTrace`, and it belongs in the gate
   for the reason the two conjuncts do: §5.11's read is where the entries the
   other steps wrote turn out to have been worth writing, so the corpus is
-  asked what it *recorded* as well as what it decided. Step 7's `OnCommit` is
-  what still waits for milestone 6.
+  asked what it *recorded* as well as what it decided. Step 7's
+  `OnCommit` waits for nothing now: `TestVerdictAndTransitionRecords` fires
+  the seam on all four committing verbs and reads each record against the
+  trail it just joined, and `TestOnlyCommitsNotifyAndEveryCommitDoes` holds
+  it to the negative half the gate needs — reads, drafts and an empty
+  submit announce nobody. The step is proved on §6's fixture rather than
+  this corpus, which is right for it: what step 7 fixes is where the
+  dispatch sits relative to the commit, and no fact of the §7 example
+  bears on that answer.
   §6.5's synchronization has no step in this trace, because the trace is one
   actor moving one case forward: it is tested as the two actors §6.5
   describes, against the exported surface, in `rebase_test.go` (§5.8).
@@ -3227,7 +3327,10 @@ Runtime steps for `Transition(reviewer-user → "draft" →
    be told to fix (§5.5's order); the trace keeps the spec's listing.
 7. `OnCommit` fires after the commit is durable with the actual
    `Commit` and post-commit frame (§6), never inside the transaction.
-   Milestone 6's, like the same step after a submit.
+   Both this step and the same one after a submit are the shipped tail
+   dispatch, and the notify tests assert durability from inside the call:
+   an observer that re-enters reads back the commit announcing it, and one
+   that panics leaves it standing.
 8. `History(cursor 0, limit 0)` reads the trail those steps left, and it is the
    step that turns the other seven into claims: the entries §5.6 says a commit
    records are rendered for a caller who was not the actor that made the call.
