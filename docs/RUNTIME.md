@@ -2261,7 +2261,9 @@ an Apple M4 (Go 1.27.4, darwin/arm64). `benchmark_test.go` is the harness
 for everything through §5.11 and `hook_benchmark_test.go` for §6's seam,
 whose rows were printed at the fixed `-benchtime=200000x` an isolated
 harness needs rather than the timed default, and are the median of five
-counts. Every pair compared below was measured in one process, so the
+counts. The seven wire rows at the table's foot are `codec_bench_test.go`,
+printed together at one fixed `-benchtime=50000x` and discussed under the
+table. Every pair compared below was measured in one process, so the
 pairs differ by the code and not by the clock. A number here without a
 benchmark in either file is a target, not a result. The
 reference corpus is the SYNTAX §7 example (20 slots) plus
@@ -2309,6 +2311,13 @@ an `Update` on it impossible.
 | `BenchmarkCaseContextReads/value_range` | by scan | 57.2 ns, 0 allocs |
 | `BenchmarkCommitNotify/none` | a commit, no observers | 4.19 µs, 36 allocs |
 | `BenchmarkCommitNotify/one` | the same, one no-op | 4.97 µs, 40 allocs |
+| `BenchmarkWireSnapshot/clone` | the store's own copy | 564 ns, 15 allocs |
+| `BenchmarkWireSnapshot/encode` | a snapshot to bytes | 445 ns, 7 allocs |
+| `BenchmarkWireSnapshot/decode` | bytes to a snapshot | 687 ns, 34 allocs |
+| `BenchmarkWireDraft/save` | a draft to bytes | 190 ns, 7 allocs |
+| `BenchmarkWireDraft/read` | bytes to a draft | 531 ns, 32 allocs |
+| `BenchmarkWireRecord/append` | an entry to bytes | 60 ns, 4 allocs |
+| `BenchmarkWireRecord/read` | bytes to an entry | 153 ns, 11 allocs |
 
 The eight rows above §5.11's are §5.9's and §5.10's, printed again after §9
 gave the committing results their list: five counts each at the fixed
@@ -2731,6 +2740,35 @@ object axis and on the byte axis both — 20 allocations and 4,869 bytes, 1
 and 5, 5 and 101, identical either side of the change — because an
 operation that records nothing walks nothing, which is §6.3's refusal rule
 finally arriving where its cost can be read off a table.
+
+The wire is priced against the copy the store already makes, because
+that is the same-process pair §8 requires of it: `state.clone` is what
+`Save` pays to turn a committed frame into a draft, and `decode` is what
+a durable backend will pay to produce the frame a clone is made from.
+On milestone 2's eleven-commit scripted case — the widest state that
+trail holds, not the wide corpus, since these rows scale with the cells
+that are *set* and not with the image's width — writing the snapshot
+costs 0.79× the clone and reading it back 1.22×, so the whole durable
+round-trip of a case is about two of the copies one `Save` already
+makes. The extra factor on the read side is the checking: every version
+byte, count, slot ordinal and class the decoder consumes was refused
+or accepted before the first allocation, which is what the 34 objects
+against a clone's 15 are buying. In bytes the sparse encoding is the
+louder fact: the snapshot is 75 bytes on the wire against the 2,392 a
+row copy moves, a thirty-second of the memory for the same case.
+
+Drafts and records follow the same shapes at their own sizes. A draft's
+read is 2.8× its save because a save walks set cells and a read rebuilds
+the made sets a live case is constructed with, and it is the per-`Save`
+bytes a durable store writes most often. The record pair is the cheapest
+work in the section — 60 ns out, 153 ns back, 44 bytes — which puts a
+full 1,000-entry trail near 44 KB and 150 µs to read it back in full:
+1.8× the 87 µs `BenchmarkHistory/whole` measures for rendering the same
+entries while reconstructing nothing, which is what a log replay costs
+beside the exported history read. What none of these
+rows include is a syscall; they are the floor a milestone-4 backend
+pays its I/O on top of, and they say DESIGN §8's opacity promise costs
+an engine-visible case microseconds and not milliseconds.
 
 Nor is any "× faster than the compiled tree" ratio measured: that would
 mean an interpreted-tree harness, and building one to prove a point the

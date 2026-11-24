@@ -108,7 +108,7 @@ type hist struct {
 }
 
 // histSetup lowers the fixture and creates the case the applicant owns.
-func histSetup(t *testing.T) *hist {
+func histSetup(t testing.TB) *hist {
 	t.Helper()
 	h := &hist{rt: NewRuntime()}
 	d := &Definition{img: mustLowerSource(t, histSrc)}
@@ -140,7 +140,7 @@ func histSetup(t *testing.T) *hist {
 // the `Update` whose token §6.2's guard presents to a commit. It answers with the
 // whole result, because a fixture that guessed an instance ID would be asserting
 // about a row the case may not hold.
-func (h *hist) save(t *testing.T, who Case, edits ...Edit) ChangeResult {
+func (h *hist) save(t testing.TB, who Case, edits ...Edit) ChangeResult {
 	t.Helper()
 	if _, err := who.Rebase(ctx()); err != nil {
 		t.Fatalf("Rebase: %v", err)
@@ -160,7 +160,7 @@ func (h *hist) save(t *testing.T, who Case, edits ...Edit) ChangeResult {
 // commit is a batch saved and then committed as one form, in the two steps §6.3's
 // diff requires. It checks that the revision the case reached is the one the
 // script expected, so that a claim about "revision 7" means the seventh commit.
-func (h *hist) commit(t *testing.T, who Case, form string,
+func (h *hist) commit(t testing.TB, who Case, form string,
 	edits ...Edit) ChangeResult {
 	t.Helper()
 	before := h.head(t)
@@ -175,20 +175,20 @@ func (h *hist) commit(t *testing.T, who Case, form string,
 }
 
 // head is what the case holds now, read from the store rather than remembered.
-func (h *hist) head(t *testing.T) uint64 {
+func (h *hist) head(t testing.TB) uint64 {
 	t.Helper()
 	return stored(t, h.rt, h.dana).revision
 }
 
 // snap is the snapshot the store kept, which is the half of every equivalence
 // claim below that the fold is not allowed to have written.
-func (h *hist) snap(t *testing.T) committedState {
+func (h *hist) snap(t testing.TB) committedState {
 	t.Helper()
 	return stored(t, h.rt, h.dana).commit
 }
 
 // trail is the store's own list of what happened, and the input the fold consumes.
-func (h *hist) trail(t *testing.T) []commitRecord {
+func (h *hist) trail(t testing.TB) []commitRecord {
 	t.Helper()
 	all, err := h.dana.w.cases.history(newRefuser(open_, h.dana.id))
 	if err != nil {
@@ -204,7 +204,7 @@ func (h *hist) trail(t *testing.T) []commitRecord {
 // that erased both verdicts and a whole subtree of rows. `want` is the snapshot the
 // store held at each revision, captured as the script ran, which is what makes the
 // comparison a check and not a restatement of the fold.
-func histTrail(t *testing.T) (*hist, []commitRecord, []committedState) {
+func histTrail(t testing.TB) (*hist, []commitRecord, []committedState) {
 	t.Helper()
 	h := histSetup(t)
 	want := []committedState{h.snap(t)}

@@ -101,7 +101,7 @@ func reviewCase(t *testing.T, actor Actor) (*Runtime, *image, Case) {
 
 // stored is the case as the store holds it, table and all: the one read that
 // shows what a commit wrote rather than what an operation returned.
-func stored(t *testing.T, rt *Runtime, c Case) storedCase {
+func stored(t testing.TB, rt *Runtime, c Case) storedCase {
 	t.Helper()
 	rec, err := rt.w.cases.load(newRefuser(open_, c.ID()))
 	if err != nil {
