@@ -973,21 +973,25 @@ func TestSaveWorkingMovesALineageOnlyInsideTheCase(t *testing.T) {
 	// why the refusal carries a defect code instead of a stale-copy sentence.
 	f := aMerge(t)
 	st := newCaseStore()
-	id := st.create(&Definition{img: f.img})
+	id, err := st.create(ctx(), newRefuser("create", 0),
+		&Definition{img: f.img})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
 	refuse := newRefuser("rebase", id)
 
-	w, err := st.working(refuse, "dana", f.img)
+	w, err := st.working(ctx(), refuse, "dana", f.img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
-	if at, err := st.saveWorking(refuse, "dana", w.rev,
+	if at, err := st.saveWorking(ctx(), refuse, "dana", w.rev,
 		workingState{s: w.s}, 0); err != nil || at != w.rev+1 {
 		t.Fatalf("saving with no lineage to move = {%d, %v}, want {%d, nil}",
 			at, err, w.rev+1)
 	}
 	// The case has not committed, so revision 0 is the only number its history
 	// can vouch for and the highest the guard takes.
-	if at, err := st.saveWorking(refuse, "dana", w.rev+1,
+	if at, err := st.saveWorking(ctx(), refuse, "dana", w.rev+1,
 		workingState{s: w.s}, 1); err == nil {
 		t.Errorf("saving onto revision 1 of a case at 0 = {%d, nil}, want"+
 			" the refusal: a lineage a caller could invent is one that skips"+
@@ -996,12 +1000,12 @@ func TestSaveWorkingMovesALineageOnlyInsideTheCase(t *testing.T) {
 		t.Errorf("saving past the case's revision = %v, want SCHEMA_MISMATCH",
 			err)
 	}
-	if _, err := st.saveWorking(refuse, "dana", w.rev+1,
+	if _, err := st.saveWorking(ctx(), refuse, "dana", w.rev+1,
 		workingState{s: w.s}, 99); !Failed(err, SchemaMismatch) {
 		t.Errorf("saving onto a revision that was never issued = %v, want"+
 			" SCHEMA_MISMATCH", err)
 	}
-	if _, err := st.saveWorking(refuse, "dana", w.rev+1,
+	if _, err := st.saveWorking(ctx(), refuse, "dana", w.rev+1,
 		workingState{s: w.s}, 0); err != nil {
 		t.Errorf("saving onto the case's own revision = %v, want success:"+
 			" 0 is what a caller passes to say it has no lineage to move,"+
@@ -1011,7 +1015,7 @@ func TestSaveWorkingMovesALineageOnlyInsideTheCase(t *testing.T) {
 	// A save over a copy nobody opened is a caller bug and not a state of the
 	// case. This one *is* reachable from a host: two sessions of one actor,
 	// the slower one saving after the other discarded.
-	if _, err := st.saveWorking(refuse, "nima", 0,
+	if _, err := st.saveWorking(ctx(), refuse, "nima", 0,
 		workingState{s: newState(f.img)}, 0); !Failed(err, InvalidOp) {
 		t.Errorf("saving over no copy = %v, want INVALID_OPERATION", err)
 	}
@@ -1021,25 +1025,25 @@ func TestSaveWorkingMovesALineageOnlyInsideTheCase(t *testing.T) {
 	// number is a caller that believes it holds edits the store never heard
 	// of. The actor who does hold a copy hears the guard instead, because
 	// invariant 4 makes both the draft and its refusal per-user.
-	if err := st.discard(refuse, "nima", 0); err != nil {
+	if err := st.discard(ctx(), refuse, "nima", 0); err != nil {
 		t.Errorf("discarding a copy that was never there = %v, want the"+
 			" success §6.5's next-access rule makes it", err)
 	}
-	if err := st.discard(refuse, "nima", 4); !Failed(err, InvalidOp) {
+	if err := st.discard(ctx(), refuse, "nima", 4); !Failed(err, InvalidOp) {
 		t.Errorf("discarding a number the store never issued = %v, want"+
 			" INVALID_OPERATION", err)
 	}
-	if err := st.discard(refuse, "dana", 1); !Failed(err, StaleRevision) {
+	if err := st.discard(ctx(), refuse, "dana", 1); !Failed(err, StaleRevision) {
 		t.Errorf("discarding a moved copy at an old number = %v, want"+
 			" STALE_REVISION", err)
 	}
 	// The newest number is the one that destroys the draft, and after it the
 	// store's answer is the missing-copy shape again: this is the pair the
 	// external file cannot tell apart without a second session.
-	if err := st.discard(refuse, "dana", w.rev+2); err != nil {
+	if err := st.discard(ctx(), refuse, "dana", w.rev+2); err != nil {
 		t.Fatalf("discarding at the copy's newest number: %v", err)
 	}
-	if err := st.discard(refuse, "dana", 0); err != nil {
+	if err := st.discard(ctx(), refuse, "dana", 0); err != nil {
 		t.Errorf("a second discard = %v, want the success that says there"+
 			" is nothing left to throw away", err)
 	}
@@ -1055,16 +1059,16 @@ func TestSaveWorkingMovesALineageOnlyInsideTheCase(t *testing.T) {
 	rec := st.cases[id]
 	rec.revision = 4
 	st.mu.Unlock()
-	bola, err := st.working(refuse, "bola", f.img)
+	bola, err := st.working(ctx(), refuse, "bola", f.img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
-	if _, err := st.saveWorking(refuse, "bola", bola.rev,
+	if _, err := st.saveWorking(ctx(), refuse, "bola", bola.rev,
 		workingState{s: bola.s}, 4); err != nil {
 		t.Fatalf("moving the lineage onto a revision the case reached: %v",
 			err)
 	}
-	if _, err := st.saveWorking(refuse, "bola", bola.rev+1,
+	if _, err := st.saveWorking(ctx(), refuse, "bola", bola.rev+1,
 		workingState{s: bola.s}, 2); !Failed(err, SchemaMismatch) {
 		t.Errorf("rewinding the lineage to revision 2 = %v, want"+
 			" SCHEMA_MISMATCH: a base that moves backwards is a skipped"+
@@ -1072,7 +1076,7 @@ func TestSaveWorkingMovesALineageOnlyInsideTheCase(t *testing.T) {
 	}
 	// And onto the very revision the copy already descends from: equal is
 	// not rewound, and the upper half of the bound still holds at the edge.
-	if _, err := st.saveWorking(refuse, "bola", bola.rev+1,
+	if _, err := st.saveWorking(ctx(), refuse, "bola", bola.rev+1,
 		workingState{s: bola.s}, 4); err != nil {
 		t.Errorf("moving onto the same revision = %v, want the save that"+
 			" keeps the lineage exactly where it is", err)

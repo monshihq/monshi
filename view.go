@@ -312,7 +312,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 	// One draft, read under one lock, for every node of the answer. This is
 	// the snapshot §6.1 promises, and `viewed` is the half of it that keeps a
 	// read from being a write.
-	draft, working, err := c.w.cases.viewed(refuse, c.actor.User, img)
+	draft, working, err := c.w.cases.viewed(ctx, refuse, c.actor.User, img)
 	if err != nil {
 		return ViewResult{}, err
 	}

@@ -6,21 +6,20 @@ package monshi
 //
 // Milestone 2's implementation is in-memory and process-lifetime, which is
 // what DESIGN §10 asks of this milestone ("in-memory state"). The *shape*
-// is milestone 4's: `create`, `load`, `working` and the revision-guarded
-// commit are the methods a persistent backend implements, and the guards
-// they enforce are what §6.4's stale-revision refusals and invariant 5
-// depend on. What milestone 4 changes is durability: `commit`'s three writes
-// become one transaction against a store that can fail halfway, and a
-// `context.Context` joins the signature so a stalled write can be cancelled
-// (DESIGN §8). The transaction is that one method's implementation, not a
-// second place the guards live.
+// has always been milestone 4's, and milestone 4 landed it: DESIGN §8's
+// exported `Storage` is storage.go, the nine methods below are the engine's
+// view of the same seam (`caseBackend`), and `NewRuntimeWithStorage` runs
+// the operations over a host's implementation. `commit`'s three writes are
+// one transaction in both: the exported contract's `Commit` method is the
+// same atomic revision-checked step, so the guards live in exactly one
+// place per implementation and never in two.
 //
-// A context reaches these methods with milestone 4 too. The seam DESIGN §8
-// defines takes one and the exported operations already carry the caller's,
-// so the plumbing there is one parameter per method; an in-memory store has
-// nothing to cancel, and threading a context through six methods that do no
-// I/O would only invite the question of which of them was supposed to
-// honour it.
+// A context reaches these methods because the exported ones must carry it
+// (DESIGN §8: "a context.Context as its first parameter"): a host's store
+// does I/O the caller may cancel, and a seam whose external half takes a
+// context and whose internal half does not is a seam with a hole. The
+// in-memory store has nothing to cancel and discards the value; passing it
+// anyway is what lets the adapter be a translation rather than a fork.
 //
 // One discipline makes reads safe without locking a caller out of a writer:
 // the store never mutates data it has handed out. A commit builds the next
@@ -30,10 +29,52 @@ package monshi
 // than the past, and it is why a `state` copy is a safe thing to hand out.
 
 import (
+	"context"
 	"slices"
 	"sync"
 	"time"
 )
+
+// caseBackend is the store seam as the engine asks it: the operations'
+// nine calls, with the caller's context and the call's `refuser` on every
+// one. `storage.go`'s adapter maps it onto the exported contract, and the
+// in-memory `caseStore` below is its other implementation — which is the
+// same object the default runtime has always run on, so §8's benchmark
+// rows still measure the engine and not an encoding of it.
+//
+// Errors leaving a caseBackend are errors leaving an operation: every
+// refusal in a host's `CaseError` shape must arrive already named for the
+// calling verb, which is what the `refuser` parameter buys, and what makes
+// a refusal from a foreign store and one from this package's own
+// indistinguishable to the caller.
+type caseBackend interface {
+	create(ctx context.Context, refuse refuser, d *Definition) (CaseID, error)
+	load(ctx context.Context, refuse refuser) (storedCase, error)
+	working(ctx context.Context, refuse refuser, user UserID,
+		img *image) (workingState, error)
+	draft(ctx context.Context, refuse refuser, user UserID,
+		img *image) (workingState, bool, error)
+	viewed(ctx context.Context, refuse refuser, user UserID,
+		img *image) (state, uint64, error)
+	saveWorking(ctx context.Context, refuse refuser, user UserID,
+		expected uint64, next workingState, onto uint64) (uint64, error)
+	discard(ctx context.Context, refuse refuser, user UserID,
+		expected uint64) error
+	commit(ctx context.Context, refuse refuser, img *image, want uint64,
+		next committedState, by committedBy) (committed, error)
+	history(ctx context.Context, refuse refuser, cursor uint64,
+		limit int) ([]commitRecord, error)
+}
+
+// initialState is the case a `Create` stores: defaults materialized into
+// an empty frame at the definition's initial stage (DESIGN §5, RUNTIME
+// §5.1), with no history. Both store paths build it here, because "what an
+// empty case holds" is one rule and not a per-backend convention.
+func initialState(img *image) committedState {
+	st := newState(img)
+	st.applyDefaults()
+	return committedState{s: st, stage: img.initial}
+}
 
 // registry is the definition registry (DESIGN §3). Its contents change only
 // through an explicit act on Runtime, so the value a handle carries — a
@@ -321,24 +362,25 @@ func (w *workingState) clone() workingState {
 // stage, with its declared defaults materialized — creating a case stores
 // an empty case, not an undefaults one (DESIGN §5, RUNTIME §5.1) — and with
 // no history. IDs are issued here and never derived from content (§3.1).
-func (s *caseStore) create(d *Definition) CaseID {
+func (s *caseStore) create(_ context.Context, _ refuser,
+	d *Definition) (CaseID, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st := newState(d.img)
-	st.applyDefaults()
 	s.next++
 	s.cases[s.next] = &storedCase{
 		def:    d.ID(),
-		commit: committedState{s: st, stage: d.img.initial},
+		commit: initialState(d.img),
 		work:   map[UserID]*workingState{},
 	}
-	return s.next
+	return s.next, nil
 }
 
 // load returns a copy of one case's record. An unknown ID is NOT_FOUND:
 // the zero record is never an acceptable answer, because revision 0 at the
 // initial stage is a real state a case can be in.
-func (s *caseStore) load(refuse refuser) (storedCase, error) {
+func (s *caseStore) load(_ context.Context, refuse refuser) (
+	storedCase, error,
+) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	rec, err := s.check(refuse)
@@ -366,7 +408,7 @@ func (s *caseStore) load(refuse refuser) (storedCase, error) {
 // state rather than a committed one, and it is a field of a copy: nothing
 // here writes the record, which is the part of invariant 8 that matters to
 // a case nobody has re-read yet.
-func (s *caseStore) working(refuse refuser, user UserID,
+func (s *caseStore) working(_ context.Context, refuse refuser, user UserID,
 	img *image) (workingState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -414,9 +456,10 @@ func (s *caseStore) working(refuse refuser, user UserID,
 // The state is cloned anyway. That is the store's clone-on-the-way-out rule
 // applied without exception, and the exception is the dangerous half: a walk
 // that "only reads" today is one memoization away from writing through a window
-// into stored data. Milestone 4 replaces this with the read transaction DESIGN
-// §8 describes, which hands back a snapshot that cannot be written at all.
-func (s *caseStore) draft(refuse refuser, user UserID,
+// into stored data. On the exported path (DESIGN §8, storage.go) the same
+// promise costs no clone and no alias at all: every read decodes fresh bytes,
+// so the snapshot is by construction the reader's own.
+func (s *caseStore) draft(_ context.Context, refuse refuser, user UserID,
 	img *image) (workingState, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -437,9 +480,9 @@ func (s *caseStore) draft(refuse refuser, user UserID,
 // viewed is `draft` asked by an operation that renders values and never needs
 // to know what they descend from. It exists because §5.7's walk wants exactly
 // two things, and a caller handed the third would be tempted to use it.
-func (s *caseStore) viewed(refuse refuser, user UserID,
+func (s *caseStore) viewed(ctx context.Context, refuse refuser, user UserID,
 	img *image) (state, uint64, error) {
-	w, _, err := s.draft(refuse, user, img)
+	w, _, err := s.draft(ctx, refuse, user, img)
 	return w.s, w.rev, err
 }
 
@@ -464,8 +507,9 @@ func (s *caseStore) viewed(refuse refuser, user UserID,
 // value is checked against the case rather than trusted, because a lineage a
 // caller could set anywhere would be a lineage that skips a commit and lies
 // about what the draft descends from.
-func (s *caseStore) saveWorking(refuse refuser, user UserID, expected uint64,
-	next workingState, onto uint64) (uint64, error) {
+func (s *caseStore) saveWorking(_ context.Context, refuse refuser,
+	user UserID, expected uint64, next workingState,
+	onto uint64) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, err := s.check(refuse)
@@ -517,7 +561,7 @@ func (s *caseStore) saveWorking(refuse refuser, user UserID, expected uint64,
 // only expected number a missing copy answers, and a copy the store has never
 // heard of is refused as the caller bug it is rather than confirmed as a
 // discard.
-func (s *caseStore) discard(refuse refuser, user UserID,
+func (s *caseStore) discard(_ context.Context, refuse refuser, user UserID,
 	expected uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -731,8 +775,9 @@ type committed struct {
 // guard §6.5 exists to make refuse. Lineage is a fact about history, and a
 // commit may only extend a copy's lineage when it was made against the state
 // that copy stands on.
-func (s *caseStore) commit(refuse refuser, img *image, want uint64,
-	next committedState, by committedBy) (committed, error) {
+func (s *caseStore) commit(_ context.Context, refuse refuser, img *image,
+	want uint64, next committedState,
+	by committedBy) (committed, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, err := s.check(refuse)
@@ -799,8 +844,9 @@ func (s *caseStore) commit(refuse refuser, img *image, want uint64,
 // copied struct is: an operation reads entries and renders values of its own,
 // and the store's rule is replace-never-mutate rather than never-alias.
 // `History` is that rule's exported case — every entry it answers with is a
-// `Commit` this package built — and `history` is the in-package form that
-// copies, for a caller that keeps the list it was given.
+// `Commit` this package built — and the seam's `history` is its paging
+// form: both read, neither writes, and no caller of either is handed a
+// copy to keep the store safe from.
 func (rec *storedCase) window(from uint64, limit int) []commitRecord {
 	if from < 1 {
 		// Revision 0 has no entry, so a caller who asks to start there means
@@ -819,25 +865,22 @@ func (rec *storedCase) window(from uint64, limit int) []commitRecord {
 	return out
 }
 
-// history is a case's whole trail, copied. It is the read the derivation wants
-// — replay folds from the beginning whether or not a caller asked for a page —
-// and the one the tests assert against. The exported read does not use it: a
-// host that asked for twenty commits should not pay for a hundred and twenty,
-// which is `window`'s job and RUNTIME §5.11's cost claim.
-func (s *caseStore) history(refuse refuser) ([]commitRecord, error) {
+// history is the page a reader asked for: `window`'s slice of the stored
+// array, which the operation renders and `Rebase` splits without either
+// one copying — the trail's entries are immutable (invariant 3) and a later
+// commit appends without touching what was handed out, so aliasing is safe
+// for the same reason `load` handing out a copied struct is. A cursor of 0
+// or 1 and a limit of 0 is the whole trail, which is what the derivation
+// and the tests assert against.
+func (s *caseStore) history(_ context.Context, refuse refuser,
+	cursor uint64, limit int) ([]commitRecord, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	rec, err := s.check(refuse)
 	if err != nil {
 		return nil, err
 	}
-	all := rec.window(1, 0)
-	if len(all) == 0 {
-		return nil, nil
-	}
-	out := make([]commitRecord, len(all))
-	copy(out, all)
-	return out, nil
+	return rec.window(cursor, limit), nil
 }
 
 // at finds a case, and `check` is the same lookup as an error. Both assume

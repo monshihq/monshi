@@ -215,13 +215,17 @@ func TestDraftValueDoesNotReachUntilCommitted(t *testing.T) {
 func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 	img := lowerExample(t)
 	st := newCaseStore()
-	id := st.create(&Definition{img: img})
+	id, err := st.create(ctx(), newRefuser(open_, 0),
+		&Definition{img: img})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
 	note := held(t, img, "application.note")
 
 	// First access creates the copy from the committed state, at the case's
 	// current revision (DESIGN §5: a working state is created when the user
 	// opens the case).
-	first, err := st.working(newRefuser(open_, id), "dana", img)
+	first, err := st.working(ctx(), newRefuser(open_, id), "dana", img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
@@ -238,7 +242,7 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 		t.Fatal("application.note has no cell")
 	}
 	c.set(slotValue{set: true, s: "drafted by session one"})
-	unsaved, err := st.working(newRefuser(open_, id), "dana", img)
+	unsaved, err := st.working(ctx(), newRefuser(open_, id), "dana", img)
 	if err != nil {
 		t.Fatalf("working for a second session: %v", err)
 	}
@@ -248,11 +252,11 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 
 	// Saving under the guard publishes it, and every later session of that
 	// actor gets the same copy: invariant 4 expressed as one stored value.
-	_, err = st.saveWorking(newRefuser(update, id), "dana", 0, first, 0)
+	_, err = st.saveWorking(ctx(), newRefuser(update, id), "dana", 0, first, 0)
 	if err != nil {
 		t.Fatalf("saveWorking: %v", err)
 	}
-	second, err := st.working(newRefuser(open_, id), "dana", img)
+	second, err := st.working(ctx(), newRefuser(open_, id), "dana", img)
 	if err != nil {
 		t.Fatalf("working after a save: %v", err)
 	}
@@ -265,7 +269,7 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 	}
 
 	// A different actor gets their own copy, which does not carry it.
-	other, err := st.working(newRefuser(open_, id), "elliot", img)
+	other, err := st.working(ctx(), newRefuser(open_, id), "elliot", img)
 	if err != nil {
 		t.Fatalf("working for another actor: %v", err)
 	}
@@ -276,7 +280,7 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 	// Writing to the value a caller holds after saving it cannot reach the
 	// store: what was stored is a copy of what was saved.
 	cell.set(slotValue{set: true, s: "edited after the save"})
-	again, err := st.working(newRefuser(open_, id), "dana", img)
+	again, err := st.working(ctx(), newRefuser(open_, id), "dana", img)
 	if err != nil {
 		t.Fatalf("working after a post-save edit: %v", err)
 	}
@@ -288,16 +292,20 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	img := lowerExample(t)
 	st := newCaseStore()
-	id := st.create(&Definition{img: img})
+	id, err := st.create(ctx(), newRefuser(open_, 0),
+		&Definition{img: img})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
 
-	w, err := st.working(newRefuser(open_, id), "dana", img)
+	w, err := st.working(ctx(), newRefuser(open_, id), "dana", img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
 	// A second actor is reading the same case, so the commit below has
 	// somebody to be stale for. Opening is what records the base revision a
 	// copy descends from, and nothing else here touches this one.
-	if _, err := st.working(newRefuser(open_, id), "nina", img); err != nil {
+	if _, err := st.working(ctx(), newRefuser(open_, id), "nina", img); err != nil {
 		t.Fatalf("working: %v", err)
 	}
 	// The copy arrives at revision 0 and the store is what moves it: a save
@@ -306,21 +314,21 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	// drawn about a working revision rather than a case ID).
 	w.rev = 41
 	w.base = 41
-	rev, err := st.saveWorking(newRefuser(update, id), "dana", 0, w, 0)
+	rev, err := st.saveWorking(ctx(), newRefuser(update, id), "dana", 0, w, 0)
 	if err != nil {
 		t.Fatalf("first guarded save: %v", err)
 	}
 	if rev != 1 {
 		t.Errorf("save reported working revision %d, want 1", rev)
 	}
-	if back, err := st.working(newRefuser(open_, id), "dana", img); err != nil ||
-		back.rev != 1 || back.base != 0 {
+	back, err := st.working(ctx(), newRefuser(open_, id), "dana", img)
+	if err != nil || back.rev != 1 || back.base != 0 {
 		t.Errorf("stored copy is rev %d base %d, want 1 and 0 (said %v)",
 			back.rev, back.base, err)
 	}
 	// Presenting the revision the copy was read at, after it moved, is what
 	// §6.2 refuses rather than resolving.
-	_, err = st.saveWorking(newRefuser(update, id), "dana", 0, w, 0)
+	_, err = st.saveWorking(ctx(), newRefuser(update, id), "dana", 0, w, 0)
 	if !Failed(err, StaleRevision) {
 		t.Fatalf("stale working save = %v, want STALE_REVISION", err)
 	}
@@ -337,7 +345,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	}
 
 	// Writing to a copy nobody opened is a caller bug.
-	if _, err := st.saveWorking(newRefuser(update, id), "nobody", 0, w,
+	if _, err := st.saveWorking(ctx(), newRefuser(update, id), "nobody", 0, w,
 		0); !Failed(err,
 		InvalidOp) {
 		t.Errorf("save to an unopened copy = %v, want INVALID_OPERATION", err)
@@ -346,7 +354,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	// The committed snapshot moves under the same kind of guard, and a
 	// successful commit is the one thing that advances the revision
 	// (invariant 2: a new case is at 0, so the first commit is revision 1).
-	rec, err := st.load(newRefuser(open_, id))
+	rec, err := st.load(ctx(), newRefuser(open_, id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -356,7 +364,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	by := committedBy{by: "dana", op: opSubmit, changes: []commitChange{
 		{kind: chgValue, slot: 1, v: slotValue{set: true, s: "x"}},
 	}}
-	_, err = st.commit(newRefuser(submit, id), img, 7, rec.commit, by)
+	_, err = st.commit(ctx(), newRefuser(submit, id), img, 7, rec.commit, by)
 	if !Failed(err, StaleRevision) {
 		t.Errorf("commit over revision 0 as revision 7 = %v, want STALE_REVISION", err)
 	} else if errors.As(err, &ce) && ce.Op != submit {
@@ -365,11 +373,12 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	// A refused commit appended nothing: the history's length is what a
 	// revision *is*, so an entry written by an operation that did not happen
 	// would be a case counting a commit it never made.
-	if h, err := st.history(newRefuser(open_, id)); err != nil || len(h) != 0 {
+	h, err := st.history(ctx(), newRefuser(open_, id), 1, 0)
+	if err != nil || len(h) != 0 {
 		t.Errorf("history after a refused commit = %d entries (%v), want 0",
 			len(h), err)
 	}
-	next, err := st.commit(newRefuser(submit, id), img, 0, rec.commit, by)
+	next, err := st.commit(ctx(), newRefuser(submit, id), img, 0, rec.commit, by)
 	if err != nil {
 		t.Fatalf("guarded commit: %v", err)
 	}
@@ -381,7 +390,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	// swap: the entry that says what landed, and the submitter's copy rebased
 	// onto it. The entry carries the caller's own diff and identity — the
 	// store numbers it, it does not invent it.
-	h, err := st.history(newRefuser(open_, id))
+	h, err = st.history(ctx(), newRefuser(open_, id), 1, 0)
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
@@ -392,8 +401,8 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	// The submitter's content is not rewritten by its own commit — §6.3 is
 	// explicit that a submit of one form leaves other drafts alone — so only
 	// `base` moves, and `rev` stays where the client left it.
-	if back, err := st.working(newRefuser(open_, id), "dana", img); err != nil ||
-		back.base != 1 || back.rev != 1 {
+	back, err = st.working(ctx(), newRefuser(open_, id), "dana", img)
+	if err != nil || back.base != 1 || back.rev != 1 {
 		t.Errorf("submitter's copy is base %d rev %d, want 1 and 1 (said %v)",
 			back.base, back.rev, err)
 	}
@@ -401,8 +410,8 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	// at the revision it read — which is exactly what makes that actor's next
 	// submit a STALE_REVISION rather than a surprise (the exported half is
 	// TestSubmitRefusesACopyAnotherCommitLeftBehind).
-	if other, err := st.working(newRefuser(open_, id), "nina", img); err != nil ||
-		other.base != 0 {
+	other, err := st.working(ctx(), newRefuser(open_, id), "nina", img)
+	if err != nil || other.base != 0 {
 		t.Errorf("another actor's copy is based at %d, want 0 (said %v)",
 			other.base, err)
 	}
@@ -422,18 +431,23 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	// the case is the thing that is missing.
 	for _, err := range []error{
 		func() error {
-			_, err := st.saveWorking(newRefuser(update, 9999), "dana", 0, w, 0)
+			_, err := st.saveWorking(ctx(), newRefuser(update, 9999), "dana",
+				0, w, 0)
 			return err
 		}(),
 		func() error {
-			_, err := st.commit(newRefuser(submit, 9999), img, 0, rec.commit, by)
+			_, err := st.commit(ctx(), newRefuser(submit, 9999), img, 0,
+				rec.commit, by)
 			return err
 		}(),
 		func() error {
-			_, err := st.working(newRefuser(open_, 9999), "dana", img)
+			_, err := st.working(ctx(), newRefuser(open_, 9999), "dana", img)
 			return err
 		}(),
-		func() error { _, err := st.load(newRefuser(open_, 9999)); return err }(),
+		func() error {
+			_, err := st.load(ctx(), newRefuser(open_, 9999))
+			return err
+		}(),
 	} {
 		if !Failed(err, NotFound) {
 			t.Errorf("an unknown case answered %v, want NOT_FOUND", err)
@@ -476,10 +490,10 @@ stages { start { accept done; } done { } }
 // unissued ID and the caller's Op names the request that asked.
 func TestCaseLookupSaysNotFoundOnce(t *testing.T) {
 	st := newCaseStore()
-	if _, err := st.load(newRefuser(open_, 0)); !Failed(err, NotFound) {
+	if _, err := st.load(ctx(), newRefuser(open_, 0)); !Failed(err, NotFound) {
 		t.Errorf("load(0) = %v, want NOT_FOUND", err)
 	}
-	if _, err := st.load(newRefuser(open_, 1)); !Failed(err, NotFound) {
+	if _, err := st.load(ctx(), newRefuser(open_, 1)); !Failed(err, NotFound) {
 		t.Errorf("load(1) = %v, want NOT_FOUND", err)
 	}
 }
@@ -497,7 +511,10 @@ roles { Applicant { allow view application; } }
 forms { application { name : string; } }
 stages { start { accept done; } done { } }
 `)}
-	id := rt.w.cases.create(d)
+	id, cerr := rt.w.cases.create(ctx(), newRefuser("create", 0), d)
+	if cerr != nil {
+		t.Fatalf("create: %v", cerr)
+	}
 	c := Case{id: id, def: d.ID(), actor: Actor{User: "dana"}, w: rt.w}
 
 	_, err := c.Stage(ctx())
@@ -662,7 +679,11 @@ stages {
 func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 	img := lowerExample(t)
 	st := newCaseStore()
-	id := st.create(&Definition{img: img})
+	id, err := st.create(ctx(), newRefuser(open_, 0),
+		&Definition{img: img})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
 
 	// DESIGN §5.2's determinism rule in one field: a replay cannot ask what
 	// the clock said at the time, so the stamp belongs to the entry and is
@@ -672,12 +693,12 @@ func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 	// disagree with itself.
 	first := time.Date(2026, time.November, 23, 9, 0, 0, 0, time.UTC)
 	st.now = func() time.Time { return first }
-	rec, err := st.load(newRefuser(open_, id))
+	rec, err := st.load(ctx(), newRefuser(open_, id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	by := committedBy{by: "dana", op: opSubmit}
-	if _, err := st.commit(newRefuser(submit, id), img, 0, rec.commit,
+	if _, err := st.commit(ctx(), newRefuser(submit, id), img, 0, rec.commit,
 		by); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -688,7 +709,7 @@ func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 	// the store's half of the division: §5.4's operation decides what a commit
 	// means and hands the diff over, and the store records what it is given
 	// rather than re-deriving any of it.
-	h, err := st.history(newRefuser(open_, id))
+	h, err := st.history(ctx(), newRefuser(open_, id), 1, 0)
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
@@ -710,15 +731,16 @@ func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 	// the *count* of commits buys.
 	later := first.Add(time.Hour)
 	st.now = func() time.Time { return later }
-	rec, err = st.load(newRefuser(open_, id))
+	rec, err = st.load(ctx(), newRefuser(open_, id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if _, err := st.commit(newRefuser(submit, id), img, 1, rec.commit,
+	if _, err := st.commit(ctx(), newRefuser(submit, id), img, 1, rec.commit,
 		by); err != nil {
 		t.Fatalf("second commit: %v", err)
 	}
-	if h, err = st.history(newRefuser(open_, id)); err != nil || len(h) != 2 {
+	h, err = st.history(ctx(), newRefuser(open_, id), 1, 0)
+	if err != nil || len(h) != 2 {
 		t.Fatalf("history = %d entries (%v), want 2", len(h), err)
 	}
 	if !h[0].at.Equal(first) || !h[1].at.Equal(later) {
@@ -735,13 +757,18 @@ func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 	// time: the field is a seam for a test and for a replay, not a
 	// requirement either operation has to satisfy.
 	plain := newCaseStore()
-	pid := plain.create(&Definition{img: img})
+	pid, perr := plain.create(ctx(), newRefuser(open_, 0),
+		&Definition{img: img})
+	if perr != nil {
+		t.Fatalf("create: %v", perr)
+	}
 	before := time.Now()
-	if _, err := plain.commit(newRefuser(submit, pid), img, 0, rec.commit,
-		by); err != nil {
+	if _, err := plain.commit(ctx(), newRefuser(submit, pid), img, 0,
+		rec.commit, by); err != nil {
 		t.Fatalf("commit on a default clock: %v", err)
 	}
-	if h, err := plain.history(newRefuser(open_, pid)); err != nil || len(h) != 1 ||
+	if h, err := plain.history(ctx(), newRefuser(open_, pid), 1,
+		0); err != nil || len(h) != 1 ||
 		h[0].at.Before(before) {
 		t.Errorf("a store with no clock set stamped %v (%v), want the time "+
 			"the commit happened at", h, err)

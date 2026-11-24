@@ -1221,7 +1221,7 @@ func BenchmarkHistory(b *testing.B) {
 // every commit the case has ever made.
 func BenchmarkReplayTo(b *testing.B) {
 	c, img := benchTrail(b, 1000)
-	hist, err := c.w.cases.history(newRefuser("bench", c.id))
+	hist, err := c.w.cases.history(ctx(), newRefuser("bench", c.id), 1, 0)
 	if err != nil {
 		b.Fatalf("history: %v", err)
 	}

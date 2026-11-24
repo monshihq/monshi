@@ -119,7 +119,7 @@ func (c Case) Rebase(ctx context.Context) (RebaseResult, error) {
 	}
 	img := d.img
 
-	w, have, err := c.w.cases.draft(refuse, c.actor.User, img)
+	w, have, err := c.w.cases.draft(ctx, refuse, c.actor.User, img)
 	if err != nil {
 		return RebaseResult{}, err
 	}
@@ -135,8 +135,17 @@ func (c Case) Rebase(ctx context.Context) (RebaseResult, error) {
 	// revision i+1 — so a slice split at the copy's base is the whole of what
 	// the merge reads, in both directions. A rebase that asked the question
 	// any other way would be re-deriving what the store already recorded.
-	split := sort.Search(len(rec.hist), func(i int) bool {
-		return rec.hist[i].revision > w.base
+	// The trail is asked through the seam rather than read off the loaded
+	// record because the exported contract's `Load` answers a case, not its
+	// log: a durable store should not pay for a trail this call may not need
+	// (the draft in front of it may already be current), and `history` is
+	// the same read `History` exports.
+	all, err := c.w.cases.history(ctx, refuse, 1, 0)
+	if err != nil {
+		return RebaseResult{}, err
+	}
+	split := sort.Search(len(all), func(i int) bool {
+		return all[i].revision > w.base
 	})
 
 	// Roles from the committed snapshot, as every operation folds them (§4.3),
@@ -144,7 +153,7 @@ func (c Case) Rebase(ctx context.Context) (RebaseResult, error) {
 	// nothing on authority, because it writes only the caller's own draft.
 	roles := img.rolesHeld(c.actor, rec.commit.s)
 	m := rebaser{img: img, vis: viewable(img, roles, rec.commit.stage)}
-	m.run(&rec, rec.hist[:split], rec.hist[split:], &w)
+	m.run(&rec, all[:split], all[split:], &w)
 
 	if len(m.clashes) > 0 {
 		// Nothing is saved, which is the whole of §6.5's "a failed/conflicting
@@ -161,7 +170,7 @@ func (c Case) Rebase(ctx context.Context) (RebaseResult, error) {
 	// `base` and `rev` are the store's to set, so the state handed over
 	// carries only the merged data (§6.2's division); `rec.revision` is the
 	// lineage this call exists to move.
-	rev, err := c.w.cases.saveWorking(refuse, c.actor.User, w.rev,
+	rev, err := c.w.cases.saveWorking(ctx, refuse, c.actor.User, w.rev,
 		workingState{s: m.out}, rec.revision)
 	if err != nil {
 		return RebaseResult{}, err
@@ -190,7 +199,7 @@ func (c Case) Discard(ctx context.Context, expected uint64) error {
 	if _, _, err := c.look(ctx, refuse); err != nil {
 		return err
 	}
-	return c.w.cases.discard(refuse, c.actor.User, expected)
+	return c.w.cases.discard(ctx, refuse, c.actor.User, expected)
 }
 
 // cellKey and setKey are the two things a rebase compares: one value at one

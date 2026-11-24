@@ -1429,7 +1429,13 @@ on that move — the copy must descend from the revision the commit replaces
 — holds there by construction, because submit's own guard compared the two
 a moment before. `Rebase` is the move asked where nothing has been compared
 yet: a copy whose content is not the case's, which is the only kind that
-needs a merge and the only kind that can refuse one.
+needs a merge and the only kind that can refuse one. The exported seam
+states the first of these where drafts actually live: §10's
+`Storage.Commit` takes the committer's rebase as part of its one atomic
+step — the swap, the append, and the base moved when the copy's base stood
+at the revision the transaction replaces — because no caller sees another
+actor's drafts, and a store that lost the rule would erase it from the
+engine's promises.
 
 **What a refusal says.** `Conflicts` arrives beside the `CONFLICT` refusal
 and never beside a success, so a host reads one source of truth about
@@ -1954,8 +1960,10 @@ host may still be holding, not enough to sit behind a case whose counter moved
 in an unrecorded way. And the fold's base is the definition's defaults, which a
 semantic reload may have moved, so a value nobody ever wrote is not in the trail
 at all. Reading a derived state through a *replaced* definition is a further
-question DESIGN §10 keeps open, the versioning policy that is milestone 4's and
-not this slice's. So the exported read answers with entries that carry their own
+question the contract does not answer: DESIGN §1 disclaims a versioning
+framework, and a stored record names its definition and nothing more —
+the name is the seam's whole migration surface. So the exported
+read answers with entries that carry their own
 payloads — true across a reload that would make a derived state lie — and §8
 prices the fold it declines to run: 34 µs to derive the head of a thousand
 commits, against 2.3 µs to read twenty of them.
@@ -2263,8 +2271,11 @@ whose rows were printed at the fixed `-benchtime=200000x` an isolated
 harness needs rather than the timed default, and are the median of five
 counts. The seven wire rows at the table's foot are `codec_bench_test.go`,
 printed together at one fixed `-benchtime=50000x` and discussed under the
-table. Every pair compared below was measured in one process, so the
-pairs differ by the code and not by the clock. A number here without a
+table, and the contract row below them is `storage_bench_test.go`, printed
+at the fixed `-benchtime=200000x` as the median of five counts in one
+process that re-ran `BenchmarkSubmit`. Every pair compared below was
+measured in one process, so
+the pairs differ by the code and not by the clock. A number here without a
 benchmark in either file is a target, not a result. The
 reference corpus is the SYNTAX §7 example (20 slots) plus
 §8's generated wide case: one form, 40 fields, one 8-field `multiple`
@@ -2318,6 +2329,7 @@ an `Update` on it impossible.
 | `BenchmarkWireDraft/read` | bytes to a draft | 531 ns, 32 allocs |
 | `BenchmarkWireRecord/append` | an entry to bytes | 60 ns, 4 allocs |
 | `BenchmarkWireRecord/read` | bytes to an entry | 153 ns, 11 allocs |
+| `BenchmarkSubmitViaContract` | submit via `Storage` | 18.6 µs, 109 allocs |
 
 The eight rows above §5.11's are §5.9's and §5.10's, printed again after §9
 gave the committing results their list: five counts each at the fixed
@@ -2705,8 +2717,10 @@ two sites and did not report it at the previous commit — and that is the
 mechanism by which §6's rule that a context kept past its call reads the state
 its own batch left is *sound* rather than dangling. It is paid whether or not a
 hook is registered, because an escape is a compile-time fact and the registry is
-a runtime one, and it stops being the seam's business when milestone 4's read
-transaction hands back a snapshot that cannot be written at all (DESIGN §8). One
+a runtime one, and DESIGN §8's contract exempted no one from it: a host
+answers `Load` with bytes, not an unwritable snapshot — read transactions
+were deliberately outside the seam's seven methods — and this package
+decodes them into exactly this mutable shape. One
 object in eighteen, two in forty-two, and no byte of the whole-case read: what a
 bound batch pays the seam is the two percent of wall time it adds, and that is
 the registry's lookups and the snapshot's construction rather than this header.
@@ -2769,6 +2783,25 @@ beside the exported history read. What none of these
 rows include is a syscall; they are the floor a milestone-4 backend
 pays its I/O on top of, and they say DESIGN §8's opacity promise costs
 an engine-visible case microseconds and not milliseconds.
+
+The contract's own row is the pair this section's rule asks for, because
+the claim it prices is about the *interface*: `BenchmarkSubmitViaContract`
+is `BenchmarkSubmit`'s three-write batch and submit of the same corpus run
+over the exported `Storage`, printed in one process with it — five counts
+at the fixed `-benchtime=200000x` — at 18.6 µs and 109 allocations
+against the default's 11.3 µs and 48, a 1.66× in time, 2,909 bytes and 61
+objects. What sits in the gap is the arithmetic of the wire rows above
+it, paid per operation rather than once: two snapshot decodes and an
+encode, two draft decodes and a save, and a record append — about 3.1 µs
+of what those rows measured — plus the store round-trips around them, a
+`Load` for the head and a `Draft` beside it where the default path reads
+a field. It is a floor and not a ceiling in one direction only: a
+durable backend adds its own I/O on top, and that is the host's row to
+measure, not this table's. What the pair *does* settle is DESIGN §8's
+promise in the shape §8 can be graded on — that handing state to a
+host's implementation is a translation and not a redesign: the engine's
+own work is the 11.3 µs, the contract is what wrapping it costs, and the
+default path pays neither the encode nor the dispatch.
 
 Nor is any "× faster than the compiled tree" ratio measured: that would
 mean an interpreted-tree harness, and building one to prove a point the
@@ -2868,9 +2901,9 @@ a re-run shows.
 Milestone status (DESIGN §10): 1 is complete — the `schema` package,
 its tests and the two language documents. So are 2 (*pure case semantics*)
 and 3 (*views and hooks*), and the item that closed the pair is §6's seam.
-Milestone 4 is the one in progress: its contract is what the in-memory
-store has honoured since §4, and its storage implementation is not
-written. The image of §3, the lowering of §4, the
+Milestone 4 has landed whole — its contract is exported, its in-package
+implementation is the conformance reference, and the paragraph on it below
+says what crosses to a host. The image of §3, the lowering of §4, the
 `Load` seam, the frame and instance rows of §5.1, §5.2's presence and
 requiredness and §3.9's resolution seam are in place and tested, and so
 is the exported half that reads them: `Runtime` and `Case` (DESIGN §6),
@@ -2911,7 +2944,8 @@ making since it was written — forward diffs, replayed — is now the thing a t
 fails on. What is *not* exported is the derived state, and the two reasons are
 §5.11's: an instance counter no entry recorded, and a defaults baseline a
 semantic reload may have moved, beside the definition-versioning policy
-DESIGN §10 leaves open for milestone 4. `View`'s mask is the read's mask, asked
+DESIGN §1 disclaims rather than defers: the seam carries no version (§10).
+`View`'s mask is the read's mask, asked
 now, and §7's property 7 closes with the test that says a page of history
 cannot disclose what a form withholds.
 
@@ -2944,11 +2978,12 @@ against what a view renders — and it is now one function asked about one
 cell at one address each time, which is what makes the third asking a
 check rather than a second opinion.
 
-Contract at the seam. Three halves are exported: the definition seam this
+Contract at the seam. Four halves are exported: the definition seam this
 handoff was written for, the case operations milestone 2 has grown beside
-it, and the hook seam §6 a host wires into a runtime. `ctx` stands for
-`context.Context`, and the operations that read the store take it and can
-refuse.
+it, the hook seam §6 a host wires into a runtime, and the storage seam
+DESIGN §8 names — the one a host implements rather than wires. `ctx`
+stands for `context.Context`, and the operations that read the store take
+it and can refuse.
 
 ```go
 // Source in, an immutable definition out.
@@ -3186,6 +3221,72 @@ func (at CaseContext) Value(path string) (Value, bool)
 func (at CaseContext) Review(path string) (ReviewInfo, bool)
 func (at CaseContext) Signature(path string) (SignatureInfo, bool)
 
+// The seam a host *implements* rather than wires (DESIGN §8). A runtime
+// built on one answers every operation with the in-memory store's own
+// refusals: `ErrNoSuchCase`, `ErrNoDraft` and *Stale are the facts a
+// backend states in its own voice, and each is turned into the sentence
+// the default path refuses with — which store served a call is not a
+// fact its caller can observe in an error. Anything else a host returns
+// arrives under STORAGE_FAILURE with the host's error as `Cause`.
+func NewRuntimeWithStorage(s Storage) *Runtime
+func NewMemStorage() *MemStorage // the contract's reference store
+type MemStorage struct{ /* unexported */ }
+
+// Each method is one atomic step on its own: the context is the request's,
+// not a transaction handle, and a backend that can block must honour it.
+// A nil argument is the default runtime — the store never enters the
+// engine's own cost measurements, and definitions and bindings stay
+// process-local no matter where the cases go.
+type Storage interface {
+    Create(ctx, rec CaseRecord) (CaseID, error) // the ID is the host's
+    Load(ctx, id CaseID) (CaseRecord, error)
+    Draft(ctx, id CaseID, user UserID) (WorkingRecord, bool, error)
+    Save(ctx, id CaseID, user UserID, expected uint64,
+        w WorkingRecord) error
+    Discard(ctx, id CaseID, user UserID, expected uint64) error
+    Commit(ctx, id CaseID, tx Transaction) (Receipt, error)
+    History(ctx, id CaseID, cursor uint64, limit int) ([]HistoryEntry,
+        error)
+}
+
+// Case state outside this process: the head, one actor's draft, one trail
+// entry — the snapshots *encoded*, produced and read only by this
+// package; a host stores, compares and returns bytes it never interprets.
+// A `Save` of expected 0 over no copy is the engine's draft init, and a
+// guarded write lands `expected`+1: the data is the caller's and the
+// numbering the store's, §3.1's split in a new place. Entries are dense
+// by revision, which is what makes `History` a slice and a cursor an
+// integer (§5.11).
+type CaseRecord struct {
+    ID CaseID; Definition string; Revision uint64; State []byte
+}
+type WorkingRecord struct{ Base, Revision uint64; State []byte }
+type HistoryEntry []byte
+
+// One commit at the seam: the swap to `Head`, the append of `Entry`, and
+// the rebase of the committer's own draft if its base stood at
+// `tx.Expected` (§5.8's rule, held by the store because no caller sees
+// another's drafts). The engine numbers both sides before asking; the
+// Receipt carries the landed revision back so a store that remapped
+// nothing is checked rather than trusted.
+type Transaction struct {
+    Actor UserID; Expected uint64; Entry HistoryEntry; Head CaseRecord
+}
+type Receipt struct{ Revision, Draft uint64 }
+
+// The facts a backend may state, and the binary seam DESIGN §8 sketches
+// by name: no case operation reads through it — what a reference means
+// is the host's content service, as §5.2 put it.
+var (
+    ErrNoSuchCase error // the ID was never issued, or is gone
+    ErrNoDraft    error // the actor holds no working copy
+)
+type Stale struct{ Have uint64 } // the number the store holds
+type BinaryStore interface {
+    Put(ctx, r io.Reader) (BinaryRef, error)
+    Get(ctx, ref BinaryRef) (io.ReadCloser, error)
+}
+
 func Failed(err error, want Category) bool
 ```
 
@@ -3207,6 +3308,13 @@ only this package knows what the cell's tag byte means.
 categories, and they arrive on a refusal as well as on a success: a host
 renders a form's gaps without parsing a message, and reads the revision it
 must reload at out of the same value.
+The storage records keep that split with the directions turned:
+`CaseRecord`, `WorkingRecord` and `Transaction` are assembled by the
+engine and carried across the seam, so they are plain structs, and
+`Receipt` and `Stale` are the two the *host* assembles to say what it
+found. The bytes inside them are the exception on every side: `State` and
+`HistoryEntry` are readable only by this package, and the host that
+stores them stores an encoding, not a fact it can branch on.
 
 `Review` is the third commit and the first whose commit says nothing about
 data (§5.9), which is why its method takes no working copy — but not why
@@ -3229,10 +3337,34 @@ verdict about content, `Sign` commits a verdict about a *revision*, `View`
 reads all four beside an actor's own draft, and §5.8's two operations settle
 a draft against what the case committed after it was made.
 
+The storage seam crosses in one direction: the engine hands a host bytes
+and numbers and takes back a receipt or one of the three facts. `State`
+is all of case semantics behind the seam — every frame, instance, verdict
+and signature — and a host that stores it stores an *encoding*: codec.go
+is the only reader, and a backend may compare, compress and move those
+bytes without ever opening them. What a correct backend owes is short —
+the two guards, one atomic commit step, the sentinels, the context's
+cancellation — and what it may choose is everything else: its durability,
+its index for `History`, its own error for its own outages, which arrive
+under STORAGE_FAILURE with its message as `Cause`. It may not choose the
+numbers: `expected`+1 on a save and a dense trail are the contract, and
+`MemStorage` is that list executed in maps — the store the contract's
+tests grade against first, so a host comparing backends against it is
+comparing against the arithmetic too. What the seam deliberately does not
+settle stays unsettled: definition versioning is the question DESIGN §1
+disclaims, and `CaseRecord.Definition` is the whole of the migration
+surface this contract carries. `BinaryStore` too stays unwired: it is
+exported for a host to compose, and no case operation reads through it.
+A durable backend, and the milestone 7 service that would want one, are
+hosts of this interface; nothing in the engine knows which side of the
+seam a case lives on.
+
 `BinaryRef` is exported as a `[]byte` with no behavior. DESIGN §5.2 puts
-content handles in case *data*, and §5.1's value row reserves the field
-now so a row never changes shape when the binary store arrives; nothing
-in this package reads or resolves one.
+content handles in case *data*, and §5.1's value row reserved the field
+so the row would never change shape when the store arrived. The store has
+arrived — `BinaryStore`, beside the contract — and the resolution half is
+unchanged: no case operation reads through a reference, and what its
+bytes mean belongs to the host service that produced them.
 
 - `schema` remains the only consumer of source text and exports nothing
   beyond its diagnostics and resolved model (SYNTAX §5.8). `Load` calls it

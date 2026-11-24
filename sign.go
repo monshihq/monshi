@@ -237,7 +237,7 @@ func (c Case) Sign(ctx context.Context, target string, observed uint64,
 
 	tbl := signTable(img, rec.commit.sigs)
 	tbl[field] = next
-	out, err := c.w.cases.commit(refuse, img, rec.revision,
+	out, err := c.w.cases.commit(ctx, refuse, img, rec.revision,
 		committedState{s: rec.commit.s, stage: rec.commit.stage,
 			reviews: rec.commit.reviews, sigs: tbl},
 		committedBy{by: c.actor.User, op: opSign,

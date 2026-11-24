@@ -103,7 +103,7 @@ func reviewCase(t *testing.T, actor Actor) (*Runtime, *image, Case) {
 // shows what a commit wrote rather than what an operation returned.
 func stored(t testing.TB, rt *Runtime, c Case) storedCase {
 	t.Helper()
-	rec, err := rt.w.cases.load(newRefuser(open_, c.ID()))
+	rec, err := rt.w.cases.load(ctx(), newRefuser(open_, c.ID()))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestAReviewCommitSaysWhoAndWhen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Review: %v", err)
 	}
-	hs, err := rt.w.cases.history(newRefuser(open_, c.ID()))
+	hs, err := rt.w.cases.history(ctx(), newRefuser(open_, c.ID()), 1, 0)
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}

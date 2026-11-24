@@ -191,7 +191,8 @@ func TestCommitAnswersWithWhatItErased(t *testing.T) {
 	// records. The field that moved is governed by `unit`, so exactly one
 	// verdict and exactly one attestation fall, and `keep` — the group the
 	// commit wrote nothing under — stands.
-	out, err := rt.w.cases.commit(newRefuser(submit, c.ID()), img, rec.revision,
+	out, err := rt.w.cases.commit(ctx(), newRefuser(submit, c.ID()), img,
+		rec.revision,
 		committedState{s: rec.commit.s, stage: rec.commit.stage,
 			reviews: reviewTable(img, rec.commit.reviews),
 			sigs:    signTable(img, rec.commit.sigs)},

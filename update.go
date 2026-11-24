@@ -91,7 +91,7 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 	// sees unless the batch survives to the save. `d.img` is the image the
 	// case was just proved readable through, and store.go interprets the copy
 	// with it, which is §3's reinterpretation applied to a working state.
-	w, err := c.w.cases.working(refuse, c.actor.User, d.img)
+	w, err := c.w.cases.working(ctx, refuse, c.actor.User, d.img)
 	if err != nil {
 		return ChangeResult{}, err
 	}
@@ -129,7 +129,7 @@ func (c Case) Update(ctx context.Context, base uint64, edits ...Edit) (
 	// reads no values, only the adjacency, so it needs nothing from here but
 	// the write set — and it waits for the save, because a batch the store
 	// refuses should not have paid for a closure nobody is told about.
-	rev, err := c.w.cases.saveWorking(refuse, c.actor.User, base, w, 0)
+	rev, err := c.w.cases.saveWorking(ctx, refuse, c.actor.User, base, w, 0)
 	if err != nil {
 		return ChangeResult{}, err
 	}

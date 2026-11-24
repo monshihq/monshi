@@ -117,9 +117,11 @@ const (
 )
 
 // BinaryRef names retained binary content held outside the case record
-// (DESIGN §5.2). The store that resolves it arrives with the storage
-// milestone; the value row reserves the field now so rows never change
-// shape later.
+// (DESIGN §5.2). The store is the exported BinaryStore in storage.go —
+// offered for hosts to implement and compose, with the engine keeping
+// every reference opaque: it stores the bytes and resolves nothing
+// through them. The value row reserved the field so rows never change
+// shape.
 type BinaryRef []byte
 
 // slotValue is one value in one frame row. A row carries every payload

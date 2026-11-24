@@ -135,7 +135,7 @@ func sigFilled(t *testing.T, rt *Runtime, img *image, c Case,
 	if _, err := c.Rebase(ctx()); err != nil {
 		t.Fatalf("Rebase: %v", err)
 	}
-	w, err := rt.w.cases.working(newRefuser(update, c.id), c.actor.User, img)
+	w, err := rt.w.cases.working(ctx(), newRefuser(update, c.id), c.actor.User, img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}

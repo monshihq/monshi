@@ -264,7 +264,10 @@ func (c Case) History(ctx context.Context, cursor uint64,
 	stage := rec.commit.stage
 	vis := viewable(img, roles, stage)
 
-	page := rec.window(cursor, limit)
+	page, err := c.w.cases.history(ctx, refuse, cursor, limit)
+	if err != nil {
+		return HistoryResult{}, err
+	}
 	for _, com := range page {
 		commit, hid := commitView(img, com, roles, stage, vis)
 		res.Withheld += hid

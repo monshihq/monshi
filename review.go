@@ -276,7 +276,7 @@ func (c Case) Review(ctx context.Context, target string, act ReviewAction,
 
 	tbl := reviewTable(img, rec.commit.reviews)
 	tbl[unit] = next
-	out, err := c.w.cases.commit(refuse, img, rec.revision,
+	out, err := c.w.cases.commit(ctx, refuse, img, rec.revision,
 		committedState{s: rec.commit.s, stage: rec.commit.stage,
 			reviews: tbl, sigs: rec.commit.sigs},
 		committedBy{by: c.actor.User, op: opReview,

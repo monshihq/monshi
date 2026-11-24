@@ -272,7 +272,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 	// `changes` is empty and that is not a no-op: §5.1 counts the stage among
 	// the semantic committed changes, and commitRecord carries the stage of
 	// the entry for exactly the replay that has to land the case where it is.
-	out, err := c.w.cases.commit(refuse, img, rec.revision,
+	out, err := c.w.cases.commit(ctx, refuse, img, rec.revision,
 		committedState{s: rec.commit.s, stage: to,
 			reviews: rec.commit.reviews,
 			sigs:    rec.commit.sigs},

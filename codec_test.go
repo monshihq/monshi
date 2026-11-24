@@ -91,7 +91,7 @@ func TestCodecScriptedCase(t *testing.T) {
 		}
 	}
 	// The drafts: the applicant's copy mid-batch, and the others'.
-	rec, err := h.dana.w.cases.load(newRefuser(open_, h.dana.id))
+	rec, err := h.dana.w.cases.load(ctx(), newRefuser(open_, h.dana.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}

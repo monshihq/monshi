@@ -716,12 +716,28 @@ itself: an in-memory seam, unexported, whose methods are named for the
 same acts and whose two revision checks are exactly the ones this section
 requires.
 `NewRuntime` wires it in, because a host has no store to hand over yet.
-Milestone 4 supplies the implementation and the seam becomes exported
-contract; what does not change then is the operations' shapes, which is
+Milestone 4 supplied the implementation and the seam became exported
+contract; what did not change then is the operations' shapes, which is
 the point of keeping the seam narrow now.
 
 The API may be refined during implementation, but it must not weaken
 these atomicity and revision guarantees.
+
+It was refined, at four points, and none of them weakens that sentence.
+`Create` takes the whole record: the initial state — defaults
+materialized, the initial stage — is the engine's to build, and only the
+ID is the host's to allocate. Find-or-init `Working` split into `Draft`,
+which only finds, and an engine-side init that arrives as an ordinary
+`Save` with expected 0: a read no longer grows the store. A backend
+refuses with values rather than prose — `ErrNoSuchCase`, `ErrNoDraft`
+and a `*Stale` carrying the number it holds — because the engine keeps
+authorship of the §9 sentence its caller reads; anything else the host
+returns arrives under `STORAGE_FAILURE` with the host's error as cause.
+And `Commit` answers a `Receipt`: the landed revision carried back to be
+checked rather than trusted, beside the committer's copy number after
+its rebase. The atomicity is the interface's own: `MemStorage` ships as
+the conformance reference every exported verb is graded against, and a
+host backend that holds these seven methods holds the case.
 
 ## 9. Errors and guarantees
 

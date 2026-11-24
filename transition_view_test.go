@@ -251,7 +251,7 @@ func TestATransitionCommitsAStageAndNoContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	before, err := c.w.cases.load(newRefuser("open", c.id))
+	before, err := c.w.cases.load(ctx(), newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestATransitionCommitsAStageAndNoContent(t *testing.T) {
 			res.Revision, res.Stage, first.Revision+1)
 	}
 
-	after, err := c.w.cases.load(newRefuser("open", c.id))
+	after, err := c.w.cases.load(ctx(), newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestATransitionCommitsAStageAndNoContent(t *testing.T) {
 	// The history, which is where a stage change has to be visible: two
 	// entries, the second one the transition's, carrying no changes and a
 	// different stage from the entry before it.
-	hist, err := c.w.cases.history(newRefuser("open", c.id))
+	hist, err := c.w.cases.history(ctx(), newRefuser("open", c.id), 1, 0)
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestACommitRebasesOnlyTheActorWhoMadeIt(t *testing.T) {
 // way to see the `base` a commit left it at.
 func workingOf(t *testing.T, c Case, img *image) (workingState, error) {
 	t.Helper()
-	return c.w.cases.working(newRefuser("open", c.id), c.actor.User, img)
+	return c.w.cases.working(ctx(), newRefuser("open", c.id), c.actor.User, img)
 }
 
 // mustStage and mustRole resolve a fixture's names to ordinals, and fail the
@@ -491,7 +491,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	rec, err := elliot.w.cases.load(newRefuser("open", dana.ID()))
+	rec, err := elliot.w.cases.load(ctx(), newRefuser("open", dana.ID()))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -600,7 +600,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 		t.Errorf("the case reached %d at %q, want %d at company_review",
 			res.Revision, res.Stage, rvs.Revision+1)
 	}
-	after, err := elliot.w.cases.load(newRefuser("open", dana.ID()))
+	after, err := elliot.w.cases.load(ctx(), newRefuser("open", dana.ID()))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -608,7 +608,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 		t.Errorf("the snapshot is at stage %d, want company_review",
 			after.commit.stage)
 	}
-	hist, err := elliot.w.cases.history(newRefuser("open", dana.ID()))
+	hist, err := elliot.w.cases.history(ctx(), newRefuser("open", dana.ID()), 1, 0)
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
@@ -754,7 +754,7 @@ func TestAppendixARequiredSignatureTrace(t *testing.T) {
 	if res.Stage != "company_review" {
 		t.Errorf("the case reached %q, want company_review", res.Stage)
 	}
-	rec, err := elliot.w.cases.load(newRefuser("open", dana.ID()))
+	rec, err := elliot.w.cases.load(ctx(), newRefuser("open", dana.ID()))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -771,7 +771,7 @@ func TestAppendixARequiredSignatureTrace(t *testing.T) {
 	if _, err := dana.Rebase(ctx()); err != nil {
 		t.Fatalf("Rebase: %v", err)
 	}
-	same, err := dana.w.cases.working(newRefuser("open", dana.ID()), "dana",
+	same, err := dana.w.cases.working(ctx(), newRefuser("open", dana.ID()), "dana",
 		img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
@@ -865,7 +865,7 @@ func TestAppendixAHistoryTrace(t *testing.T) {
 	if _, err := dana.Rebase(ctx()); err != nil {
 		t.Fatalf("Rebase: %v", err)
 	}
-	work, err := dana.w.cases.working(newRefuser("open", dana.ID()), "dana",
+	work, err := dana.w.cases.working(ctx(), newRefuser("open", dana.ID()), "dana",
 		img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
@@ -1095,7 +1095,7 @@ func TestAppendixAHistoryTrace(t *testing.T) {
 	// makes a page of history a thing a host can act on rather than a transcript
 	// to read. The rows entry's instance and the note's field both resolve at the
 	// stage the case sits at now, four commits after either was written.
-	again, err := rolf.w.cases.working(newRefuser("open", dana.ID()), "rolf",
+	again, err := rolf.w.cases.working(ctx(), newRefuser("open", dana.ID()), "rolf",
 		img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
@@ -1135,7 +1135,7 @@ func entries(t *testing.T, c Commit, kind ChangeKind) []CommitChange {
 // above is what says the scan runs over what the case holds now.
 func committedFrame(t *testing.T, by, of Case) committedState {
 	t.Helper()
-	rec, err := by.w.cases.load(newRefuser("open", of.ID()))
+	rec, err := by.w.cases.load(ctx(), newRefuser("open", of.ID()))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}

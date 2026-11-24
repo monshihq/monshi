@@ -375,7 +375,7 @@ func TestSubmitGraftsOneFormOntoTheCommittedState(t *testing.T) {
 	// nothing, because §6.3 is explicit that other forms' unsubmitted edits
 	// stay unsubmitted. Reading the store rather than the copy is the point —
 	// the two differ exactly here, and only in package can a test see it.
-	rec, err := c.w.cases.load(newRefuser("open", c.id))
+	rec, err := c.w.cases.load(ctx(), newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -404,7 +404,7 @@ func TestSubmitGraftsOneFormOntoTheCommittedState(t *testing.T) {
 	// actor's copy, which is what lets her commit that form next without
 	// retyping it. The copy's data is untouched by the rebase (§6.3), and the
 	// one field the store moved is the copy's base.
-	w, err := c.w.cases.working(newRefuser("open", c.id), c.actor.User, img)
+	w, err := c.w.cases.working(ctx(), newRefuser("open", c.id), c.actor.User, img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestSubmitGraftsOneFormOntoTheCommittedState(t *testing.T) {
 	// that left. Nothing about the archive, because §6.3 limits an entry to
 	// the form the commit was of, and an entry about a field nobody presented
 	// would put someone else's draft in this commit's record.
-	hist, err := c.w.cases.history(newRefuser("open", c.id))
+	hist, err := c.w.cases.history(ctx(), newRefuser("open", c.id), 1, 0)
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestACommitNeverTakesTheInstanceNumberBackwards(t *testing.T) {
 		t.Fatalf("submitting the other form: %v", err)
 	}
 
-	rec, err := c.w.cases.load(newRefuser("open", c.id))
+	rec, err := c.w.cases.load(ctx(), newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -542,7 +542,7 @@ func TestACommitNeverTakesTheInstanceNumberBackwards(t *testing.T) {
 	if _, err := c.Submit(ctx(), "application", base); err != nil {
 		t.Fatalf("submitting the drafted rows: %v", err)
 	}
-	if rec, err := c.w.cases.load(newRefuser("open", c.id)); err != nil {
+	if rec, err := c.w.cases.load(ctx(), newRefuser("open", c.id)); err != nil {
 		t.Fatalf("load: %v", err)
 	} else if rec.commit.s.seq != 3 {
 		t.Errorf("the snapshot holds rows to 3 and its allocator is at %d, "+

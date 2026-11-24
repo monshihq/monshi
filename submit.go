@@ -148,7 +148,7 @@ func (c Case) Submit(ctx context.Context, form string,
 				quote(img.stageName(rec.commit.stage)))
 	}
 
-	w, err := c.w.cases.working(refuse, c.actor.User, img)
+	w, err := c.w.cases.working(ctx, refuse, c.actor.User, img)
 	if err != nil {
 		return CommitResult{}, err
 	}
@@ -221,7 +221,7 @@ func (c Case) Submit(ctx context.Context, form string,
 		return res, nil
 	}
 
-	out, err := c.w.cases.commit(refuse, img, rec.revision,
+	out, err := c.w.cases.commit(ctx, refuse, img, rec.revision,
 		committedState{s: next, stage: rec.commit.stage,
 			reviews: rec.commit.reviews,
 			sigs:    rec.commit.sigs},

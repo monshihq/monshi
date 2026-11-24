@@ -145,7 +145,7 @@ func (h *hist) save(t testing.TB, who Case, edits ...Edit) ChangeResult {
 	if _, err := who.Rebase(ctx()); err != nil {
 		t.Fatalf("Rebase: %v", err)
 	}
-	w, err := who.w.cases.working(newRefuser(open_, who.id), who.actor.User,
+	w, err := who.w.cases.working(ctx(), newRefuser(open_, who.id), who.actor.User,
 		h.img)
 	if err != nil {
 		t.Fatalf("working: %v", err)
@@ -190,7 +190,7 @@ func (h *hist) snap(t testing.TB) committedState {
 // trail is the store's own list of what happened, and the input the fold consumes.
 func (h *hist) trail(t testing.TB) []commitRecord {
 	t.Helper()
-	all, err := h.dana.w.cases.history(newRefuser(open_, h.dana.id))
+	all, err := h.dana.w.cases.history(ctx(), newRefuser(open_, h.dana.id), 1, 0)
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
@@ -878,8 +878,11 @@ func TestTheWindowIsTheSliceItWasAskedFor(t *testing.T) {
 	}
 	// The page shares its backing array with the trail it was cut from, which is
 	// what the cost claim rests on: `window` is arithmetic on a dense index, not a
-	// search and not a copy. `history` is the function that copies, and a caller
-	// that keeps the list it was given is a caller that asked for it.
+	// search and not a copy. The seam hands out the same array for the same
+	// reason `load` hands out a copied struct: the entries themselves are
+	// immutable (invariant 3), so reading what revision 7 changed costs an
+	// index and a field, and nothing about a reader needs the bytes to be
+	// private.
 	short := rec.window(2, 3)
 	if len(short) != 3 || &short[0] != &rec.hist[1] {
 		t.Errorf("the window did not slice the trail: %d entries, first %p "+
@@ -889,13 +892,18 @@ func TestTheWindowIsTheSliceItWasAskedFor(t *testing.T) {
 		t.Fatalf("the whole trail holds %d entries and the head is %d",
 			len(hist), all)
 	}
-	// And the copy is a copy: writing through what `history` handed out cannot
-	// reach the store, which is the replace-never-mutate rule read from the side
-	// of a reader rather than of a commit.
-	hist[0].changes = append(hist[0].changes, commitChange{})
-	if n := len(rec.window(1, 1)[0].changes); n != len(hist[0].changes)-1 {
-		t.Errorf("the store's own first record holds %d entries after a "+
-			"caller appended to the copy", n)
+	if &hist[0] != &rec.hist[0] {
+		t.Error("`history` copied the trail it was asked to page: the seam " +
+			"answers with the stored array, whose entries no reader writes")
+	}
+	// And what a reader may not do is what the hand-out rule says rather
+	// than what Go would catch: an entry a caller mutates is a caller
+	// breaking §5's own claim about history, and no amount of copying in a
+	// paging read buys that back. The test reads one entry's diff and
+	// leaves the trail as the store made it.
+	if n := len(hist[0].changes); n != len(rec.window(1, 1)[0].changes) {
+		t.Errorf("the store's own first record holds %d entries and the "+
+			"read handed out %d", len(rec.window(1, 1)[0].changes), n)
 	}
 }
 

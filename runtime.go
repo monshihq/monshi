@@ -66,7 +66,7 @@ type Actor struct {
 // newly registered hook reaches handles opened before it.
 type wiring struct {
 	defs  *registry
-	cases *caseStore
+	cases caseBackend
 	hooks *hookSet
 }
 
@@ -169,13 +169,16 @@ func (r *Runtime) Create(ctx context.Context, definition string,
 		return Case{}, newRefuser("create", 0).now(InvalidOp,
 			"no definition is registered as "+quote(definition))
 	}
-	id := r.w.cases.create(d)
+	id, err := r.w.cases.create(ctx, newRefuser("create", 0), d)
+	if err != nil {
+		return Case{}, err
+	}
 	c := Case{id: id, def: d.ID(), actor: actor, w: r.w}
 	// The case is now open for this actor, which is DESIGN §5's trigger for a
 	// working state — the same act `Open` performs, for the same reason: an
 	// edit that gets refused afterwards must not leave behind a copy the
 	// caller never saw created (`Open` below says why that matters).
-	if _, err := r.w.cases.working(c.refusing("create"), actor.User,
+	if _, err := r.w.cases.working(ctx, c.refusing("create"), actor.User,
 		d.img); err != nil {
 		return Case{}, err
 	}
@@ -205,7 +208,7 @@ func (r *Runtime) Open(ctx context.Context, id CaseID, actor Actor) (Case, error
 	// changed nothing it was shown, because the copy it wrote on already
 	// existed (§9's no-persistent-effect guarantee, which an edit cannot make
 	// true for itself).
-	if _, err := r.w.cases.working(c.refusing("open"), actor.User,
+	if _, err := r.w.cases.working(ctx, c.refusing("open"), actor.User,
 		d.img); err != nil {
 		return Case{}, err
 	}
@@ -287,10 +290,9 @@ func (c Case) Revision(ctx context.Context) (uint64, error) {
 // copy — be answered in the caller's voice without any of them naming an
 // operation it never saw.
 //
-// ctx is the caller's and is not read yet: these operations do no I/O
-// against a cancellable backend today, and the same calls will hand the
-// context to the store from milestone 4 on (store.go). Taking it now is
-// what lets a host write the call once.
+// ctx is the caller's, and the store now reads it too: the seam gained one
+// parameter per method with milestone 4 so that a host's backend can cancel
+// and time out (DESIGN §8), and the in-memory path discards it.
 func (c Case) look(ctx context.Context, refuse refuser) (
 	*Definition, storedCase, error) {
 	// A zero Case is what a host holds if it ignored Create's error. It is
@@ -301,7 +303,7 @@ func (c Case) look(ctx context.Context, refuse refuser) (
 		return nil, storedCase{}, refuse.now(NotFound,
 			"this handle was never opened from a runtime")
 	}
-	rec, err := c.w.cases.load(refuse)
+	rec, err := c.w.cases.load(ctx, refuse)
 	if err != nil {
 		return nil, storedCase{}, err
 	}
