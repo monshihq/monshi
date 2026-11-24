@@ -393,6 +393,10 @@ func completeApplication(i int) []Edit {
 // That clone is why the pair is not "an update plus a flag", and milestone 4
 // will not make it cheaper: the transaction changes how the three writes are
 // made durable, not how many bytes the new snapshot holds.
+//
+// The tail this row now also carries is §5.3's walk over the entries the
+// commit recorded, which is what `CommitResult.Affected` is made of (§9):
+// four objects on a submitting corpus, and the row in §8 says which four.
 func BenchmarkSubmit(b *testing.B) {
 	c := benchSpecCase(b)
 	base := uint64(0)
@@ -814,6 +818,10 @@ func BenchmarkDiscard(b *testing.B) {
 // The content stays empty on purpose: `Review` decides what the case holds and
 // asks nothing about completeness, which is §5.4's question at `Submit` and
 // §5.5's at a destination's `require`.
+//
+// The result's `Affected` seeds the walk's cheapest shape (§9): the verdict
+// entry re-asked, the decided unit rendered, and whatever the same commit's
+// reset moved arriving with them.
 func BenchmarkReview(b *testing.B) {
 	c := benchSpecReview(b)
 	rev := uint64(0)
@@ -1000,6 +1008,9 @@ func benchSpecSign(b *testing.B) (Case, uint64) {
 // iteration commits: the same hand pointing at the same artifact twice is
 // already true, and §6.3 refuses that work — so a benchmark that repeated one
 // reference would be measuring `BenchmarkSignNoOp` and calling it a commit.
+//
+// The one entry makes the result's list the walk's smallest answer (§9): the
+// attested field, with no erasure for a signature commit to report.
 func BenchmarkSign(b *testing.B) {
 	c, rev := benchSpecSign(b)
 	b.ReportAllocs()

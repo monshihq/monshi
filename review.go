@@ -98,9 +98,15 @@ type ReviewInfo struct {
 // operations' results on purpose: the case's revision and stage are facts the
 // caller did not have to ask about and cannot get any other way, and the
 // decision itself is something the caller just made.
+//
+// `Affected` is the unit's own path (§5.3's collapse of a re-asked subtree):
+// a decision lands *on* the unit, the view renders it there, and a client
+// that refreshes the unit refreshes every field the verdict speaks about.
+// Nil on a no-op decision and on every refusal — the list follows the commit.
 type ReviewResult struct {
 	Revision uint64
 	Stage    string
+	Affected []string
 }
 
 // reviewState is the stored half of the same fact, sized for a table with one
@@ -285,6 +291,13 @@ func (c Case) Review(ctx context.Context, target string, act ReviewAction,
 		return ReviewResult{}, err
 	}
 	res.Revision = out.rec.revision
+	// One entry seeds the walk, and the walk is the same rule as §5.4's: the
+	// verdict re-asks its unit, and whatever a guard hangs off the unit's own
+	// path rides along with it. No content moved, so no effect erased a fact
+	// and no role set can have changed; the empty terms cost nothing.
+	fan := newFanout(img)
+	seedCommit(fan, out.rec.changes, out.erased)
+	res.Affected = fan.affected()
 	c.notify(ctx, img, rec, out)
 	return res, nil
 }

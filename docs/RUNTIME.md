@@ -809,7 +809,10 @@ changed, plus the fields whose `Options` binding was reached —
 only value changes. No path strings are built to compute it, and no
 map is probed: results are slot sets rendered on demand. This is the
 machinery behind DESIGN §6.2's "changes such as province and city are
-evaluated together".
+evaluated together". The sentence is about the rule, not the verb that
+calls it: the same walk answers a batch, seeded by what a draft would
+write, and a commit, seeded by what the store recorded — §5.4, §5.9,
+§5.10 and §5.5 all ship it now (§9).
 
 Two of those three terms need no separate computation, and the reason
 is worth keeping beside the code. An options field must be re-fetched
@@ -875,7 +878,13 @@ special case because a transition presents no copy at all.
 What this section now pays in full is §4.2's two effects: the `verif`
 reset arrived with §5.9 and `sigEntry` invalidation with §5.10's `Sign`,
 both inside the store's `commit`, because §5.6's targets index the very
-diff this call writes.
+diff this call writes. The call now answers with the walk over what it
+wrote too: `CommitResult.Affected` (§9) seeds the fanout from the
+recorded entries by the kind each carries — a field's value, a row set's
+collection, a verdict's re-ask — beside the units §5.6's effects erased
+and the committer's own §3.5 fold, because a content commit is the one
+commit that can move it. An empty diff returns no list: there is no
+commit for one to describe.
 
 What it deliberately does not ask is the attestation itself: the walk
 skips a signature field's slot, which is §4.2's "excluding signature
@@ -961,7 +970,10 @@ held role resolves differs between the two — the common case, since
 transition permissions are not per-node (P1) and most definitions stage no
 grants at all. It is the acting actor's list, for the reason §5.3 gives: a
 second actor's answer is a second list, and whom to notify is DESIGN §7's
-`OnCommit` question.
+`OnCommit` question. The same machinery answers the three operations that
+write, seeded from the store's entries instead (§5.4, §5.9, §5.10): the
+seed is a property of the act, the walk a property of the definition,
+which is what makes §9's policy one rule rather than four.
 
 One line of §5.4's rebase rule is load-bearing here in a way it was not
 there. A commit moves its author's working copy forward only when that
@@ -1601,19 +1613,23 @@ asking a second question. A node under no `verifiable` declaration reports no
 unit, which §5.7's rule about absence states as a zero value rather than a
 flag.
 
-What `Review` does not pay, on the record: no `Affected` set, for the reason
-§9 gives and in the company of `Submit`'s missing one. What it pays is the
-history entry and a notification (§6): the dispatch runs at this commit's
-tail and hands the verdict entry the trail will render, the same
-`ReviewInfo` either way, which is what `TestVerdictAndTransitionRecords`
-asks of both shapes at once. And §5.11 reads the entry back in this
-section's own form: the same `ReviewInfo`, at the record's revision, with
-the hand the record's envelope names. It is written now because a history
-that cannot say who decided what is one the milestone that asks would have
-to rewrite, and because a reset writes
-no entry beside it — the trail holds both acts, so the state is free to keep
-only the standing one (§4.2). Its §5.10 counterpart, the `chgSign` entry, is
-written for the same reason and read the same way.
+What `Review` pays is now everything the record owed and the result did not:
+`ReviewResult.Affected` (§9) seeds the walk with its one entry, a verdict re-
+asked and its unit rendered, and the seed's own reach — the adjacency, not a
+subtree to say a verdict landed — is what §5.7's reset arrives through when the
+decision moved a fact somebody reads. A repeated verdict is refused work and
+answers with nothing, because there is no commit for a list to describe. What
+the record always paid stands beside it: the history entry and a notification
+(§6): the dispatch runs at this commit's tail and hands the verdict entry the
+trail will render, the same `ReviewInfo` either way, which is what
+`TestVerdictAndTransitionRecords` asks of both shapes at once. And §5.11 reads
+the entry back in this section's own form: the same `ReviewInfo`, at the
+record's revision, with the hand the record's envelope names. It is written now
+because a history that cannot say who decided what is one the milestone that
+asks would have to rewrite, and because a reset writes no entry beside it — the
+trail holds both acts, so the state is free to keep only the standing one
+(§4.2). Its §5.10 counterpart, the `chgSign` entry, is written for the same
+reason and read the same way.
 
 ### 5.10 Sign — an attestation about committed content
 
@@ -1645,7 +1661,7 @@ case's own numbers, and what the signature would attest to is asked only
 once the caller's freshness of view is known. `Sign` is the fourth
 operation that commits and the second whose commit says nothing about
 data, so it shares `Review`'s shape at every step that is not about the
-verdict — the store's commit call, the empty-`Affected` deferral, and the
+verdict — the store's commit call, the §9 result tail, and the
 rule that a signature does not move the stage. What it does not share is
 `ReviewResult`'s shape: `Review` refuses a caller who was not asked to
 decide, which is a fact about him and not about the case, while `Sign`
@@ -1773,10 +1789,12 @@ signature is never signable, whatever the grant, which is the shape test
 again on the read side, and an erased attestation leaves the field
 signable because nothing about the definition changed.
 
-What `Sign` does not pay, on the record: no `Affected` set, in the company
-of `Submit`'s and `Review`'s missing ones for §9's reason, and no verifier
-interface, which DESIGN §9 keeps as a deployment's. What it pays is §5.9's
-pair — the entry and the notification — and the record carries the
+What `Sign` does not pay, on the record: a verifier interface, which
+DESIGN §9 keeps as a deployment's. It pays the set §9 deferred —
+`SignResult.Affected`, the walk's smallest answer, one signature entry
+marking its own field, since an attestation is written by nothing whose
+validity the adjacency could carry elsewhere — beside §5.9's pair of the
+entry and the notification: and the record carries the
 attestation with the hand and the number its own commit produced, which is
 what `TestVerdictAndTransitionRecords` reads from it. §5.11 reads the entry
 back for the reason §5.9 gives: "whose hand stood at revision 12, and
@@ -2259,7 +2277,7 @@ an `Update` on it impossible.
 | `BenchmarkCondEval` | one `tagCmp` guard | 2.1 ns, 0 allocs |
 | `BenchmarkPermResolve` | 51 slots, one role | 403 ns, 0 allocs |
 | `BenchmarkResolvePath` | caller text → a cell | 70 ns, 0 allocs |
-| `BenchmarkTransition` | one committed stage move | 190 ns, 2 allocs |
+| `BenchmarkTransition` | one committed stage move | 211 ns, 2 allocs |
 | `BenchmarkTransitionGuard` | one refused stage move | 187 ns, 5 allocs |
 | `BenchmarkViewWide/all` | whole visible case, wide | 7.9 µs, 230 allocs |
 | `BenchmarkViewWide/one` | one field by path, wide | 1.3 µs, 21 allocs |
@@ -2273,12 +2291,12 @@ an `Update` on it impossible.
 | `BenchmarkDiscard/draft` | a batch, then the drop of it | 920 ns, 20 allocs |
 | `BenchmarkDiscard/absent` | `Discard(0)` beside no copy | 33 ns, 0 allocs |
 | `BenchmarkTransitionRequires` | one gated move in three | 370 ns, 3 allocs |
-| `BenchmarkReview` | one committed decision | 340 ns, 4 allocs |
-| `BenchmarkReviewNoOp` | a decision already standing | 79 ns, 1 alloc |
-| `BenchmarkReviewRefused` | a decision not granted | 140 ns, 4 allocs |
-| `BenchmarkSign` | one committed attestation | 480 ns, 8 allocs |
-| `BenchmarkSignNoOp` | an attestation already standing | 225 ns, 5 allocs |
-| `BenchmarkSignRefused` | an attestation not granted | 208 ns, 5 allocs |
+| `BenchmarkReview` | one committed decision | 448 ns, 7 allocs |
+| `BenchmarkReviewNoOp` | a decision already standing | 84 ns, 1 alloc |
+| `BenchmarkReviewRefused` | a decision not granted | 137 ns, 4 allocs |
+| `BenchmarkSign` | one committed attestation | 547 ns, 11 allocs |
+| `BenchmarkSignNoOp` | an attestation already standing | 224 ns, 5 allocs |
+| `BenchmarkSignRefused` | an attestation not granted | 202 ns, 5 allocs |
 | `BenchmarkSigReset/standing` | one entry, signature live | 193 ns, 4 allocs |
 | `BenchmarkSigReset/empty` | one entry, none live | 98 ns, 1 alloc |
 | `BenchmarkHistory/page` | 20 of a 1,000-commit trail | 2.3 µs, 28 allocs |
@@ -2289,39 +2307,40 @@ an `Update` on it impossible.
 | `BenchmarkHookSeam/view/bound` | a view re-asked | 10.52 µs, 260 allocs |
 | `BenchmarkCaseContextReads/value_fold` | one masked read | 54.6 ns, 0 allocs |
 | `BenchmarkCaseContextReads/value_range` | by scan | 57.2 ns, 0 allocs |
-| `BenchmarkCommitNotify/none` | a commit, no observers | 3.80 µs, 32 allocs |
-| `BenchmarkCommitNotify/one` | the same, one no-op | 4.45 µs, 36 allocs |
+| `BenchmarkCommitNotify/none` | a commit, no observers | 4.19 µs, 36 allocs |
+| `BenchmarkCommitNotify/one` | the same, one no-op | 4.97 µs, 40 allocs |
 
-The eight rows above §5.11's are §5.9's and §5.10's, and the five that go
-through an operation were measured in one process, twice each, with
-`BenchmarkReview` re-run beside them so the comparison is worth making. The
-re-run printed 338 to 344 ns against the 340 above, 81 against 79 and 140
-against 140, so the review rows are the same clock and not a borrowed one.
-The ordering does not depend on that clock at all: a refusal is the cheapest
-call of either kind, a commit the dearest, and a commit and its no-op differ
-by the store's work and nothing else — `BenchmarkSign` minus
-`BenchmarkSignNoOp` is 255 ns against `BenchmarkReview` minus
-`BenchmarkReviewNoOp` at 257, which is the claim that an attestation is a
-commit of the same size as a decision, stated as two subtractions.
+The eight rows above §5.11's are §5.9's and §5.10's, printed again after §9
+gave the committing results their list: five counts each at the fixed
+`-benchtime=200000x`, in one process that also re-ran `BenchmarkSubmit`,
+`BenchmarkSubmitNoOp` and `BenchmarkTransition`, so every subtraction below is
+a difference of code and not of clocks. The ordering does not depend on that
+clock at all: a commit is the dearest row of its kind either way, and a commit
+and its no-op differ by the store's work, the record and the new list, and
+nothing else — `BenchmarkSign` minus `BenchmarkSignNoOp` is 323 ns against
+`BenchmarkReview` minus `BenchmarkReviewNoOp` at 364, which is the claim that
+an attestation is a commit of the same size as a decision, stated as two
+subtractions. The list itself adds three objects to each committed row — the
+fanout's mark array and queue, and the array the render appends into — and four
+to `Submit`'s, the extra one being the fold §9's mask term reads.
 
 The difference between the two operations is what `Sign` asks first. A
 signature is refused unless the form is complete and decided, so the
 attestation carries §5.4's completeness walk and §5.9's pending-unit scan
-before it looks at the table — 140 ns over `BenchmarkReview` on this
-corpus, and the profile says the walk rather than the scan is where it
-goes: `pathsOf` and `hostsOf` together are half the allocations of the call,
-while the table itself is one index and one copy. The gate is asked before
-the dedup, so `BenchmarkSignNoOp` is not `BenchmarkReviewNoOp`'s
-near-nothing: a repeated attestation pays the whole readiness question and
-then discovers it is already true, which is the price of a guard that reads
-the case rather than the request. `BenchmarkSigReset`'s pair is the effect
-alone, measured against itself: 193 ns and 4 allocations where an
-attestation stands, against 98 ns and 1 where the table is empty, and the
-allocation left in the empty row is the fixture's own table rather than work
-the effect did — which is the property §5.6's `reach`/`open` split exists to
-buy. The gap between the rows is charged per commit and not per invalidated
-field, so the rebase that moves four fields of one form erases that form's
-signature once.
+before it looks at the table — 99 ns over `BenchmarkReview` on this corpus, and
+the profile says the walk rather than the scan is where it goes: `pathsOf` and
+`hostsOf` together are more than a third of the allocations of the call, while
+the table itself is one index and one copy. The gate is asked before the dedup,
+so `BenchmarkSignNoOp` is not `BenchmarkReviewNoOp`'s near-nothing: a repeated
+attestation pays the whole readiness question and then discovers it is already
+true, which is the price of a guard that reads the case rather than the
+request. `BenchmarkSigReset`'s pair is the effect alone, measured against
+itself: 193 ns and 4 allocations where an attestation stands, against 98 ns and
+1 where the table is empty, and the allocation left in the empty row is the
+fixture's own table rather than work the effect did — which is the property
+§5.6's `reach`/`open` split exists to buy. The gap between the rows is charged
+per commit and not per invalidated field, so the rebase that moves four fields
+of one form erases that form's signature once.
 
 Three things follow. A condition is two memory reads and a compare, so
 §3.4's "no type dispatch inside a running condition" is a cost claim and
@@ -2458,16 +2477,18 @@ commit and neither destination asks a `require`.)
 A decision is priced beside the stage move it most resembles: 1.8× a
 `Transition` at four allocations against two — the table copy, the one-entry
 diff, the history record — and the reason it is not *cheaper* than a stage
-move, when it walks nothing, is that it writes a slice a transition does
-not. Already standing, the same call is 0.42× a transition at one allocation:
-the fold, the resolution, the mask test, the unit test, the revision compare,
-and a return with no message in it, which is §7's property 7 priced — the
-door is cheaper than the commit, and nothing about the case is read to answer
-at it. A granted decision is 2.4× a refused one, and nearly all of the
-difference is the commit's three writes rather than any check.
+move, when it walks nothing, is that it writes a slice a transition does not.
+Already standing, the same call is 0.40× a transition at one allocation: the
+fold, the resolution, the mask test, the unit test, the revision compare, and a
+return with no message in it, which is §7's property 7 priced — the door is
+cheaper than the commit, and nothing about the case is read to answer at it. A
+granted decision is 3.3× a refused one, and nearly all of the difference is the
+commit's three writes, its record and §9's list rather than any check: the
+refused row is one of this slice's flat lines, moved in nothing, because §6.3's
+refusal answers before the tail that builds a list runs.
 
 Beside the operation that decides content, an accepted `Submit` on the same
-corpus is 6.8× a `Review`: a review runs neither of §5.4's walks, grafts no
+corpus is 5.8× a `Review`: a review runs neither of §5.4's walks, grafts no
 state and diffs nothing. §5.9's claim that the operation is therefore this
 package's cheapest commit is only true of the *store*: `Review` is dearer
 than `Discard`'s no-copy path by an order of magnitude, and that is the
@@ -2685,16 +2706,31 @@ the registry's lookups and the snapshot's construction rather than this header.
 most, a submit, whose commit also runs §5.6's effects and whose record is the
 widest one; each iteration is one edit and one commit, so what separates the
 rows is only whether an observer was registered. Silence costs a median of
-3,877 ns over five repeats in one process, 32 allocations; the first no-op
-observer costs 656 ns more and exactly four objects, and they have names —
-the role list the fold reads, the `viewable` array record and context
-consult together, the entry slice the record carries, the pinned snapshot
-handed beside it. A third observer adds 43 ns and no object, because every
-one of those is allocated per dispatch and not per listener; a host with
-real work in its callback pays its own cost, which is the engine's share
-and not the feature's price. What an unwired host pays is none of it: the
-tail reads a nil list and returns, one lookup for a seam with no bindings,
-the same shape §8 priced for the other two.
+4,194 ns over five repeats in one process, 36 allocations, four of them §9's
+commit walk arriving on the submit's own tail; the first no-op observer costs
+777 ns more and exactly four objects, and they have names — the role list the
+fold reads, the `viewable` array record and context consult together, the entry
+slice the record carries, the pinned snapshot handed beside it. A third
+observer adds no object, and its time printed inside the second's spread,
+because every one of those is allocated per dispatch and not per listener; a
+host with real work in its callback pays its own cost, which is the engine's
+share and not the feature's price. What an unwired host pays is none of it: the
+tail reads a nil list and returns, one lookup for a seam with no bindings, the
+same shape §8 priced for the other two.
+
+Charged against the previous commit again — one machine, one day, five
+repeats at the fixed count in a process on each side, medians throughout
+— §9's walk costs a committing operation its objects and little of its
+time: `Submit` from 2,532 ns and 44 allocations to 2,620 and 48, `Review`
+from 380 and 4 to 448 and 7, `Sign` from 523 and 8 to 547 and 11, each of
+the three by exactly 120 bytes. The absolute times moved with the day the
+way they always do; the object counts are the claim, and they are what the
+policy priced: one fanout, one render, and for a content commit alone the
+mask term's second fold. The rows that commit nothing are flat on the
+object axis and on the byte axis both — 20 allocations and 4,869 bytes, 1
+and 5, 5 and 101, identical either side of the change — because an
+operation that records nothing walks nothing, which is §6.3's refusal rule
+finally arriving where its cost can be read off a table.
 
 Nor is any "× faster than the compiled tree" ratio measured: that would
 mean an interpreted-tree harness, and building one to prove a point the
@@ -2751,20 +2787,21 @@ a re-run shows.
   shared skeleton would have to be parameterized by exactly the thing it
   would factor out, which is §2.3's argument against a general VM stated at
   the operation seam.
-- **One `Affected` policy is a milestone 5–6 decision.** DESIGN §6.4
-  promises an affected set for every committing operation; `Submit`,
-  `Review` and `Sign` ship without one and `Transition` with the §5.5
-  definition walk. The observer seam has since landed (§6), and it settled
-  the half of this question it could settle: a notification is a commit's
-  own diff rendered at the caller's mask, so it needs nothing any result
-  carries. What remains is therefore a results question and not a hooks
-  one — whether the four operations grow the §5.3 walk at all — and the
-  four are decided together, not one operation at a time. The two verdict
-  acts keep asking the question that makes deferral the honest answer
-  rather than a gap: a decision and an attestation each change no
-  content, so an affected set for either could only name a subtree to say
-  that a verdict landed, which is a notification payload and not a §5.3
-  walk.
+- **One `Affected` policy is settled; the fan-out is not.** DESIGN §6.4's
+  list arrives at every operation that commits: `Submit` from the entries
+  recorded, the units §5.6 erased and the committer's fold that a content
+  commit can move (§5.4), `Review` and `Sign` from their one verdict or
+  signature entry (§5.9, §5.10), `Transition` from the stage it landed
+  (§5.5), and `Update` from what its draft would write (§5.3). One
+  machinery, and the seed is whatever the act changed; nothing committed,
+  nothing answered. The lists are unfiltered — §5.3's superset rule,
+  because pruning by the reader's mask would make a refresh answer two
+  questions at once — and per-actor delivery stays exactly where DESIGN
+  §7 put it: the result answers for the actor who acted, §6's observer
+  hands the trail to everybody else, and a host that pushes per-viewer
+  refreshes derives each recipient's list from that record. The undecided
+  half is delivery — retries, ordering, transports — and none of it is
+  the engine's question this bullet used to park.
 - **A hook result that carries a code is still undecided.** The exported
   signature answers a value with `(Value, error)`, and the one error word
   means two things depending on the call: against a value arriving it
@@ -2853,6 +2890,11 @@ from the front: §6's `OnCommit` is a runtime seam now, a commit's record
 dispatched at the tail of each of the four operations that make one, and
 what remains of notification was never the engine's to ship — delivery is
 the host's, which is why the seam hands a value and no queue (DESIGN §7).
+The results closed rank with it: `Submit`, `Review` and `Sign` answer
+with `Affected` too, the same walk seeded from what the store recorded
+rather than from a draft (§5.4, §5.9, §5.10, §9), which retires the last
+dependency §6.4's deferral had claimed and leaves the per-actor fan-out
+as the whole of the host's side.
 And §6's hook contract is exported now,
 which is what closes milestone 2's validation item and milestone 3's hook
 item in one piece: `RegisterValidate` keyed by
@@ -2917,7 +2959,9 @@ func (c Case) Review(ctx, target string, act ReviewAction,
 // about the form's readiness, which `Review` never asks.
 func (c Case) Sign(ctx, field string, observed uint64,
     evidence string) (SignResult, error)
-type SignResult struct{ Revision uint64; Stage string; Missing []string }
+type SignResult struct {
+    Revision uint64; Stage string; Affected []string; Missing []string
+}
 
 // Whose hand stands behind a signature field, as the view reports it. `At` is
 // the revision the attestation's own commit produced, so the content it bound
@@ -2939,7 +2983,8 @@ type ChangeResult struct{ Working uint64; Created, Affected []string }
 
 // What a submit reached, and — when it committed nothing — what stopped it.
 type CommitResult struct {
-    Revision uint64; Stage string; Missing []string; Invalid []FieldProblem
+    Revision uint64; Stage string; Affected []string
+    Missing []string; Invalid []FieldProblem
 }
 type FieldProblem struct { Path, Code, Msg string }
 
@@ -2950,10 +2995,11 @@ type TransitionResult struct {
     Revision uint64; Stage string; Affected, Missing []string
 }
 
-// What a decision reached: the case's new number and its stage. A review
-// asks nothing about content, so there is no `Missing` list here — the
+// What a decision reached: the case's new number, its stage, and the
+// paths its verdict's re-ask and reset reached (§9). A review asks
+// nothing about content, so there is no `Missing` list here — the
 // approvals a destination still wants are `Transition`'s answer (§5.5).
-type ReviewResult struct{ Revision uint64; Stage string }
+type ReviewResult struct{ Revision uint64; Stage string; Affected []string }
 type ReviewAction string  // APPROVE · REJECT · REVOKE
 type ReviewState string   // PENDING · APPROVED · REJECTED, the unset answer
 
@@ -3125,8 +3171,11 @@ renders a form's gaps without parsing a message, and reads the revision it
 must reload at out of the same value.
 
 `Review` is the third commit and the first whose commit says nothing about
-data (§5.9), which is why its method takes no working copy and its result
-no `Affected` set. `Sign` is the fourth and the second of both kinds (§5.10),
+data (§5.9), which is why its method takes no working copy — but not why
+its result carries an `Affected` set: §9's rule is that lists follow the
+entries, not the content, and a verdict's re-ask and a signature's mark
+are seeds like any other. `Sign` is the fourth and the second of both
+kinds (§5.10),
 and it takes no working copy for the same reason and a `Missing` list for a
 different one: a review refuses a caller who was not asked to decide, while
 a signature refuses a form that is not ready, and readiness is a list of

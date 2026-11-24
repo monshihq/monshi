@@ -80,6 +80,19 @@ type CommitResult struct {
 	// this candidate, each with the path it lives at. Empty on a submit that
 	// committed.
 	Invalid []FieldProblem
+
+	// Affected is §5.3's walk over what this commit moved: the submitted
+	// entries, the decisions and attestations §5.6's effects erased beside
+	// them — the facts the diff does not record and history will not show as
+	// removals — and, when the commit conferred or withdrew one of the
+	// submitter's own roles, the subtrees whose *visibility* moved with it.
+	// Declaration-addressed, sorted, prefix-free, and a superset by the same
+	// right the batch list claims: a client refreshes these paths after the
+	// commit and asks nothing else why. Nil on a submit that committed
+	// nothing and on every refusal. What the list cannot answer is which
+	// *other* actors a role commit just changed the view of; that question is
+	// per reader, and it belongs to the observer seam (§6, §9).
+	Affected []string
 }
 
 // Submit commits one form of this actor's working copy (DESIGN §6.3).
@@ -222,6 +235,21 @@ func (c Case) Submit(ctx context.Context, form string,
 		return CommitResult{}, err
 	}
 	res.Revision = out.rec.revision
+
+	// The affected set runs on the installed state and the erased targets,
+	// after the store's yes for the reason update.go gives its own walk: a
+	// closure is news about a commit, and a refused one has none to carry.
+	// The role term is the one a batch never had — committing a role-typed
+	// field moves §3.5's function for the actor who committed it, and this
+	// is the only operation whose own data can do that.
+	fan := newFanout(img)
+	seedCommit(fan, out.rec.changes, out.erased)
+	if now := img.rolesHeld(c.actor, out.post.s); !roleSetsMatch(roles, now) {
+		for _, n := range img.roleChanges(roles, now, out.post.stage) {
+			fan.reask(n)
+		}
+	}
+	res.Affected = fan.affected()
 	c.notify(ctx, img, rec, out)
 	return res, nil
 }

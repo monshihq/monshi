@@ -776,21 +776,21 @@ historical replay landed with the read that asked for it (RUNTIME §5.11), which
 is where the two verdict entries §5.6 justified per operation stop being
 provisions and start being answers. RUNTIME §10 states what exists today.
 
-`Transition` follows it out of order for the same reason and one of its own:
-it is the other operation that commits, and unlike `Review` and `Sign` it
-needs nothing that does not exist yet — a declared edge, two masks, one
-condition and the completeness pass `Submit` already runs. Of the
-destination's `require` it runs all three conjuncts today: completeness, the
-`verif` units, and the signatures a `required` field must hold, the last
-arriving with `Sign` (§4.2, RUNTIME §5.5). Two
-details of §6.4's sketch are refined by the shipping shape: the
-result is a `TransitionResult` rather than a `CommitResult`, because the
+`Transition` follows it out of order for the same reason and one of its own: it
+is the other operation that commits, and unlike `Review` and `Sign` it needs
+nothing that does not exist yet — a declared edge, two masks, one condition and
+the completeness pass `Submit` already runs. Of the destination's `require` it
+runs all three conjuncts today: completeness, the `verif` units, and the
+signatures a `required` field must hold, the last arriving with `Sign` (§4.2,
+RUNTIME §5.5). Two details of §6.4's sketch are refined by the shipping shape:
+the result is a `TransitionResult` rather than a `CommitResult`, because the
 `affected` path set promised above is a stage move's own answer — paths whose
 *visibility* moved, with no value behind them — while a submit's affected set
-is the fanout `Update` already reported; and the number the call takes is
-named for the thing it is, the observed committed revision, since invariant
-5's refusal is about what the caller was shown rather than what it holds.
-Invariant 5's second half is now enforced by code rather than by intent.
+is the fanout over the paths its commit recorded, which the same edit's batch
+had usually named already (RUNTIME §5.4, §9); and the number the call takes is
+named for the thing it is, the observed committed revision, since invariant 5's
+refusal is about what the caller was shown rather than what it holds. Invariant
+5's second half is now enforced by code rather than by intent.
 
 `View` is the third item taken out of order, and its reason is the one
 the other two lacked: it is not an operation that can be deferred past
@@ -843,11 +843,12 @@ half has landed from the engine's side: `OnCommit` is a runtime seam
 (RUNTIME §6), dispatched at the tail of each operation that commits and
 handed the trail's own record, masked at the actor whose act it was.
 What remains the host's is the half this section always assigned it —
-delivery, retries, the fan-out to whoever else should hear — and the
-deferral lost the dependency it had claimed: a notification renders the
-commit's own diff, so the results that still lack an affected-path list
-neither starve the observer nor force RUNTIME §9's policy to be written
-early. The other two hooks
+delivery, retries, the fan-out to whoever else should hear. The
+dependency this deferral once claimed is gone from both directions: a
+notification renders the commit's own diff, and every result that
+commits now answers with an affected-path list of its own (RUNTIME §5.4,
+§5.9, §5.10, §9), so the observer and the client's refresh no longer
+wait on each other. The other two hooks
 of §7 are shipped, signature and read-only context together. The deferral at the
 end of §6.5 survives its own implementation — the merge takes a side nobody
 moved and refuses to choose between two sides that did, so the detailed

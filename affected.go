@@ -1,5 +1,7 @@
 package monshi
 
+import "slices"
+
 // The update fanout (RUNTIME §5.3): which declarations a batch may have
 // changed the *view* of.
 //
@@ -55,14 +57,21 @@ package monshi
 // TestAffectedReachesAFieldWhoseOptionsBindingWasTouched, the case §5.3 calls
 // out.
 //
-// A commit is the one case this walk does not serve as it stands, and it is
-// worth naming rather than leaving to inference: committing a role-typed
-// value moves an input to §3.5's function *for somebody else*, so the paths
-// whose view changed are a question about which actors gained or lost a role.
-// That is per-actor, and one list cannot answer it, so it belongs to whoever
-// decides whom to notify (DESIGN §6.5, §7's `OnCommit`) rather than to a
-// field of a commit result. What a commit does reuse from here is the closure
-// rule itself — see submit.go's diff, which feeds the same adjacency.
+// A commit is this walk's second caller (RUNTIME §5.4, §9). The seed set is
+// the commit's own entries, what §5.6's effects erased beside them, and —
+// when the commit conferred or withdrew one of *this* actor's roles — the
+// topmost nodes whose mask moved, which no adjacency edge can reach because
+// §3.5's masks read the role set and no guard's operand does. The committer's
+// list then answers exactly what the batch list answers, one act later: what
+// may now render differently for the actor who acted.
+//
+// What stays out of any result, by the argument this file made first: a
+// commit moves §3.5's function for the *other* actors a role change reaches,
+// one list cannot answer a question per reader, and who learns of it belongs
+// to whoever decides whom to notify (DESIGN §6.5) — starting, since §6, from
+// the observer record each commit dispatches. The seed rules and the role
+// walk below are the caller's half; the fan-out to other actors was never a
+// field of anything here.
 //
 // The one place the walk is charged rather than free is the visited set: one
 // byte per slot and one `nodeID` per slot, both sized by the count lowering
@@ -227,4 +236,79 @@ func (img *image) overlaysDiffer(roles []roleID, from, to stageID) bool {
 		}
 	}
 	return false
+}
+
+// seedCommit feeds one commit's facts into a walk, and the entry's kind
+// decides the shape — the same question §5.6's effects and §5.11's rendering
+// ask of every entry, because what a client re-renders is a function of what
+// kind of fact moved. A value marks its cell and a row set marks the
+// collection, which is §5.3's Add/Remove rule at the other end: the entry
+// keys the container, and a client counts rows per declaration. A decision
+// re-asks the unit's subtree, because the verdict renders across it — this is
+// the one place the §5.9 answer says "the group, not the flag". An
+// attestation marks its field, whose rendering is the field's own.
+//
+// `erased` is what the store's effects removed and the diff does not record:
+// a reset writes no entry beside the content that caused it (DESIGN §4.2),
+// so without this seed a client would learn of a vanished decision only by
+// rendering it. The units come back as `reask` seeds for the same reason a
+// verdict entry does: what moved is the fact shown across the unit.
+func seedCommit(fan *fanout, changes []commitChange, erased []nodeID) {
+	for _, ch := range changes {
+		switch ch.kind {
+		case chgValue:
+			fan.wroteField(ch.slot)
+		case chgRows:
+			fan.wroteRows(ch.slot)
+		case chgReview:
+			fan.reask(ch.slot)
+		case chgSign:
+			fan.wroteField(ch.slot)
+		}
+	}
+	for _, n := range erased {
+		fan.reask(n)
+	}
+}
+
+// roleSetsMatch asks two folded role lists the one question a commit cares
+// about: whether §3.5's function was handed the same input. `rolesHeld`
+// orders by data rather than by ordinal, so membership is the comparison and
+// the lengths are its cheap no.
+func roleSetsMatch(a, b []roleID) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, r := range a {
+		if !slices.Contains(b, r) {
+			return false
+		}
+	}
+	return true
+}
+
+// roleChanges is `viewChanges`' mirror, asked of the argument a commit can
+// move and a stage move cannot: two role sets at the one stage the case sits
+// at. The skip that keeps the common case free is the caller's own — equal
+// folded lists mean every slot was handed the same inputs, which is
+// overlaysDiffer's argument transposed to the other parameter, and it is a
+// claim about cost in the same way: the walk may only skip work, never a
+// verdict.
+func (img *image) roleChanges(from, to []roleID,
+	stage stageID) []nodeID {
+	var out []nodeID
+	cover := nodeID(0)
+	for n := nodeID(1); n < nodeID(len(img.slots)); n++ {
+		if n < cover {
+			continue
+		}
+		was := img.effective(from, stage, n)&permView != 0
+		now := img.effective(to, stage, n)&permView != 0
+		if was == now {
+			continue
+		}
+		out = append(out, n)
+		_, cover = img.subtree(n)
+	}
+	return out
 }

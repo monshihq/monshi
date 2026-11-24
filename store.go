@@ -609,8 +609,16 @@ var commitEffects = []commitEffect{verifReset{}, sigReset{}}
 // the caller's own copy of the case's state, and the replace-never-mutate rule
 // is kept by `open`, which hands back a fresh table and never edits the stored
 // one.
+//
+// It answers with everything it erased. §5.6's effects remove facts the diff
+// does not record — a reset writes no entry beside the content that caused it —
+// and §5.3's walk is what turns those removals into paths a client can re-ask
+// about, so the caller of a content commit needs the list even though history
+// does not. The two effects' targets can name the same slot only by the
+// caller's seed doing it twice, which is what a mark array is for.
 func applyCommitEffects(img *image, next *committedState,
-	changes []commitChange, effects []commitEffect) {
+	changes []commitChange, effects []commitEffect) []nodeID {
+	var erased []nodeID
 	for _, e := range effects {
 		var hits []nodeID
 		for _, ch := range changes {
@@ -635,7 +643,9 @@ func applyCommitEffects(img *image, next *committedState,
 		for _, n := range hits {
 			e.erase(next, n)
 		}
+		erased = append(erased, hits...)
 	}
+	return erased
 }
 
 // addHit collects a removal target the caller has not counted yet. Both effects
@@ -663,6 +673,13 @@ type committed struct {
 	rec  commitRecord
 	post committedState
 	copy uint64 // the committer's own copy number, as this commit left it
+
+	// erased is what §5.6's effects removed on the way in: the units whose
+	// decisions the commit invalidated and the fields whose attestations it
+	// undid. No entry says any of it — the state keeps only what stands, and
+	// the trail is the account of what stood — so the commit result's
+	// affected set (§5.3, §5.4) is where a caller learns of it.
+	erased []nodeID
 }
 
 // commit replaces a case's committed snapshot, appends the commit that says
@@ -745,7 +762,7 @@ func (s *caseStore) commit(refuse refuser, img *image, want uint64,
 	// the heap and make every commit in the language pay an allocation for a
 	// rule that reads two arrays.
 	rec.commit = next
-	applyCommitEffects(img, &rec.commit, by.changes, commitEffects)
+	erased := applyCommitEffects(img, &rec.commit, by.changes, commitEffects)
 	rec.revision++
 	entry := commitRecord{
 		revision: rec.revision,
@@ -765,7 +782,8 @@ func (s *caseStore) commit(refuse refuser, img *image, want uint64,
 		}
 		copyRev = w.rev
 	}
-	return committed{rec: entry, post: rec.commit, copy: copyRev}, nil
+	return committed{rec: entry, post: rec.commit, copy: copyRev,
+		erased: erased}, nil
 }
 
 // window is the part of a case's history a reader asked for: the entries from

@@ -79,10 +79,15 @@ type SignatureInfo struct {
 // has paths attached. The signature's own absence is not among them: signing is
 // how this call answers that question, and a refusal that listed it would tell
 // the caller to do the thing they were doing.
+//
+// `Affected` names the attested field, §5.3's same rule asked of the one
+// entry this commit writes: the field's rendering moved and its dependents
+// with it. Nil on an already-standing signature and on every refusal.
 type SignResult struct {
 	Revision uint64
 	Stage    string
 	Missing  []string // §5.4's content gaps and §5.5's undecided units
+	Affected []string
 }
 
 // sigState is the stored form of an attestation, one entry per signature field
@@ -245,6 +250,11 @@ func (c Case) Sign(ctx context.Context, target string, observed uint64,
 		return SignResult{}, err
 	}
 	res.Revision = out.rec.revision
+	// §5.9's pair again: one entry, the field's own slot, and the walk that
+	// says what else its rendering reached.
+	fan := newFanout(img)
+	seedCommit(fan, out.rec.changes, out.erased)
+	res.Affected = fan.affected()
 	c.notify(ctx, img, rec, out)
 	return res, nil
 }

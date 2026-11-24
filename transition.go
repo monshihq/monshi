@@ -287,6 +287,10 @@ func (c Case) Transition(ctx context.Context, dest string,
 	// The actor's roles are unchanged by the move — a transition assigns
 	// nothing — so the two stages are the only difference in what §3.5's
 	// function is handed, and the answer needs no state.
+	// §5.4's rule, with this commit's two empty terms empty: a transition
+	// writes no entries and erases no fact, and the only §3.5 input it moves
+	// is the stage — for this actor alone, which is why a stage walk answers
+	// in one list what a role commit can only answer per reader (§5.3).
 	res.Affected = img.viewChanges(roles, from, to)
 	c.notify(ctx, img, rec, out)
 	return res, nil
