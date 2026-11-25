@@ -19,144 +19,22 @@ package engine
 
 import (
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/monshihq/monshi/internal/program"
-	"github.com/monshihq/monshi/schema"
+	"github.com/monshihq/monshi/internal/testfixture"
 	"github.com/shopspring/decimal"
 )
-
-// parse is the front end, measured separately so §8's "schema → image"
-// row is not silently charged the lexer.
-func parse(tb testing.TB, src string) *schema.Schema {
-	tb.Helper()
-	s, err := schema.Parse(strings.NewReader(src))
-	if err != nil {
-		tb.Fatalf("schema.Parse: %v", err)
-	}
-	if len(s.Errors) != 0 {
-		tb.Fatalf("definition does not compile: %v", s.Errors)
-	}
-	return s
-}
 
 // mustLower is compile() without a *testing.T to insist on, and a TB so a
 // test can build the same fixture a benchmark times.
 func mustLower(tb testing.TB, id, src string) *program.Program {
 	tb.Helper()
-	img, err := program.Compile(id, parse(tb, src))
+	img, err := program.Compile(id, testfixture.Parse(tb, src))
 	if err != nil {
 		tb.Fatalf("lower: %v", err)
 	}
 	return img
-}
-
-// lowerOnly runs just lowering on a pre-compiled definition.
-func lowerOnly(b *testing.B, id string, s *schema.Schema) *program.Program {
-	b.Helper()
-	img, err := program.Compile(id, s)
-	if err != nil {
-		b.Fatalf("lower: %v", err)
-	}
-	return img
-}
-
-// BenchmarkLowerSpecExample is DESIGN §3's whole load: text in, image
-// out, for the definition the language document is written around.
-func BenchmarkLowerSpecExample(b *testing.B) {
-	src := specExample(b)
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		img := mustLower(b, "bench", src)
-		if img.SlotCount() != 20 {
-			b.Fatalf("image has %d slots, want the §7 example's 20",
-				img.SlotCount())
-		}
-	}
-}
-
-// BenchmarkLoweringOnly separates §9's serialization argument from the
-// front end it would save: this is the rebuild cost alone.
-func BenchmarkLoweringOnly(b *testing.B) {
-	s := parse(b, specExample(b))
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		img := lowerOnly(b, "bench", s)
-		if img.ConditionCount() < 2 {
-			b.Fatalf("image has %d conditions", img.ConditionCount())
-		}
-	}
-}
-
-// wideSrc is §8's generated corpus: one form, 40 fields, 6 roles, 5
-// stages, and one collection whose instances a request would carry. The
-// roles carry `view, edit all` rather than view alone so a benchmark on
-// this corpus can hold content: an empty frame makes a `View` traversal
-// cheaper than the profile §8 describes, and an `Update` on it impossible.
-func wideSrc(tb testing.TB) string {
-	tb.Helper()
-	var w strings.Builder
-	w.WriteString("roles {\n")
-	for r := 0; r < 6; r++ {
-		name := "R" + strconv.Itoa(r)
-		w.WriteString("    " + name + " { allow view, edit all; }\n")
-	}
-	w.WriteString("}\n\nforms {\n    f {\n")
-	for i := 0; i < 40; i++ {
-		n := strconv.Itoa(i)
-		switch i % 4 {
-		case 0:
-			w.WriteString("        i" + n + " : integer;\n")
-		case 1:
-			w.WriteString("        s" + n + ` : string;` + "\n")
-		case 2:
-			w.WriteString("        d" + n +
-				" : decimal(12,2) default 1.00;\n")
-		default:
-			w.WriteString("        b" + n + " : boolean;\n")
-		}
-	}
-	w.WriteString("        rows multiple {\n")
-	for i := 0; i < 8; i++ {
-		w.WriteString("            c" + strconv.Itoa(i) + " : integer;\n")
-	}
-	w.WriteString("        }\n    }\n}\n\nstages {\n")
-	for s := 0; s < 5; s++ {
-		name := "s" + strconv.Itoa(s)
-		w.WriteString("    " + name + " {\n")
-		w.WriteString("        allow R" + strconv.Itoa(s) + " submit f;\n")
-		if s < 4 {
-			w.WriteString("        accept s" + strconv.Itoa(s+1) + ";\n")
-		}
-		w.WriteString("    }\n")
-	}
-	w.WriteString("}\n")
-	return w.String()
-}
-
-func BenchmarkLoweringWide(b *testing.B) {
-	src := wideSrc(b)
-	b.ReportAllocs()
-	var slots int
-	for i := 0; i < b.N; i++ {
-		img := mustLower(b, "wide", src)
-		slots = img.SlotCount()
-	}
-	b.ReportMetric(float64(slots), "slots/op")
-}
-
-// BenchmarkLoweringWideOnly is §9's serialization argument on the corpus
-// it describes: the 51-slot image rebuilds in microseconds, so shipping
-// images instead of source buys nothing measurable.
-func BenchmarkLoweringWideOnly(b *testing.B) {
-	s := parse(b, wideSrc(b))
-	b.ReportAllocs()
-	var slots int
-	for i := 0; i < b.N; i++ {
-		slots = lowerOnly(b, "wide", s).SlotCount()
-	}
-	b.ReportMetric(float64(slots), "slots/op")
 }
 
 // BenchmarkCondEval runs the §7 example's own guard: internal
@@ -188,7 +66,7 @@ func BenchmarkCondEval(b *testing.B) {
 // reports ns per slot, because "2 bitmap ops per node" is the claim
 // being measured, not the loop around it.
 func BenchmarkPermResolve(b *testing.B) {
-	img := mustLower(b, "bench", wideSrc(b))
+	img := mustLower(b, "bench", testfixture.Wide(b))
 	role := findRole(img, "R1")
 	stage := findStage(img, "s1")
 	roles := []program.RoleID{role} // the actor's set is a request fact, not a loop body
@@ -291,7 +169,7 @@ func BenchmarkUpdate(b *testing.B) {
 // collapse drops.
 func BenchmarkUpdateFanout(b *testing.B) {
 	spec := mustLower(b, "spec", specExample(b))
-	wide := mustLower(b, "wide", wideSrc(b))
+	wide := mustLower(b, "wide", testfixture.Wide(b))
 	floor := findSlot(spec, "application.full_name")
 	guarded := findSlot(spec, "application.kind")
 	unread := findSlot(wide, "f.s1")
@@ -507,7 +385,7 @@ func BenchmarkTransitionGuard(b *testing.B) {
 func benchWideCase(tb testing.TB, rows int) Case {
 	tb.Helper()
 	rt := NewRuntime()
-	d := &Definition{img: mustLower(tb, "wide", wideSrc(tb))}
+	d := &Definition{img: mustLower(tb, "wide", testfixture.Wide(tb))}
 	if err := rt.Register(d); err != nil {
 		tb.Fatalf("Register: %v", err)
 	}
@@ -551,7 +429,7 @@ func benchWideCase(tb testing.TB, rows int) Case {
 // not per node, so they appear in both rows and the difference is the nodes.
 func BenchmarkViewWide(b *testing.B) {
 	b.Run("all", func(b *testing.B) {
-		slots := mustLower(b, "wide", wideSrc(b)).SlotCount()
+		slots := mustLower(b, "wide", testfixture.Wide(b)).SlotCount()
 		c := benchWideCase(b, 4)
 		pre, err := c.View(ctx())
 		if err != nil {

@@ -69,7 +69,6 @@ func (d *differ) set(coll program.NodeID) {
 			// own diff already knows.
 			d.out = append(d.out, commitChange{
 				kind: chgRows, slot: coll, path: host,
-				v:   program.Cell{Set: len(after) > 0, Int: int64(len(after))},
 				ids: rowIDs(after),
 			})
 		}

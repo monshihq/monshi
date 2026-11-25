@@ -514,9 +514,9 @@ func TestAReviewCommitSaysWhoAndWhen(t *testing.T) {
 		t.Errorf("the entry is kind %d at slot %d path %v, want a decision at"+
 			" the unit with no instance path", ch.kind, ch.slot, ch.path)
 	}
-	if ch.v.Int != int64(verifRejected) || ch.v.Text != "incomplete" {
+	if ch.decision != verifRejected || ch.note != "incomplete" {
 		t.Errorf("the entry carries %d %q, want the decision and its note",
-			ch.v.Int, ch.v.Text)
+			ch.decision, ch.note)
 	}
 	if rec.stage != stored(t, rt, c).commit.stage {
 		t.Errorf("the entry's stage is %d, want the stage the case is at",

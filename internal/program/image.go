@@ -274,6 +274,7 @@ type hookKey struct {
 // Program is one lowered definition: immutable after construction, shared by
 // every goroutine and actor without locks (RUNTIME §7).
 type Program struct {
+	layout   [32]byte
 	id       string
 	slots    []Slot
 	children []NodeID

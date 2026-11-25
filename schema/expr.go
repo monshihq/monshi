@@ -282,8 +282,13 @@ func decimalFits(text string, t *Type) bool {
 	if err != nil {
 		return false
 	}
-	r := d.Round(int32(t.Scale))
-	return r.Equal(d) && r.NumDigits() <= t.Precision
+	return FitsDecimal(d, t.Precision, t.Scale)
+}
+
+// FitsDecimal reports whether d fits decimal(precision, scale) without rounding.
+func FitsDecimal(d decimal.Decimal, precision, scale int) bool {
+	r := d.Round(int32(scale))
+	return r.Equal(d) && r.NumDigits() <= precision
 }
 
 // checkDefault enforces F5: the operand must be a compile-time constant

@@ -260,13 +260,15 @@ func TestCodecRefusals(t *testing.T) {
 			{kind: chgValue, slot: slotByPath(t, img, "box.note"),
 				v: program.Cell{Set: true, Text: "x"}},
 			{kind: chgRows, slot: slotByPath(t, img, "box.items"),
-				path: instPath{{coll: 9, id: 4}},
-				ids:  []instanceID{5, 6}},
+				ids: []instanceID{5, 6}},
 			{kind: chgReview, slot: slotByPath(t, img, "box")},
 			{kind: chgSign, slot: slotByPath(t, img, "box")},
 		},
 	}
 	rbuf := encodeRecord(img, rec)
+	if _, err := decodeRecord(img, rbuf); err != nil {
+		t.Fatal(err)
+	}
 	for _, cut := range prefixes(len(rbuf)) {
 		if _, err := decodeRecord(img, rbuf[:cut]); err == nil {
 			t.Errorf("record truncation at %d/%d decoded", cut, len(rbuf))
@@ -289,7 +291,7 @@ func TestCodecRefusals(t *testing.T) {
 	// at each of the three places a count can promise one. These must
 	// refuse, and refusing must not mean a panic on the write.
 	nSlots := byte(img.SlotCount())
-	revs := []byte{codecVersion,
+	revs := []byte{legacyVersion,
 		0,               // seq
 		0,               // base cells
 		2, 13, 0, 15, 0, // two empty sets, the image's own ordinals
@@ -301,7 +303,7 @@ func TestCodecRefusals(t *testing.T) {
 	if _, err := decodeCommitted(img, revs); err == nil {
 		t.Error("out-of-image review slot decoded")
 	}
-	sigs := []byte{codecVersion,
+	sigs := []byte{legacyVersion,
 		0, 0, 2, 13, 0, 15, 0, 1,
 		0, 0, // reviews: absent
 		5, 1, nSlots, 1, 'x', 0, 0, // a signature at no slot
@@ -309,7 +311,7 @@ func TestCodecRefusals(t *testing.T) {
 	if _, err := decodeCommitted(img, sigs); err == nil {
 		t.Error("out-of-image signature slot decoded")
 	}
-	cellsBuf := []byte{codecVersion,
+	cellsBuf := []byte{legacyVersion,
 		0,     // seq
 		1, 63, // one base cell, at a slot past the image
 		2, 13, 0, 15, 0,
@@ -321,7 +323,7 @@ func TestCodecRefusals(t *testing.T) {
 	// A history entry at a slot the image does not have. Entries are
 	// decoded without a row to bound them, so the cell's own check is
 	// the one that must refuse.
-	recSlot := []byte{codecVersion, 1,
+	recSlot := []byte{legacyVersion, 1,
 		0, 0, 0, 3, 'U', 'T', 'C', // the instant, 1970 at UTC
 		4, 'd', 'a', 'n', 'a', // the actor
 		1, 1, // op and stage
@@ -506,7 +508,7 @@ func sameRecord(img *program.Program, a, b commitRecord) bool {
 		ac, bc := &a.changes[i], &b.changes[i]
 		if ac.kind != bc.kind || ac.slot != bc.slot ||
 			!reflect.DeepEqual(ac.path, bc.path) ||
-			!sameCell(img, ac.slot, ac.v, bc.v) ||
+			ac.decision != bc.decision || ac.note != bc.note || !sameCell(img, ac.slot, ac.v, bc.v) ||
 			!reflect.DeepEqual(ac.ids, bc.ids) {
 			return false
 		}

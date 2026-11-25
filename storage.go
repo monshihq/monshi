@@ -24,6 +24,8 @@ type Receipt = engine.Receipt
 
 // Storage persists opaque case data. Each method is individually atomic and
 // must honor context cancellation. An unknown case returns ErrNoSuchCase.
+// Byte slices are caller-owned: copy data retained across calls and return
+// buffers that the caller may modify without changing stored records.
 type Storage interface {
 	// Create allocates a new ID and stores the supplied initial head.
 	Create(ctx context.Context, rec CaseRecord) (CaseID, error)
@@ -31,9 +33,12 @@ type Storage interface {
 
 	// Draft reads without creating a working copy; false means none exists.
 	Draft(ctx context.Context, id CaseID, user UserID) (WorkingRecord, bool, error)
-	// Save creates a missing draft as given if expected is zero, otherwise
-	// returning ErrNoDraft. For an existing draft the revision must match
-	// expected; store the new content at expected+1 or return *Stale.
+	// InitDraft atomically returns the existing draft, or inserts and returns
+	// initial at revision zero. If absent and the head no longer matches
+	// initial.Base, return *Stale. Never overwrite an existing draft.
+	InitDraft(ctx context.Context, id CaseID, user UserID, initial WorkingRecord) (WorkingRecord, error)
+	// Save updates an existing draft at expected to revision expected+1.
+	// Return ErrNoDraft if absent or *Stale on a revision mismatch.
 	Save(ctx context.Context, id CaseID, user UserID, expected uint64, w WorkingRecord) error
 	// Discard removes the matching draft, returning ErrNoDraft or *Stale
 	// if it is missing or has moved.
@@ -44,7 +49,8 @@ type Storage interface {
 	// tx.Actor's draft to the new revision if it descended from tx.Expected.
 	Commit(ctx context.Context, id CaseID, tx Transaction) (Receipt, error)
 	// History reads oldest first, starting at cursor (zero means the
-	// beginning). A zero limit means all remaining entries.
+	// beginning). Return consecutive revisions up to limit or the end of the
+	// log, whichever comes first. A zero limit means all remaining entries.
 	History(ctx context.Context, id CaseID, cursor uint64, limit int) ([]HistoryEntry, error)
 }
 

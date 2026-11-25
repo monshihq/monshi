@@ -1,8 +1,60 @@
 package program
 
+import (
+	"crypto/sha256"
+	"encoding/binary"
+)
+
+// LayoutID identifies the interpretation of stored ordinals, independently
+// of defaults, decimal constraints, permissions, hooks and other policy.
+func (p *Program) LayoutID() [32]byte { return p.layout }
+
+func (p *Program) ValidStage(n uint64) bool {
+	return n < uint64(len(p.stages)) && (n != 0 || p.initial == 0)
+}
+
+func layoutID(p *Program) [32]byte {
+	var b []byte
+	number := func(n uint64) { b = binary.AppendUvarint(b, n) }
+	text := func(s string) { number(uint64(len(s))); b = append(b, s...) }
+	number(uint64(len(p.slots)))
+	for i, s := range p.slots {
+		text(p.Path(NodeID(i)))
+		number(uint64(s.Kind))
+		if s.Role != 0 {
+			number(1)
+		} else {
+			number(0)
+		}
+		number(uint64(s.Coll))
+		base := p.BaseOf(NodeID(i))
+		number(uint64(base))
+		if base == BaseEnum {
+			// Tag ordinals are contiguous within each enum.
+			tags := p.types[s.Type].Tags
+			number(uint64(len(tags)))
+			if len(tags) != 0 {
+				number(uint64(tags[0]))
+			}
+		}
+	}
+	number(uint64(len(p.tagNames)))
+	for i := range p.tagNames {
+		text(p.TagName(TagID(i)))
+	}
+	number(uint64(len(p.stages)))
+	for i := range p.stages {
+		text(p.StageName(StageID(i)))
+	}
+	return sha256.Sum256(b)
+}
+
 // dataDrift compares the shape of two images registered under one name and
 // says, in one sentence, where they first disagree.
 func DataDrift(old, next *Program) (string, bool) {
+	if old.layout == next.layout {
+		return "", true
+	}
 	if len(old.slots) != len(next.slots) {
 		return "the definition has " + dec(uint64(len(next.slots))) +
 			" slots, the stored case was built with " +
@@ -55,11 +107,12 @@ func DataDrift(old, next *Program) (string, bool) {
 			" stages, the stored case was built with " +
 			dec(uint64(len(old.stages)-1)), false
 	}
-	for s := StageID(1); int(s) < len(old.stages); s++ {
+	for i := 1; i < len(old.stages); i++ {
+		s := StageID(i)
 		if old.StageName(s) != next.StageName(s) {
 			return "stage " + dec(uint64(s)) + " is " + quote(next.StageName(s)) +
 				" there, and the stored case has " + quote(old.StageName(s)), false
 		}
 	}
-	return "", true
+	return "the definition changed the stored declaration or enum layout", false
 }

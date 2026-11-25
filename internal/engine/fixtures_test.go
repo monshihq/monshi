@@ -1,40 +1,17 @@
 package engine
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/monshihq/monshi/internal/program"
+	"github.com/monshihq/monshi/internal/testfixture"
 	"github.com/monshihq/monshi/schema"
 )
 
 // specExample returns the language document's complete example.
-func specExample(tb testing.TB) string {
-	tb.Helper()
-	const marker = "## 7. Complete example"
-	data, err := os.ReadFile("../../docs/SYNTAX.md")
-	if err != nil {
-		tb.Fatal(err)
-	}
-	text := string(data)
-	i := strings.Index(text, marker)
-	if i < 0 {
-		tb.Fatalf("marker %q not found in SYNTAX.md", marker)
-	}
-	rest := text[i:]
-	start := strings.Index(rest, "```")
-	if start < 0 {
-		tb.Fatal("no fenced example under §7")
-	}
-	rest = rest[start+3:]
-	end := strings.Index(rest, "\n```")
-	if end < 0 {
-		tb.Fatal("unterminated fence under §7")
-	}
-	return strings.TrimPrefix(rest[:end+1], "\n")
-}
+var specExample = testfixture.Example
 
 // compile checks source through the real front end and lowers it. Errors
 // fail the test; warnings are returned for the caller to judge.

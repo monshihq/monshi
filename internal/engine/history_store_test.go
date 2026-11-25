@@ -668,15 +668,15 @@ func TestACommittedRowSetListsItsInstances(t *testing.T) {
 					t.Errorf("the decision entry addresses %q, want the unit",
 						got)
 				}
-				if uint8(ch.v.Int) == verifPending && ch.v.Text != "" {
+				if ch.decision == verifPending && ch.note != "" {
 					t.Errorf("a retraction carries the note %q, and §5.9 says "+
-						"it carries no comment", ch.v.Text)
+						"it carries no comment", ch.note)
 				}
 			case chgSign:
 				signs++
-				if ch.v.Text != "envelope-7" {
+				if ch.note != "envelope-7" {
 					t.Errorf("the attestation carries %q, want the caller's "+
-						"own reference", ch.v.Text)
+						"own reference", ch.note)
 				}
 			case chgRows:
 				if addr := addr(img, ch.slot, ch.path); strings.HasPrefix(addr,

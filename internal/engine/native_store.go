@@ -318,21 +318,7 @@ func (s *caseStore) commit(_ context.Context, refuse refuser, img *program.Progr
 // form: both read, neither writes, and no caller of either is handed a
 // copy to keep the store safe from.
 func (rec *nativeCase) window(from uint64, limit int) []commitRecord {
-	if from < 1 {
-		// Revision 0 has no entry, so a caller who asks to start there means
-		// "from the beginning" — which is also what a zero continuation token
-		// says, and the two agree rather than one of them being an error.
-		from = 1
-	}
-	lo := int(from) - 1
-	if lo >= len(rec.hist) {
-		return nil
-	}
-	out := rec.hist[lo:]
-	if limit > 0 && limit < len(out) {
-		out = out[:limit]
-	}
-	return out
+	return historyPage(rec.hist, from, limit)
 }
 
 // history is the page a reader asked for: `window`'s slice of the stored

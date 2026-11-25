@@ -684,7 +684,7 @@ func TestASignatureEntryIsNotAMergeableChange(t *testing.T) {
 			last.changes)
 	}
 	ch := last.changes[0]
-	if ch.slot != app || !ch.v.Set || ch.v.Text != "one" {
+	if ch.slot != app || ch.note != "one" {
 		t.Errorf("the entry says %s holds %+v, want the field and its "+
 			"evidence", img.Path(ch.slot), ch.v)
 	}

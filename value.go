@@ -9,6 +9,8 @@ import (
 )
 
 // Value is a typed value supplied to an edit or returned by a case read.
+// Inspect Kind, then read the corresponding Text, Int, Decimal, Bool, Date,
+// DateTime, Tag, Binary or User payload. Binary returns an independent slice.
 type Value = engine.Value
 
 // Text constructs a string value.

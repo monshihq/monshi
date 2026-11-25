@@ -62,12 +62,18 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// codecVersion is the format's one number, written as the first byte of
-// every buffer this file produces. It is bumped, not extended: silent
-// reinterpretation of durable bytes is the one failure a storage format
-// cannot be allowed, and DESIGN §1's no-migration rule means no older
-// version will ever ask for a reader.
-const codecVersion = 1
+// Version 2 prefixes each record with its kind and compiled layout ID.
+// Version 1 has only a version byte and always requires the original layout.
+const codecVersion = 2
+const legacyVersion = 1
+
+const (
+	wireHead byte = 1 + iota
+	wireDraft
+	wireEntry
+)
+
+var errLayout = errors.New("stored definition layout differs from the registered definition")
 
 // errCodec is the decoder's whole vocabulary: these bytes are not this
 // format. Every refusal is this one error and not a sentence, because
@@ -103,7 +109,7 @@ const maxListLen = 1 << 24
 // non-zero entries as sparse pairs.
 func encodeCommitted(cs committedState) []byte {
 	e := encoder{img: cs.s.img}
-	e.v(codecVersion)
+	e.header(wireHead)
 	e.state(cs.s)
 	e.u(uint64(cs.stage))
 	e.verdictsR(cs.reviews)
@@ -154,8 +160,8 @@ func decodeCommitted(img *program.Program, buf []byte) (committedState, error) {
 	d := decoder{buf: buf}
 	var ok bool
 	var n uint64
-	if !d.header() {
-		return committedState{}, errCodec
+	if err := d.header(img, wireHead); err != nil {
+		return committedState{}, err
 	}
 	s, ok := d.state(img)
 	if !ok {
@@ -163,7 +169,7 @@ func decodeCommitted(img *program.Program, buf []byte) (committedState, error) {
 	}
 	cs := committedState{s: s}
 	var stage uint64
-	if stage, ok = d.uvar(); !ok || stage > math.MaxUint32 {
+	if stage, ok = d.uvar(); !ok || !img.ValidStage(stage) {
 		return committedState{}, errCodec
 	}
 	cs.stage = program.StageID(stage)
@@ -181,7 +187,7 @@ func decodeCommitted(img *program.Program, buf []byte) (committedState, error) {
 		if slot, ok = d.uvar(); !ok || slot >= uint64(img.SlotCount()) {
 			return committedState{}, errCodec
 		}
-		if code, ok = d.byte(); !ok {
+		if code, ok = d.byte(); !ok || code > uint64(verifRejected) {
 			return committedState{}, errCodec
 		}
 		var by, note string
@@ -242,7 +248,7 @@ func decodeCommitted(img *program.Program, buf []byte) (committedState, error) {
 // rebase compares `base` — so they travel before the data they protect.
 func encodeWorking(w workingState) []byte {
 	e := encoder{img: w.s.img}
-	e.v(codecVersion)
+	e.header(wireDraft)
 	e.u(w.base)
 	e.u(w.rev)
 	e.state(w.s)
@@ -251,8 +257,8 @@ func encodeWorking(w workingState) []byte {
 
 func decodeWorking(img *program.Program, buf []byte) (workingState, error) {
 	d := decoder{buf: buf}
-	if !d.header() {
-		return workingState{}, errCodec
+	if err := d.header(img, wireDraft); err != nil {
+		return workingState{}, err
 	}
 	base, ok := d.uvar()
 	if !ok {
@@ -278,7 +284,7 @@ func decodeWorking(img *program.Program, buf []byte) (workingState, error) {
 // the set and not just its size.
 func encodeRecord(img *program.Program, rec commitRecord) []byte {
 	e := encoder{img: img}
-	e.v(codecVersion)
+	e.header(wireEntry)
 	e.u(rec.revision)
 	e.time(rec.at)
 	e.user(rec.by)
@@ -293,18 +299,22 @@ func encodeRecord(img *program.Program, rec commitRecord) []byte {
 			e.u(uint64(st.coll))
 			e.u(uint64(st.id))
 		}
-		// One payload rule for every kind: a content entry's cell is
-		// typed and the pseudo-cells carry the pair, all written by
-		// `cell` from the image's table — §5.1's "the reader asks the
-		// kind, not the shape" holds in the engine, and the format
-		// stays out of that decision entirely.
-		e.presence(ch.v.Set)
-		if ch.v.Set {
-			e.cell(ch.slot, ch.v)
-		}
-		e.u(uint64(len(ch.ids)))
-		for _, id := range ch.ids {
-			e.u(uint64(id))
+		switch ch.kind {
+		case chgValue:
+			e.presence(ch.v.Set)
+			if ch.v.Set {
+				e.cell(ch.slot, ch.v)
+			}
+		case chgRows:
+			e.u(uint64(len(ch.ids)))
+			for _, id := range ch.ids {
+				e.u(uint64(id))
+			}
+		case chgReview:
+			e.v(ch.decision)
+			e.str(ch.note)
+		case chgSign:
+			e.str(ch.note)
 		}
 	}
 	return e.b
@@ -313,8 +323,8 @@ func encodeRecord(img *program.Program, rec commitRecord) []byte {
 func decodeRecord(img *program.Program, buf []byte) (commitRecord, error) {
 	d := decoder{buf: buf}
 	var ok bool
-	if !d.header() {
-		return commitRecord{}, errCodec
+	if err := d.header(img, wireEntry); err != nil {
+		return commitRecord{}, err
 	}
 	var rec commitRecord
 	if rec.revision, ok = d.uvar(); !ok {
@@ -334,7 +344,7 @@ func decodeRecord(img *program.Program, buf []byte) (commitRecord, error) {
 	}
 	rec.op = commitOp(op)
 	var stage uint64
-	if stage, ok = d.uvar(); !ok || stage > math.MaxUint32 {
+	if stage, ok = d.uvar(); !ok || !img.ValidStage(stage) {
 		return commitRecord{}, errCodec
 	}
 	rec.stage = program.StageID(stage)
@@ -348,51 +358,134 @@ func decodeRecord(img *program.Program, buf []byte) (commitRecord, error) {
 			kind > uint64(chgSign) {
 			return commitRecord{}, errCodec
 		}
-		if slot, ok = d.uvar(); !ok || slot > math.MaxUint32 {
+		if slot, ok = d.uvar(); !ok || slot >= uint64(img.SlotCount()) {
 			return commitRecord{}, errCodec
 		}
 		ch := commitChange{kind: uint8(kind), slot: program.NodeID(slot)}
 		var steps uint64
-		if steps, ok = d.uvar(); !ok || steps > maxListLen {
+		if steps, ok = d.uvar(); !ok || steps > program.MaxCollDepth {
 			return commitRecord{}, errCodec
 		}
 		for j := uint64(0); j < steps; j++ {
 			var coll, id uint64
-			if coll, ok = d.uvar(); !ok || coll > math.MaxUint32 {
+			if coll, ok = d.uvar(); !ok || coll >= uint64(img.SlotCount()) || img.Slot(program.NodeID(coll)).Coll == 0 {
 				return commitRecord{}, errCodec
 			}
-			if id, ok = d.uvar(); !ok {
+			if id, ok = d.uvar(); !ok || id == 0 {
 				return commitRecord{}, errCodec
 			}
 			ch.path = append(ch.path,
 				instStep{coll: program.NodeID(coll), id: instanceID(id)})
 		}
-		present, ok := d.presence()
-		if !ok {
-			return commitRecord{}, errCodec
+		var owner program.NodeID
+		for _, step := range ch.path {
+			if img.RowsIn(step.coll) != owner {
+				return commitRecord{}, errCodec
+			}
+			owner = step.coll
 		}
-		if present {
-			if ch.v, ok = d.cell(img, ch.slot); !ok {
+		switch ch.kind {
+		case chgRows:
+			if img.Slot(ch.slot).Coll == 0 || img.RowsIn(ch.slot) != owner {
+				return commitRecord{}, errCodec
+			}
+		case chgValue:
+			if img.Slot(ch.slot).Kind != program.KindField || img.CollOf(ch.slot) != owner {
+				return commitRecord{}, errCodec
+			}
+		default:
+			if owner != 0 {
 				return commitRecord{}, errCodec
 			}
 		}
-		var ids uint64
-		if ids, ok = d.uvar(); !ok || ids > maxListLen {
-			return commitRecord{}, errCodec
-		}
-		for j := uint64(0); j < ids; j++ {
-			var id uint64
-			if id, ok = d.uvar(); !ok {
+		if d.version == legacyVersion {
+			var ok bool
+			if ch.kind == chgReview && ((img.BaseOf(ch.slot) != 0 && img.BaseOf(ch.slot) != program.BaseSignature) || img.Slot(ch.slot).Role != 0) {
+				return commitRecord{}, errors.New("legacy review entry omitted decision or comment for a typed field")
+			}
+			ch, ok = d.legacyChange(img, ch)
+			if !ok {
 				return commitRecord{}, errCodec
 			}
-			ch.ids = append(ch.ids, instanceID(id))
+		} else {
+			switch ch.kind {
+			case chgValue:
+				present, ok := d.presence()
+				if !ok {
+					return commitRecord{}, errCodec
+				}
+				if present {
+					if ch.v, ok = d.cell(img, ch.slot); !ok {
+						return commitRecord{}, errCodec
+					}
+				}
+			case chgRows:
+				if ch.ids, ok = d.ids(); !ok {
+					return commitRecord{}, errCodec
+				}
+			case chgReview:
+				code, ok := d.byte()
+				if !ok || code > uint64(verifRejected) {
+					return commitRecord{}, errCodec
+				}
+				ch.decision = uint8(code)
+				if ch.note, ok = d.str(); !ok {
+					return commitRecord{}, errCodec
+				}
+			case chgSign:
+				if ch.note, ok = d.str(); !ok {
+					return commitRecord{}, errCodec
+				}
+			}
 		}
+
 		rec.changes = append(rec.changes, ch)
 	}
 	if !d.done() {
 		return commitRecord{}, errCodec
 	}
 	return rec, nil
+}
+
+// Version 1 selected every payload by field type. For a typed review, the
+// omitted decision or note cannot be reconstructed from that entry.
+func (d *decoder) legacyChange(img *program.Program, ch commitChange) (commitChange, bool) {
+	present, ok := d.presence()
+	if !ok {
+		return ch, false
+	}
+	if present {
+		if ch.v, ok = d.cell(img, ch.slot); !ok {
+			return ch, false
+		}
+	}
+	if ch.ids, ok = d.ids(); !ok {
+		return ch, false
+	}
+	switch ch.kind {
+	case chgRows:
+		ch.v = program.Cell{}
+	case chgReview, chgSign:
+		ch.decision = uint8(ch.v.Int)
+		ch.note = ch.v.Text
+		ch.v = program.Cell{}
+	}
+	return ch, true
+}
+func (d *decoder) ids() ([]instanceID, bool) {
+	n, ok := d.uvar()
+	if !ok || n > maxListLen || n > uint64(len(d.buf)) {
+		return nil, false
+	}
+	var ids []instanceID
+	for range n {
+		id, ok := d.uvar()
+		if !ok || id == 0 {
+			return nil, false
+		}
+		ids = append(ids, instanceID(id))
+	}
+	return ids, true
 }
 
 // state renders §5.1's three pieces of data — the base row, the
@@ -414,15 +507,15 @@ func (d *decoder) state(img *program.Program) (state, bool) {
 		return state{}, false
 	}
 	s.seq = instanceID(seq)
-	if !d.cells(img, 0, s.row) {
+	if !d.cells(img, 0, 0, s.row) {
 		return state{}, false
 	}
 	n, ok := d.uvar()
-	if !ok || int(n) != len(img.Collections()) {
+	if !ok || n != uint64(len(img.Collections())) {
 		return state{}, false
 	}
 	for i := 0; i < int(n); i++ {
-		in, ok := d.instances(img)
+		in, ok := d.instances(img, 0, 1)
 		if !ok {
 			return state{}, false
 		}
@@ -467,7 +560,7 @@ func (e *encoder) instances(in *instances) {
 	}
 }
 
-func (d *decoder) instances(img *program.Program) (*instances, bool) {
+func (d *decoder) instances(img *program.Program, parent program.NodeID, level int) (*instances, bool) {
 	raw, ok := d.uvar()
 	if !ok || raw > math.MaxUint32 {
 		return nil, false
@@ -476,7 +569,7 @@ func (d *decoder) instances(img *program.Program) (*instances, bool) {
 		return nil, true
 	}
 	coll := program.NodeID(raw - 1)
-	if coll >= program.NodeID(img.SlotCount()) {
+	if level > program.MaxCollDepth || coll >= program.NodeID(img.SlotCount()) || img.Slot(coll).Coll == 0 {
 		return nil, false
 	}
 	n, ok := d.uvar()
@@ -484,13 +577,21 @@ func (d *decoder) instances(img *program.Program) (*instances, bool) {
 		return nil, false
 	}
 	in := &instances{coll: coll, index: map[instanceID]int{}}
+	// The base table reserves an empty set even for a nested collection.
+	// Populated sets must live under their declared parent.
+	if (level > 1 || n != 0) && img.RowsIn(coll) != parent {
+		return nil, false
+	}
 	for i := uint64(0); i < n; i++ {
 		var id uint64
-		if id, ok = d.uvar(); !ok {
+		if id, ok = d.uvar(); !ok || id == 0 {
+			return nil, false
+		}
+		if _, duplicate := in.index[instanceID(id)]; duplicate {
 			return nil, false
 		}
 		row := instRow{id: instanceID(id), row: make(program.Row, img.RowLen(coll))}
-		if !d.cells(img, img.RowLo(coll), row.row) {
+		if !d.cells(img, coll, img.RowLo(coll), row.row) {
 			return nil, false
 		}
 		var depth uint64
@@ -498,7 +599,7 @@ func (d *decoder) instances(img *program.Program) (*instances, bool) {
 			return nil, false
 		}
 		for j := uint64(0); j < depth; j++ {
-			sub, ok := d.instances(img)
+			sub, ok := d.instances(img, coll, level+1)
 			if !ok {
 				return nil, false
 			}
@@ -533,7 +634,7 @@ func (e *encoder) cells(base program.NodeID, row program.Row) {
 	}
 }
 
-func (d *decoder) cells(img *program.Program, base program.NodeID, row program.Row) bool {
+func (d *decoder) cells(img *program.Program, owner, base program.NodeID, row program.Row) bool {
 	n, ok := d.uvar()
 	if !ok || n > maxListLen {
 		return false
@@ -543,8 +644,11 @@ func (d *decoder) cells(img *program.Program, base program.NodeID, row program.R
 		if slot, ok = d.uvar(); !ok {
 			return false
 		}
-		off := int(slot - uint64(base))
-		if slot < uint64(base) || off >= len(row) {
+		off := slot - uint64(base)
+		if slot < uint64(base) || off >= uint64(len(row)) {
+			return false
+		}
+		if row[off].Set || img.CollOf(program.NodeID(slot)) != owner {
 			return false
 		}
 		v, ok := d.cell(img, program.NodeID(slot))
@@ -749,15 +853,46 @@ func (e *encoder) time(t time.Time) {
 	e.str(name)
 }
 
-type decoder struct{ buf []byte }
-
-func (d *decoder) header() bool {
-	b, ok := d.byte()
-	return ok && b == codecVersion
+func (e *encoder) header(kind byte) {
+	e.v(codecVersion)
+	e.v(kind)
+	id := e.img.LayoutID()
+	e.b = append(e.b, id[:]...)
 }
 
-// done is the last guard: a buffer with bytes nobody claimed is either
-// corruption or a newer writer, and both refuse.
+type decoder struct {
+	buf     []byte
+	version uint64
+}
+
+func (d *decoder) header(img *program.Program, kind byte) error {
+	v, ok := d.byte()
+	if !ok {
+		return errCodec
+	}
+	d.version = v
+	switch v {
+	case legacyVersion:
+		return nil
+	case codecVersion:
+		k, ok := d.byte()
+		if !ok || k != uint64(kind) {
+			return errCodec
+		}
+		id := img.LayoutID()
+		if len(d.buf) < len(id) {
+			return errCodec
+		}
+		if [32]byte(d.buf) != id {
+			return errLayout
+		}
+		d.buf = d.buf[len(id):]
+		return nil
+	default:
+		return errCodec
+	}
+}
+
 func (d *decoder) done() bool { return len(d.buf) == 0 }
 
 func (d *decoder) byte() (uint64, bool) {
@@ -812,11 +947,11 @@ func (d *decoder) time() (time.Time, bool) {
 		return time.Time{}, false
 	}
 	nanos, ok := d.uvar()
-	if !ok {
+	if !ok || nanos >= 1e9 {
 		return time.Time{}, false
 	}
 	off, ok := d.varint()
-	if !ok {
+	if !ok || int64(int(off)) != off {
 		return time.Time{}, false
 	}
 	name, ok := d.str()

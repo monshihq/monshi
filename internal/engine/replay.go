@@ -64,11 +64,11 @@ func replayTo(img *program.Program, hist []commitRecord, to uint64) committedSta
 // from the other direction, by a caller who chose to write an entry for a
 // retraction rather than erase one.
 func derivedDecision(rec commitRecord, ch commitChange) reviewState {
-	if uint8(ch.v.Int) == verifPending {
+	if ch.decision == verifPending {
 		return reviewState{}
 	}
-	return reviewState{code: uint8(ch.v.Int), by: rec.by,
-		at: rec.revision, note: ch.v.Text}
+	return reviewState{code: ch.decision, by: rec.by,
+		at: rec.revision, note: ch.note}
 }
 
 // derivedSignature is the state entry one recorded attestation stands for, and
@@ -78,7 +78,7 @@ func derivedDecision(rec commitRecord, ch commitChange) reviewState {
 // leaves the state is §4.2 erasing it, which the driver above does and this
 // function never has to know about.
 func derivedSignature(rec commitRecord, ch commitChange) sigState {
-	return sigState{by: rec.by, at: rec.revision, ref: ch.v.Text}
+	return sigState{by: rec.by, at: rec.revision, ref: ch.note}
 }
 
 // restore puts one collection's rows at the address a `chgRows` entry names, so

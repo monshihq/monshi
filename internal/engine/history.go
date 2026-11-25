@@ -218,7 +218,7 @@ func (c Case) History(ctx context.Context, cursor uint64,
 	stage := rec.commit.stage
 	vis := viewable(img, roles, stage)
 
-	page, err := c.w.cases.history(ctx, refuse, cursor, limit)
+	page, err := c.historyThrough(ctx, refuse, cursor, rec.revision, limit)
 	if err != nil {
 		return HistoryResult{}, err
 	}

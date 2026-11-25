@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"slices"
 	"sync"
 )
 
@@ -39,6 +40,7 @@ func (s *MemStorage) Create(_ context.Context, rec CaseRecord) (CaseID, error) {
 	defer s.mu.Unlock()
 	s.next++
 	rec.ID = s.next
+	rec.State = slices.Clone(rec.State)
 	s.cases[s.next] = &memCase{rec: rec, work: map[UserID]WorkingRecord{}}
 	return s.next, nil
 }
@@ -50,7 +52,9 @@ func (s *MemStorage) Load(_ context.Context, id CaseID) (CaseRecord, error) {
 	if !ok {
 		return CaseRecord{}, ErrNoSuchCase
 	}
-	return rec.rec, nil
+	head := rec.rec
+	head.State = slices.Clone(head.State)
+	return head, nil
 }
 
 func (s *MemStorage) Draft(_ context.Context, id CaseID,
@@ -62,7 +66,29 @@ func (s *MemStorage) Draft(_ context.Context, id CaseID,
 		return WorkingRecord{}, false, ErrNoSuchCase
 	}
 	w, have := rec.work[user]
+	w.State = slices.Clone(w.State)
 	return w, have, nil
+}
+
+func (s *MemStorage) InitDraft(_ context.Context, id CaseID, user UserID, initial WorkingRecord) (WorkingRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.cases[id]
+	if !ok {
+		return WorkingRecord{}, ErrNoSuchCase
+	}
+	if w, have := rec.work[user]; have {
+		w.State = slices.Clone(w.State)
+		return w, nil
+	}
+	if rec.rec.Revision != initial.Base {
+		return WorkingRecord{}, &Stale{Have: rec.rec.Revision}
+	}
+	initial.Revision = 0
+	stored := initial
+	stored.State = slices.Clone(initial.State)
+	rec.work[user] = stored
+	return initial, nil
 }
 
 func (s *MemStorage) Save(_ context.Context, id CaseID, user UserID,
@@ -76,15 +102,12 @@ func (s *MemStorage) Save(_ context.Context, id CaseID, user UserID,
 	cur, have := rec.work[user]
 	switch {
 	case !have:
-		if expected != 0 {
-			return ErrNoDraft
-		}
-		rec.work[user] = w
-		return nil
+		return ErrNoDraft
 	case cur.Revision != expected:
 		return &Stale{Have: cur.Revision}
 	}
 	w.Revision = expected + 1
+	w.State = slices.Clone(w.State)
 	rec.work[user] = w
 	return nil
 }
@@ -119,9 +142,9 @@ func (s *MemStorage) Commit(_ context.Context, id CaseID,
 	if rec.rec.Revision != tx.Expected {
 		return Receipt{}, &Stale{Have: rec.rec.Revision}
 	}
-	rec.rec.State = tx.Head.State
+	rec.rec.State = slices.Clone(tx.Head.State)
 	rec.rec.Revision = tx.Head.Revision
-	rec.hist = append(rec.hist, tx.Entry)
+	rec.hist = append(rec.hist, slices.Clone(tx.Entry))
 	out := Receipt{Revision: tx.Head.Revision}
 	if w, have := rec.work[tx.Actor]; have {
 		if w.Base == tx.Expected {
@@ -141,19 +164,10 @@ func (s *MemStorage) History(_ context.Context, id CaseID, cursor uint64,
 	if !ok {
 		return nil, ErrNoSuchCase
 	}
-	if cursor < 1 {
-		cursor = 1
+	out := slices.Clone(historyPage(rec.hist, cursor, limit))
+	for i := range out {
+		out[i] = slices.Clone(out[i])
 	}
-	lo := int(cursor) - 1
-	if lo >= len(rec.hist) {
-		return nil, nil
-	}
-	page := rec.hist[lo:]
-	if limit > 0 && limit < len(page) {
-		page = page[:limit]
-	}
-	out := make([]HistoryEntry, len(page))
-	copy(out, page)
 	return out, nil
 }
 

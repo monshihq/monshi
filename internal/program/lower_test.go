@@ -1,40 +1,17 @@
 package program
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/monshihq/monshi/internal/testfixture"
 	"github.com/monshihq/monshi/schema"
 	"github.com/shopspring/decimal"
 )
 
 // specExample returns the language document's complete example.
-func specExample(tb testing.TB) string {
-	tb.Helper()
-	const marker = "## 7. Complete example"
-	data, err := os.ReadFile("../../docs/SYNTAX.md")
-	if err != nil {
-		tb.Fatal(err)
-	}
-	text := string(data)
-	i := strings.Index(text, marker)
-	if i < 0 {
-		tb.Fatalf("marker %q not found in SYNTAX.md", marker)
-	}
-	rest := text[i:]
-	start := strings.Index(rest, "```")
-	if start < 0 {
-		tb.Fatal("no fenced example under §7")
-	}
-	rest = rest[start+3:]
-	end := strings.Index(rest, "\n```")
-	if end < 0 {
-		tb.Fatal("unterminated fence under §7")
-	}
-	return strings.TrimPrefix(rest[:end+1], "\n")
-}
+var specExample = testfixture.Example
 
 // compile checks source through the real front end and lowers it. Errors
 // fail the test; warnings are returned for the caller to judge.
@@ -131,7 +108,8 @@ func roleIDBy(t *testing.T, img *Program, name string) RoleID {
 
 func stageIDBy(t *testing.T, img *Program, name string) StageID {
 	t.Helper()
-	for s := StageID(1); int(s) < len(img.stages); s++ {
+	for i := 1; i < len(img.stages); i++ {
+		s := StageID(i)
 		if img.Name(img.stages[s].Name) == name {
 			return s
 		}
@@ -1563,5 +1541,21 @@ func TestImageAccessorsWalkTheTree(t *testing.T) {
 	}
 	if sv := img.ConstOf(0); sv.Set || sv.Int != 0 || sv.Text != "" || !sv.Decimal.IsZero() {
 		t.Errorf("valueID 0 = %+v, want the no-value placeholder", sv)
+	}
+}
+
+func TestMaximumStageLayout(t *testing.T) {
+	var stages strings.Builder
+	for i := range maxStages {
+		stages.WriteString("s" + dec(uint64(i)) + " {}\n")
+	}
+	src := "forms { f { x : enum(A,B); } } stages {" + stages.String() + "}"
+	old, _ := compile(t, src)
+	next, _ := compile(t, strings.Replace(src, "A,B", "B,A", 1))
+	if !old.ValidStage(255) || old.ValidStage(256) {
+		t.Fatal("stage bound narrowed before validation")
+	}
+	if _, ok := DataDrift(old, next); ok {
+		t.Fatal("enum reorder accepted")
 	}
 }

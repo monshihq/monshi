@@ -110,6 +110,7 @@ func Compile(id string, s *schema.Schema) (*Program, error) {
 		// the runtime's (RUNTIME §10).
 		return nil, &Error{ID: id, Defects: l.problems}
 	}
+	l.img.layout = layoutID(l.img)
 	return l.img, nil
 }
 
@@ -305,10 +306,8 @@ func (l *lowerer) internType(t *schema.Type) TypeID {
 // mirroring the bound T2 validated at compile time: the value must need at
 // most s fractional digits and at most p significant ones.
 func decimalFits(precision, scale int) func(decimal.Decimal) bool {
-	s := int32(scale)
 	return func(d decimal.Decimal) bool {
-		r := d.Round(s)
-		return r.Equal(d) && r.NumDigits() <= precision
+		return schema.FitsDecimal(d, precision, scale)
 	}
 }
 

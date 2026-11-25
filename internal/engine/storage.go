@@ -69,6 +69,7 @@ type Storage interface {
 	Load(ctx context.Context, id CaseID) (CaseRecord, error)
 	Draft(ctx context.Context, id CaseID, user UserID) (
 		WorkingRecord, bool, error)
+	InitDraft(ctx context.Context, id CaseID, user UserID, initial WorkingRecord) (WorkingRecord, error)
 	Save(ctx context.Context, id CaseID, user UserID, expected uint64,
 		w WorkingRecord) error
 	Discard(ctx context.Context, id CaseID, user UserID,

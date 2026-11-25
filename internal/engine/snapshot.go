@@ -29,11 +29,13 @@ const (
 // commitChange is a forward diff. A row-set change carries stable IDs in
 // creation order; review and signature entries are verdicts, not content.
 type commitChange struct {
-	kind uint8
-	slot program.NodeID
-	path instPath
-	v    program.Cell
-	ids  []instanceID // chgRows: the committed set, in creation order
+	kind     uint8
+	slot     program.NodeID
+	path     instPath
+	v        program.Cell
+	decision uint8        // chgReview only
+	note     string       // review comment or signature evidence
+	ids      []instanceID // chgRows: the committed set, in creation order
 }
 
 const (

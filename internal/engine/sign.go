@@ -194,7 +194,7 @@ func (c Case) Sign(ctx context.Context, target string, observed uint64,
 			reviews: rec.commit.reviews, sigs: tbl},
 		committedBy{by: c.actor.User, op: opSign,
 			changes: []commitChange{{kind: chgSign, slot: field,
-				v: program.Cell{Set: true, Text: evidence}}}})
+				note: evidence}}})
 	if err != nil {
 		// Reachable only through a concurrent commit, which the store answers in
 		// its own voice for the reason submit.go gives. Nothing the caller was

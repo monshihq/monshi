@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"slices"
 	"time"
 
 	"github.com/monshihq/monshi/internal/program"
@@ -82,7 +83,7 @@ func Tag(name string) Value { return Value{class: classTag, s: name} }
 // reads or resolves one: DESIGN §5.2's store of content is milestone 4's,
 // and §5.1's row reserves the field now so a value never changes shape when
 // it arrives.
-func Binary(ref program.BinaryRef) Value { return Value{class: classBin, bin: ref} }
+func Binary(ref program.BinaryRef) Value { return Value{class: classBin, bin: slices.Clone(ref)} }
 
 // User carries the value of a role-typed field, which *is* an actor's
 // identity (SYNTAX §5.2-T4) rather than a role name. Assigning one is how a
@@ -192,7 +193,7 @@ func (v Value) DateTime() time.Time {
 // value is opaque content identity, which is all the language says it is.
 func (v Value) Binary() program.BinaryRef {
 	if v.class == classBin {
-		return v.bin
+		return slices.Clone(v.bin)
 	}
 	return nil
 }

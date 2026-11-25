@@ -1,111 +1,15 @@
 package schema_test
 
 import (
-	"os"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/shopspring/decimal"
-
+	"github.com/monshihq/monshi/internal/testfixture"
 	"github.com/monshihq/monshi/schema"
+	"github.com/shopspring/decimal"
 )
-
-// specExample is the complete definition from docs/SYNTAX.md §7, kept
-// byte-identical to the document (TestSpecExampleMatchesDoc guards the
-// sync). It exercises every language construct at once.
-const specExample = `// A registration case. Conforms to docs/SYNTAX.md.
-
-types {
-    legal_form : enum(PERSON, COMPANY);
-    amount     : decimal(14, 2);
-    email      : string;
-}
-
-roles {
-    Applicant {
-        allow view, edit, submit application;
-        deny edit application.internal;
-    }
-    Registrar {
-        allow view all;
-        allow edit, review application;
-    }
-    Manager {
-        allow view all;
-        allow review application;
-        allow sign application.approved_by;
-        allow edit application.internal;
-    }
-}
-
-forms {
-    application verifiable {
-        kind       : legal_form required;
-        full_name  : string required;
-        contact    : email;
-        registered : date default "2026-01-01";
-        fee        : amount default 0.00;
-        urgent     : boolean default false;
-        note       : string;
-
-        reviewer : Manager;                       // role-typed field
-
-        internal present[.kind == COMPANY] {
-            risk_score : integer;
-        }
-
-        shareholders required[.kind == COMPANY] multiple {
-            holder_name : string required;
-            shares      : amount required;
-        }
-
-        submitted   : signature(Applicant);
-        approved_by : signature(.reviewer);
-    }
-
-    archive {
-        filed_at : datetime;
-        note     : string;                     // legal: member names are scoped
-    }
-}
-
-stages {
-    draft {
-        allow Applicant view, edit, submit application;
-        allow Manager accept, reject;
-        accept[application.kind == PERSON] person_review;
-        accept[application.kind == COMPANY] company_review;
-        reject correction;
-    }
-
-    person_review {
-        require application;
-        allow Manager view all;
-        allow Manager accept, reject;
-        accept closed;
-        reject correction;
-    }
-
-    company_review {
-        require application;
-        allow Registrar view all;
-        allow Registrar accept, reject;
-        allow Registrar view, edit, submit archive;
-        accept closed;
-        reject correction;
-    }
-
-    correction {
-        allow Applicant view, edit, submit application;
-        allow Manager accept;
-        accept draft;
-    }
-
-    closed {}
-}
-`
 
 // --- helpers over the public model ---
 
@@ -152,12 +56,12 @@ func nodeByPath(t *testing.T, s *schema.Schema, path string) *schema.Node {
 // --- the §7 example ---
 
 func TestSpecExampleCompiles(t *testing.T) {
-	s := mustParse(t, specExample)
+	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 }
 
 func TestSpecExampleTopLevelShape(t *testing.T) {
-	s := mustParse(t, specExample)
+	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
 	if got := namesOfTypes(s.Types); !reflect.DeepEqual(got, []string{"legal_form", "amount", "email"}) {
@@ -211,7 +115,7 @@ func namesOfStages(ss []*schema.Stage) []string {
 }
 
 func TestSpecExampleTypes(t *testing.T) {
-	s := mustParse(t, specExample)
+	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
 	lf, amount, email := s.Types[0], s.Types[1], s.Types[2]
@@ -235,7 +139,7 @@ func TestSpecExampleTypes(t *testing.T) {
 }
 
 func TestSpecExampleNodesAndAttributes(t *testing.T) {
-	s := mustParse(t, specExample)
+	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
 	app := s.Forms[0]
@@ -370,7 +274,7 @@ func TestCompiledLiteralsAreNormalized(t *testing.T) {
 }
 
 func TestSpecExampleDefaults(t *testing.T) {
-	s := mustParse(t, specExample)
+	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
 	fee := nodeByPath(t, s, "application.fee").Default
@@ -393,7 +297,7 @@ func TestSpecExampleDefaults(t *testing.T) {
 }
 
 func TestSpecExampleRolesAndGrants(t *testing.T) {
-	s := mustParse(t, specExample)
+	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
 	applicant := s.Roles[0]
@@ -433,7 +337,7 @@ func TestSpecExampleRolesAndGrants(t *testing.T) {
 }
 
 func TestSpecExampleSignatureResolution(t *testing.T) {
-	s := mustParse(t, specExample)
+	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
 	reviewer := nodeByPath(t, s, "application.reviewer")
@@ -458,7 +362,7 @@ func TestSpecExampleSignatureResolution(t *testing.T) {
 }
 
 func TestSpecExampleConditionTrees(t *testing.T) {
-	s := mustParse(t, specExample)
+	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
 	kind := nodeByPath(t, s, "application.kind")
@@ -488,7 +392,7 @@ func TestSpecExampleConditionTrees(t *testing.T) {
 }
 
 func TestSpecExampleStageGraph(t *testing.T) {
-	s := mustParse(t, specExample)
+	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
 	draft := s.Stages[0]
@@ -537,31 +441,6 @@ func TestSpecExampleStageGraph(t *testing.T) {
 	closed := s.Stages[4]
 	if len(closed.Edges) != 0 || len(closed.Grants) != 0 || len(closed.Requires) != 0 {
 		t.Errorf("closed is terminal and empty: %+v", closed)
-	}
-}
-
-func TestSpecExampleMatchesDoc(t *testing.T) {
-	const marker = "## 7. Complete example"
-	data, err := os.ReadFile("../docs/SYNTAX.md")
-	if err != nil {
-		t.Skip("docs/SYNTAX.md not shipped alongside the package")
-	}
-	text := string(data)
-	i := strings.Index(text, marker)
-	if i < 0 {
-		t.Fatalf("marker %q not found in SYNTAX.md", marker)
-	}
-	rest := text[i:]
-	start := strings.Index(rest, "```")
-	rest = rest[start+3:]
-	end := strings.Index(rest, "\n```")
-	if end < 0 {
-		t.Fatal("unterminated fence under §7")
-	}
-	want := strings.TrimPrefix(rest[:end+1], "\n")
-	if want != specExample {
-		t.Errorf("SYNTAX.md §7 drifted from specExample; sync the const (len doc=%d test=%d)",
-			len(want), len(specExample))
 	}
 }
 

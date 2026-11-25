@@ -85,7 +85,7 @@ func changeStrings(next *state, cs []commitChange) []string {
 		where := next.addr(c.slot, c.path)
 		switch c.kind {
 		case chgRows:
-			out = append(out, where+" rows="+strconv.FormatInt(c.v.Int, 10))
+			out = append(out, where+" rows="+strconv.Itoa(len(c.ids)))
 		case chgValue:
 			out = append(out, where+"="+payload(c.v))
 		}

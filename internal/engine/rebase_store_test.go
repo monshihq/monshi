@@ -252,7 +252,7 @@ func TestPathKeyIsPrefixFree(t *testing.T) {
 	nested := instPath{{coll: 11, id: 2}, {coll: 33, id: 4}}
 	one, two := pathKey(outer), pathKey(nested)
 	if one == two {
-		t.Fatalf("one level renders %q and two render %q: the longer key must"+
+		t.Fatalf("one level keys %v and two key %v: the longer key must"+
 			" extend the shorter, not collide with it", one, two)
 	}
 	// Two digits against one: a fixed-width encoding would have hidden this,
@@ -263,8 +263,8 @@ func TestPathKeyIsPrefixFree(t *testing.T) {
 	if pathKey(instPath{{coll: 11, id: 22}}) == one {
 		t.Error("a two-digit and a one-digit instance render the same key")
 	}
-	if got := pathKey(nil); got != "" {
-		t.Errorf("pathKey of the base row = %q, want the empty key", got)
+	if got := pathKey(nil); got != (instanceKey{}) {
+		t.Errorf("pathKey of the base row = %v, want the empty key", got)
 	}
 
 	// `enclosingKey` names the collection whose rows hold a cell, at the
@@ -273,7 +273,7 @@ func TestPathKeyIsPrefixFree(t *testing.T) {
 	// inner collection at the outer row's address. Both are the set that must
 	// have existed for the value to mean anything, which is what `probe`,
 	// `dropped` and `crossesLost` all ask.
-	if got := enclosingKey(outer); got != (setKey{coll: 11, steps: ""}) {
+	if got := enclosingKey(outer); got != (setKey{coll: 11}) {
 		t.Errorf("the enclosing key of a top-level row is %+v, want the base"+
 			" row's set", got)
 	}

@@ -2718,7 +2718,7 @@ its own batch left is *sound* rather than dangling. It is paid whether or not a
 hook is registered, because an escape is a compile-time fact and the registry is
 a runtime one, and DESIGN §8's contract exempted no one from it: a host
 answers `Load` with bytes, not an unwritable snapshot — read transactions
-were deliberately outside the seam's seven methods — and this package
+were deliberately outside the storage interface — and this package
 decodes them into exactly this mutable shape. One
 object in eighteen, two in forty-two, and no byte of the whole-case read: what a
 bound batch pays the seam is the two percent of wall time it adds, and that is
@@ -3240,6 +3240,7 @@ type Storage interface {
     Create(ctx, rec CaseRecord) (CaseID, error) // the ID is the host's
     Load(ctx, id CaseID) (CaseRecord, error)
     Draft(ctx, id CaseID, user UserID) (WorkingRecord, bool, error)
+    InitDraft(ctx, id CaseID, user UserID, initial WorkingRecord) (WorkingRecord, error)
     Save(ctx, id CaseID, user UserID, expected uint64,
         w WorkingRecord) error
     Discard(ctx, id CaseID, user UserID, expected uint64) error
@@ -3251,7 +3252,8 @@ type Storage interface {
 // Case state outside this process: the head, one actor's draft, one trail
 // entry — the snapshots *encoded*, produced and read only by this
 // package; a host stores, compares and returns bytes it never interprets.
-// A `Save` of expected 0 over no copy is the engine's draft init, and a
+// InitDraft returns an existing copy, or creates revision zero only if
+// initial.Base still matches the head. Save requires an existing copy; a
 // guarded write lands `expected`+1: the data is the caller's and the
 // numbering the store's, §3.1's split in a new place. Entries are dense
 // by revision, which is what makes `History` a slice and a cursor an

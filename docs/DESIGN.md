@@ -680,33 +680,15 @@ lease.
 
 ## 8. Storage contract
 
-A small Go-oriented interface, with contextual names:
-
-```go
-type Storage interface {
-    Create(ctx context.Context, definition string) (CaseID, error)
-    Load(ctx context.Context, id CaseID) (CaseRecord, error)
-
-    Working(ctx context.Context, id CaseID, user UserID) (WorkingState, error)
-    Save(ctx context.Context, id CaseID, user UserID,
-        expected uint64, state WorkingState) error
-    Discard(ctx context.Context, id CaseID, user UserID,
-        expected uint64) error
-
-    Commit(ctx context.Context, tx Transaction) error
-    History(ctx context.Context, id CaseID,
-        cursor uint64, limit int) ([]Commit, error)
-}
-```
-
-`Working` finds or initializes the per-user working copy. `Save` is an
-optimistic revision-checked working-state write. `Discard` removes it
-with a revision guard. `Commit` is a **single atomic compare-and-swap
-transaction** that checks the expected committed revision (and, for
-Submit, the expected working revision), appends the immutable forward
-commit, updates the materialized committed state and updates the
-submitting user's working copy if applicable. The domain Core prepares
-valid changes but does not choose transaction technology.
+The host implements [`monshi.Storage`](../storage.go). `Create` and `Load`
+store and retrieve the committed head; `Draft` reads a working copy without
+creating one. `InitDraft` atomically returns an existing copy or inserts
+revision zero if the head still matches its proposed base. `Save` updates
+an existing draft with an optimistic revision check, and `Discard` removes
+it with a revision guard. `Commit` compares the head, appends an immutable
+entry, replaces the committed state and advances eligible draft lineage in
+one transaction. `History` returns a dense page in ascending revision order.
+The engine prepares changes; the host chooses the transaction technology.
 
 A separate binary abstraction can expose `Put(io.Reader) -> BinaryRef`
 and `Get(BinaryRef) -> io.ReadCloser` with appropriate request contexts.
@@ -723,21 +705,9 @@ the point of keeping the seam narrow now.
 The API may be refined during implementation, but it must not weaken
 these atomicity and revision guarantees.
 
-It was refined, at four points, and none of them weakens that sentence.
-`Create` takes the whole record: the initial state — defaults
-materialized, the initial stage — is the engine's to build, and only the
-ID is the host's to allocate. Find-or-init `Working` split into `Draft`,
-which only finds, and an engine-side init that arrives as an ordinary
-`Save` with expected 0: a read no longer grows the store. A backend
-refuses with values rather than prose — `ErrNoSuchCase`, `ErrNoDraft`
-and a `*Stale` carrying the number it holds — because the engine keeps
-authorship of the §9 sentence its caller reads; anything else the host
-returns arrives under `STORAGE_FAILURE` with the host's error as cause.
-And `Commit` answers a `Receipt`: the landed revision carried back to be
-checked rather than trusted, beside the committer's copy number after
-its rebase. The atomicity is the interface's own: `MemStorage` ships as
-the conformance reference every exported verb is graded against, and a
-host backend that holds these seven methods holds the case.
+Backends report `ErrNoSuchCase`, `ErrNoDraft`, or `*Stale` carrying the
+current revision. Other host errors arrive under `STORAGE_FAILURE` with
+the original cause. `MemStorage` is the reference byte-storage implementation.
 
 ## 9. Errors and guarantees
 

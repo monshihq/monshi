@@ -242,8 +242,7 @@ func (c Case) Review(ctx context.Context, target string, act ReviewAction,
 			reviews: tbl, sigs: rec.commit.sigs},
 		committedBy{by: c.actor.User, op: opReview,
 			changes: []commitChange{{kind: chgReview, slot: unit,
-				v: program.Cell{Set: true, Int: int64(next.code),
-					Text: next.note}}}})
+				decision: next.code, note: next.note}}})
 	if err != nil {
 		// Reachable only through a concurrent commit, which the store answers
 		// in its own voice for the reason submit.go gives. Nothing the caller

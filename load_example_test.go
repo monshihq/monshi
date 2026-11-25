@@ -2,11 +2,11 @@ package monshi_test
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/monshihq/monshi"
+	"github.com/monshihq/monshi/internal/testfixture"
 )
 
 // Appendix A's gate, clause (a) and (b), reached through the exported
@@ -36,27 +36,4 @@ func TestSpecExampleLoads(t *testing.T) {
 	}
 }
 
-func specExample(tb testing.TB) string {
-	tb.Helper()
-	const marker = "## 7. Complete example"
-	data, err := os.ReadFile("docs/SYNTAX.md")
-	if err != nil {
-		tb.Fatal(err)
-	}
-	text := string(data)
-	i := strings.Index(text, marker)
-	if i < 0 {
-		tb.Fatalf("marker %q not found in SYNTAX.md", marker)
-	}
-	rest := text[i:]
-	start := strings.Index(rest, "```")
-	if start < 0 {
-		tb.Fatal("no fenced example under §7")
-	}
-	rest = rest[start+3:]
-	end := strings.Index(rest, "\n```")
-	if end < 0 {
-		tb.Fatal("unterminated fence under §7")
-	}
-	return strings.TrimPrefix(rest[:end+1], "\n")
-}
+var specExample = testfixture.Example

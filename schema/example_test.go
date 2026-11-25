@@ -2,6 +2,7 @@ package schema_test
 
 import (
 	"fmt"
+	"github.com/monshihq/monshi/internal/testfixture"
 	"strings"
 	"testing"
 
@@ -60,7 +61,7 @@ stages {
 func FuzzParse(f *testing.F) {
 	seeds := []string{
 		minimalSrc,
-		specExample,
+		testfixture.Example(f),
 		"",
 		"types { }",
 		"???",

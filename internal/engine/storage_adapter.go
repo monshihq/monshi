@@ -46,6 +46,9 @@ func (b *hostBackend) stamp() time.Time {
 // the case-level sentinel, then everything that is not a guard's
 // refusal, which is the host's own failure to report.
 func (b *hostBackend) failed(r refuser, err error) error {
+	if errors.Is(err, errLayout) {
+		return r.caused(SchemaMismatch, err.Error(), err)
+	}
 	if errors.Is(err, ErrNoSuchCase) {
 		return r.now(NotFound, "no such case")
 	}
@@ -146,13 +149,18 @@ func (b *hostBackend) working(ctx context.Context, r refuser,
 	}
 	out := workingState{base: rev, s: cs.s.clone()}
 	out.s.reinterpret(img)
-	if err := b.st.Save(ctx, r.id, user, 0, WorkingRecord{
+	w, err = b.st.InitDraft(ctx, r.id, user, WorkingRecord{
 		Base:  rev,
 		State: encodeWorking(out),
-	}); err != nil {
-		return workingState{}, b.saved(r, 0, err)
+	})
+	if err != nil {
+		var stale *Stale
+		if errors.As(err, &stale) {
+			return workingState{}, r.now(StaleRevision, "the case advanced during draft initialization")
+		}
+		return workingState{}, b.failed(r, err)
 	}
-	return out, nil
+	return b.readWorking(r, img, w)
 }
 
 func (b *hostBackend) draft(ctx context.Context, r refuser,

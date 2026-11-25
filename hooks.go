@@ -6,7 +6,12 @@ import (
 	"github.com/monshihq/monshi/internal/engine"
 )
 
-// CaseContext is the read-only case snapshot supplied to hooks.
+// CaseContext exposes Case, Definition, Actor, Stage, Revision, Working and
+// Roles, plus visibility-filtered Value, Review and Signature lookups.
+// During Update it reads the operation's draft: later edits in the batch can
+// change what a retained context sees. Use it synchronously in the callback;
+// a retained context may be read again once the enclosing operation returns.
+// OnCommit receives the pinned committed snapshot.
 type CaseContext = engine.CaseContext
 
 // ValidateFunc validates or normalizes a custom type's value.

@@ -749,7 +749,7 @@ func TestMemStorageKeepsTheContractsArithmetic(t *testing.T) {
 		err, monshi.ErrNoDraft) {
 		t.Fatalf("an expected 3 over no copy = %v, want ErrNoDraft", err)
 	}
-	if err := s.Save(ctx(), id, "dana", 0,
+	if _, err := s.InitDraft(ctx(), id, "dana",
 		monshi.WorkingRecord{Base: 0}); err != nil {
 		t.Fatalf("the engine's init = %v, want nil", err)
 	}
