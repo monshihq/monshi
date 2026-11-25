@@ -1,0 +1,122 @@
+package engine
+
+import (
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/monshihq/monshi/internal/program"
+	"github.com/monshihq/monshi/schema"
+)
+
+// specExample returns the language document's complete example.
+func specExample(tb testing.TB) string {
+	tb.Helper()
+	const marker = "## 7. Complete example"
+	data, err := os.ReadFile("../../docs/SYNTAX.md")
+	if err != nil {
+		tb.Fatal(err)
+	}
+	text := string(data)
+	i := strings.Index(text, marker)
+	if i < 0 {
+		tb.Fatalf("marker %q not found in SYNTAX.md", marker)
+	}
+	rest := text[i:]
+	start := strings.Index(rest, "```")
+	if start < 0 {
+		tb.Fatal("no fenced example under §7")
+	}
+	rest = rest[start+3:]
+	end := strings.Index(rest, "\n```")
+	if end < 0 {
+		tb.Fatal("unterminated fence under §7")
+	}
+	return strings.TrimPrefix(rest[:end+1], "\n")
+}
+
+// compile checks source through the real front end and lowers it. Errors
+// fail the test; warnings are returned for the caller to judge.
+func compile(t *testing.T, src string) (*program.Program, []schema.Problem) {
+	t.Helper()
+	s, err := schema.Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("schema.Parse: %v", err)
+	}
+	if len(s.Errors) != 0 {
+		t.Fatalf("definition does not compile: %s", join(diagnostics(s.Errors)))
+	}
+	img, err := program.Compile("test", s)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	return img, s.Warnings
+}
+
+func lowerExample(t *testing.T) *program.Program {
+	t.Helper()
+	img, warnings := compile(t, specExample(t))
+	if len(warnings) != 0 {
+		t.Fatalf("the §7 example must compile clean, got %s", join(diagnostics(warnings)))
+	}
+	return img
+}
+
+func diagnostics(ps []schema.Problem) []string {
+	out := make([]string, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, p.Error())
+	}
+	return out
+}
+
+func join(list []string) string { return strings.Join(list, "; ") }
+
+// slotByPath finds a declaration by its absolute path. Tests use the
+// readable path even though the image's own logic is index-only, which is
+// what makes the assertion worth making: it proves the path was interned
+// and attached to exactly one slot.
+func slotByPath(t *testing.T, img *program.Program, path string) program.NodeID {
+	t.Helper()
+	var found []program.NodeID
+	for i := range img.SlotCount() {
+		s := img.Slot(program.NodeID(i))
+		if s.Path != 0 && img.Name(s.Path) == path {
+			found = append(found, program.NodeID(i))
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%q matches %d slots, want exactly 1", path, len(found))
+	}
+	return found[0]
+}
+
+// nestedSrc is the shape the §7 example cannot express: a repeated field, and
+// a collection inside a collection. SYNTAX §4 allows `multiple` on a field and
+// on a group, and nothing forbids a group inside a group, so the row model has
+// to answer for all three at once.
+const nestedSrc = `
+roles {
+    A { allow view, edit all; }
+}
+forms {
+    f {
+        tags : string multiple;
+        rows multiple {
+            n : integer default 7;
+            meta {
+                m : integer;
+            }
+            cells multiple {
+                v : integer;
+            }
+        }
+    }
+}
+stages {
+    start { allow A view, edit, submit f; }
+}
+`
+
+func day(y, m, d int) time.Time { return time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC) }

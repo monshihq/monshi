@@ -20,21 +20,20 @@ compiled definition: resolved names, types, paths and conditions in a
 pointer-tree shape optimized for checking, not execution. The runtime
 described here consumes that output.
 
-The root package `monshi` is the resting place of the runtime:
+The root package `monshi` connects the frontend, compiler and case engine:
 
 ```text
 source ──schema.Parse──▶ *schema.Schema
-       ──lower (monshi, unexported)──▶ image
-       ──interpret──▶ View / Update / Submit / Review / Sign
-                      / Transition
+       ──internal/program.Compile──▶ *program.Program
+       ──internal/engine──▶ View / Update / Submit / Review / Sign / Transition
 ```
 
 `monshi.Load(id, reader)` (DESIGN §3) runs the front end, refuses the
 definition if `Schema.Errors` is non-empty, and lowers the remainder into
-an image. `*schema.Schema` and the image both stay unexported: a host
-passes source and receives an opaque `*Definition`, from which `Create`
-will mint `Case` handles as the operations land. The engine never
-interprets trees of interface types at request time.
+an image. The public `schema` package exposes its model to language tooling;
+case operations use only the internal compiled image. The host receives an
+opaque `*Definition`. `Runtime.Create` and `Runtime.Open` return `Case`
+handles. The engine never interprets frontend trees at request time.
 
 Authority: DESIGN.md governs what operations mean; this document
 governs how the definition is stored and executed. A conflict between
@@ -117,7 +116,7 @@ dense representation that no caller can see.
 
 ## 3. The runtime image — data model
 
-Illustrative Go, all unexported, root package. Names are provisional;
+Illustrative Go for the internal execution image. Names are provisional;
 the shapes are the contract.
 
 ### 3.1 Identity and interning
@@ -2264,7 +2263,7 @@ produced, one per distinct binding.
 
 ## 8. Cost model and benchmarks
 
-The rows below are measured, with `go test -bench . -benchtime=1s`, on
+The rows below are measured, with `go test -bench . -benchtime=1s ./internal/engine`, on
 an Apple M4 (Go 1.27.4, darwin/arm64). `benchmark_test.go` is the harness
 for everything through §5.11 and `hook_benchmark_test.go` for §6's seam,
 whose rows were printed at the fixed `-benchtime=200000x` an isolated
