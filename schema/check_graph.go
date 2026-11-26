@@ -2,7 +2,7 @@ package schema
 
 import "strings"
 
-// checkCondition types one condition (§5.7) and attaches the resolved
+// checkCondition types one condition and attaches the resolved
 // expression to its owner.
 func (a *analyzer) checkCondition(st *site) {
 	e, t := a.checkExpr(st.x, st)
@@ -10,7 +10,7 @@ func (a *analyzer) checkCondition(st *site) {
 		return
 	}
 	if !t.isBoolExpr {
-		a.errf(pos{st.x.line, st.x.col}, CodeNotBoolean, "condition is not a boolean expression") // F6/E4
+		a.errf(pos{st.x.line, st.x.col}, CodeNotBoolean, "condition is not a boolean expression")
 		return
 	}
 	st.expr = e
@@ -22,13 +22,13 @@ func (a *analyzer) checkCondition(st *site) {
 	case "transition":
 		st.stage.Edges[st.edgeIdx].Cond = e
 		if constantExpr(e) {
-			a.warnf(st.p, CodeConstantCondition, st.label) // ST6
+			a.warnf(st.p, CodeConstantCondition, st.label)
 		}
 	}
 }
 
-// checkDependencies enforces F7: no condition may reference its own
-// declaration or a descendant, and the dependency graph must be acyclic.
+// checkDependencies rejects self-references, references into a declaration's
+// own subtree, and cycles between conditions.
 func (a *analyzer) checkDependencies() {
 	condBearing := map[*Node]bool{}
 	for _, st := range a.sites {
@@ -80,7 +80,7 @@ func (a *analyzer) checkDependencies() {
 	}
 }
 
-// warnUnused reports P5 unused roles and custom types.
+// warnUnused reports unreferenced roles and custom types.
 func (a *analyzer) warnUnused() {
 	for _, r := range a.s.Roles {
 		if !a.usedRoles[r.Name] {
@@ -94,7 +94,8 @@ func (a *analyzer) warnUnused() {
 	}
 }
 
-// checkReachability reports ST5: stages unreachable from the initial one.
+// checkReachability walks from the initial stage and reports unreachable
+// stages.
 func (a *analyzer) checkReachability() {
 	if a.s.Initial == nil {
 		return

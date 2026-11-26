@@ -1,11 +1,11 @@
 package engine
 
-// codec_bench_test.go prices the wire: what a durable store pays per case
-// read, per draft save and per history append for the bytes codec.go
-// writes. §8's rule that comparisons run as same-process pairs applies
-// with full force here — a clone and an encode of the same snapshot are
-// the two ways the same fact crosses the store boundary, and only a run
-// where both saw the same allocator says which one costs more.
+// codec_bench_test.go prices the wire: what a durable store pays per case read,
+// per draft save and per history append for the bytes codec.go writes. The rule
+// that comparisons run as same-process pairs applies with full force here — a
+// clone and an encode of the same snapshot are the two ways the same fact
+// crosses the store boundary, and only a run where both saw the same allocator
+// says which one costs more.
 
 import (
 	"runtime"
@@ -14,11 +14,8 @@ import (
 	"github.com/monshihq/monshi/internal/program"
 )
 
-// The fixture is milestone 2's eleven-commit scripted case: the last
-// snapshot is the widest state the trail holds, the applicant's draft
-// is a real actor's uncommitted half, and the last record is a commit
-// that erased verdicts and a subtree, so its entries are the mixed
-// kinds a log append writes.
+// The eleven-commit fixture supplies a populated head, a real applicant draft
+// and a history entry that mixes change kinds.
 func benchWire(b *testing.B) (
 	*program.Program, committedState, []byte, workingState, commitRecord,
 ) {
@@ -34,10 +31,9 @@ func benchWire(b *testing.B) (
 
 func BenchmarkWireSnapshot(b *testing.B) {
 	img, cs, buf, _, _ := benchWire(b)
-	// `clone` is the in-memory store's read of the same snapshot: what
-	// `Save` pays to turn a committed frame into a mutable one, which
-	// is the work a durable backend's `decode` replaces. The pair is
-	// the §8 question — how many clones is one wire read worth.
+	// `clone` is the in-memory store's read of the same snapshot: what `Save`
+	// pays to turn a committed frame into a mutable one, which is the work a
+	// durable backend's `decode` replaces.
 	b.Run("clone", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {

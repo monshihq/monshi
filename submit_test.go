@@ -1,6 +1,6 @@
 package monshi_test
 
-// The commit path seen from outside the module (DESIGN §6.3; RUNTIME §5.4):
+// The commit path seen from outside the module:
 // what a host can observe about a submit, which is the revision it reached,
 // the list it was refused for, and which of the checks answered first.
 //
@@ -8,7 +8,7 @@ package monshi_test
 // commit *wrote* — the diff, the history entry, which part of the snapshot a
 // graft replaced — is asserted in package (`store_test.go`'s subject), and so
 // is whether a `Validate` hook ran, because binding a hook needs the seam
-// that is not exported yet (RUNTIME §6). `submit_hook_test.go` covers those.
+// that is not exported yet. `submit_hook_test.go` covers those.
 //
 // What is here instead is the order, because the order is the security
 // argument: a refusal that reports a stale revision to an actor the
@@ -26,7 +26,7 @@ import (
 // submitSrc states each claim below with one declaration: a form an
 // Applicant may commit, one she may only draft, one the Manager may commit
 // but not write, a gated subtree, a required collection, a role-typed field
-// whose assignment is the subject of §4.3's test, and an optional field whose
+// whose assignment is the subject of the test, and an optional field whose
 // removal still has to be a commit.
 const submitSrc = `
 types {
@@ -104,7 +104,7 @@ func TestSubmitNamesWhatTheFormStillNeeds(t *testing.T) {
 	// the collection with no instances. `deep.risk` is not among them,
 	// because its group is not part of the case's effective state — a host
 	// asked to fill it would be filling in a field its own definition
-	// withdrew (§5.2's pruning).
+	// withdrew (the pruning).
 	res, err := c.Submit(ctx(), "application", 0)
 	if !monshi.Failed(err, monshi.InvalidOp) {
 		t.Fatalf("an empty submit = %v, want INVALID_OPERATION", err)
@@ -149,7 +149,7 @@ func TestSubmitNamesWhatTheFormStillNeeds(t *testing.T) {
 	// Filling the two fields and giving the collection a row leaves exactly
 	// one gap, and it is the gated field's own path. That is the list a host
 	// can act on: a value for the path it was given, and nothing else, turns
-	// the refusal into a commit — §6.3's reason the report spells an address
+	// the refusal into a commit — the reason the report spells an address
 	// rather than a label. The collection-gap half of the same claim, that
 	// every reported path resolves back to what it names, is checked in
 	// package against the walk itself, because it needs to see the row the
@@ -194,14 +194,10 @@ func TestSubmitCommitsOnceAndRefusesToCommitNothing(t *testing.T) {
 		t.Errorf("Revision after the commit = %d (%v), want 1", rev, err)
 	}
 
-	// The same draft submitted again writes nothing, and that is a success
-	// rather than a refusal: the caller's request — this form is committed —
-	// is already true. §6.3's "no meaningless commit" and §5.1's reason it
-	// matters, that a revision is the count of commits, so an idempotent
-	// retry has to leave the number alone. Submitting at the number the copy
-	// still holds also proves the commit rebased this actor's copy rather
-	// than advancing it: an edit-free second submit is refused as stale by
-	// either guard if the store got that wrong.
+	// The same draft submitted again writes nothing. Submitting at the number
+	// the copy still holds also proves the commit rebased this actor's copy
+	// rather than advancing it: an edit-free second submit is refused as stale
+	// by either guard if the store got that wrong.
 	again, err := c.Submit(ctx(), "application", base)
 	if err != nil {
 		t.Fatalf("a repeat submit: %v", err)
@@ -223,10 +219,6 @@ func TestSubmitCommitsOnceAndRefusesToCommitNothing(t *testing.T) {
 }
 
 func TestSubmitCommitsARemoval(t *testing.T) {
-	// A commit reports semantic effects, and §5.1 counts a removal among
-	// them: content the case said and no longer says is a change, so a
-	// submit whose only edit was `Empty` must advance the revision and not
-	// return the no-op it would have been under a value-equality diff.
 	_, c := submitCase(t, applicant)
 	base := mustEdit(t, c, 0, append(complete(),
 		monshi.Set("application.note", monshi.Text("see attached")))...)
@@ -243,7 +235,7 @@ func TestSubmitCommitsARemoval(t *testing.T) {
 	}
 
 	// Removing an instance is the same claim about a row instead of a value
-	// (§5.3's distinction between writing a collection and adding to it), and
+	// (the distinction between writing a collection and adding to it), and
 	// the walk then refuses to commit the form again until a row is back.
 	base = mustEdit(t, c, base, monshi.Remove("application.holders.1"))
 	res, err := c.Submit(ctx(), "application", base)
@@ -290,17 +282,14 @@ func TestSubmitRefusesAFormTheActorMayNotCommit(t *testing.T) {
 
 	// An actor with no role hears the same refusal, and not a different one:
 	// the absence of a grant and the presence of a denial are the same
-	// answer, so a probe cannot tell the two fixtures apart (RUNTIME §7).
+	// answer, so a probe cannot tell the two fixtures apart.
 	_, orphan := submitCase(t, monshi.Actor{User: "frank"})
 	if _, err := orphan.Submit(ctx(), "application", 0); !monshi.Failed(err,
 		monshi.AccessDenied) {
 		t.Errorf("a roleless submit = %v, want ACCESS_DENIED", err)
 	}
 
-	// A name that is not a form is NOT_FOUND, and a path is the caller's
-	// mistake about which operation it wanted: §6.2's edits take paths and
-	// §6.3 commits one top-level form, and SYNTAX P3 says a `submit` grant
-	// can only ever name the second.
+	// A name that is not a form is NOT_FOUND.
 	if _, err := c.Submit(ctx(), "applications", 0); !monshi.Failed(err,
 		monshi.NotFound) {
 		t.Errorf("an unknown form = %v, want NOT_FOUND", err)
@@ -317,7 +306,7 @@ func TestSubmitRefusesTheCopyItWasNotGiven(t *testing.T) {
 	mustEdit(t, c, 0, monshi.Set("application.name", monshi.Text("Monshi")))
 
 	// One batch moved the copy to 1, so presenting 0 is what two sessions of
-	// one actor do to each other (invariant 4), and the answer is a refusal
+	// one actor do to each other, and the answer is a refusal
 	// rather than a merge. The detail gives both numbers, because the fix is
 	// to reload at the one the store holds.
 	res, err := c.Submit(ctx(), "application", 0)
@@ -360,11 +349,9 @@ func TestSubmitRefusesACopyAnotherCommitLeftBehind(t *testing.T) {
 	}
 
 	// The two staleness refusals say different things, and the difference is
-	// the one a client has to act on: presenting a number its copy never had
-	// is its own bug, while descending from a superseded revision is the
-	// case's. Both are STALE_REVISION, because §9 gives one category to "the
-	// copy you are holding is not the one you think", but the detail names
-	// the pair that disagrees.
+	// the one a client has to act on: presenting a number its copy never had is
+	// its own bug, while descending from a superseded revision is the case's.
+	// Both are STALE_REVISION.
 	if _, err := elliot.Submit(ctx(), "archive", 1); err == nil ||
 		!strings.Contains(err.Error(), "working copy is at revision 0, "+
 			"not 1") {
@@ -373,9 +360,9 @@ func TestSubmitRefusesACopyAnotherCommitLeftBehind(t *testing.T) {
 	}
 
 	// Reconnecting is not the way out. One working copy per `(case, user)`
-	// (invariant 4) means a fresh handle finds the copy that is already
+	// means a fresh handle finds the copy that is already
 	// there rather than a new one, so a client cannot fall through to the
-	// current revision by opening again — §6.5's rebase is the operation
+	// current revision by opening again — the rebase is the operation
 	// that moves a copy onto a new base, and until it exists the refusal
 	// stands. That is a decision worth a test, because the tempting
 	// implementation of `Open` is "make a copy if none exists".
@@ -394,12 +381,11 @@ func TestSubmitRefusesACopyAnotherCommitLeftBehind(t *testing.T) {
 func TestARoleAssignedByADraftConfersNothingUntilItIsCommitted(t *testing.T) {
 	_, c := submitCase(t, applicant)
 
-	// A role-typed field's holder is part of the role set an actor has
-	// (§4.3), and the committed snapshot is the only thing authority reads.
-	// The submit path is where that matters most: the draft being committed
-	// is exactly the content that would grant the right to commit it, so a
-	// submit that folded roles from the candidate would let an actor publish
-	// a grant to themselves.
+	// A role-typed field's holder is part of the role set an actor has, and the
+	// committed snapshot is the only thing authority reads. The submit path is
+	// where that matters most: the draft being committed is exactly the content
+	// that would grant the right to commit it, so a submit that folded roles
+	// from the candidate would let an actor publish a grant to themselves.
 	base := mustEdit(t, c, 0, append(complete(),
 		monshi.Set("application.owner", monshi.User("dana")))...)
 	if _, err := c.Submit(ctx(), "archive", base); !monshi.Failed(err,

@@ -2,10 +2,7 @@ package program
 
 import "github.com/monshihq/monshi/schema"
 
-// Code names one rule violation, exactly as SYNTAX §5 spells it
-// (`"UNKNOWN_TYPE"`, `"DUPLICATE_BLOCK"`). Hosts branch on it by string:
-// the values are the document's, and they are stable across releases the
-// way rule IDs are.
+// Code identifies a diagnostic by a stable string that hosts can branch on.
 type Code string
 
 // Problem is one diagnostic about definition source. The fields say where

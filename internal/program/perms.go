@@ -13,8 +13,7 @@ type overlayBits struct {
 	del uint8
 }
 
-// overlays indexes RoleID → StageID → slot. Emitting sorted arrays turns a
-// sparse grant set into the binary-searchable form §3.5 describes.
+// overlays indexes RoleID → StageID → slot.
 type overlays map[RoleID]map[StageID]map[NodeID]overlayBits
 
 func (l *lowerer) permissions() {
@@ -42,7 +41,7 @@ func (l *lowerer) roleGrants(tables []permTable) {
 		}
 		for _, g := range role.Grants {
 			if l.transitionPerms(g, role.Name) {
-				continue // P1 made this an error; reported, not laundered
+				continue
 			}
 			bits := l.permBits(g, role.Name)
 			if bits == 0 {
@@ -62,7 +61,7 @@ func (l *lowerer) roleGrants(tables []permTable) {
 // stageGrants reads the stage blocks. Targeted grants are stage-scoped and
 // accumulate in the per-role/per-stage overlay map; accept and reject are
 // transition authority and go to the stage's role masks, which is the only
-// representation they have (P1, §3.7).
+// representation they have.
 func (l *lowerer) stageGrants(pend overlays) {
 	for _, st := range l.s.Stages {
 		sid := l.stageOf[st]
@@ -73,7 +72,7 @@ func (l *lowerer) stageGrants(pend overlays) {
 		info := &l.img.stages[sid]
 		for _, g := range st.Grants {
 			if g.Role == nil {
-				l.reportf(st.Name, "a grant names no declared role") // P4
+				l.reportf(st.Name, "a grant names no declared role")
 				continue
 			}
 			r := l.roleIDOf(g.Role)
@@ -148,10 +147,8 @@ func (l *lowerer) buildOverlays(tables []permTable, pend overlays) {
 	}
 }
 
-// transitionBits records accept and reject authority for one role. A deny
-// is kept as its own mask instead of clearing the allow bit, because P6
-// lets a deny held through one role strip a permission granted through
-// another, and roles are only known per request.
+// transitionBits records accept and reject authority for one role. A deny is
+// kept as its own mask instead of clearing the allow bit.
 func (l *lowerer) transitionBits(info *Stage, r RoleID, g schema.Grant) {
 	bit := roleMask(1) << (r - 1)
 	for _, p := range g.Perms {
@@ -170,7 +167,7 @@ func (l *lowerer) transitionBits(info *Stage, r RoleID, g schema.Grant) {
 
 // transitionPerms reports whether a grant is a transition grant, flagging
 // the malformed shape: accept and reject exist only in stage blocks, alone,
-// and without targets (P1).
+// and without targets.
 func (l *lowerer) transitionPerms(g schema.Grant, at string) bool {
 	nTrans, other := 0, 0
 	for _, p := range g.Perms {
@@ -215,7 +212,7 @@ func (l *lowerer) permBits(g schema.Grant, at string) uint8 {
 
 // grantTargets resolves a grant's target set to slots. "all" is the case
 // root, because every declaration inherits from it; anything else is
-// already a declaration (P2).
+// already a declaration.
 func (l *lowerer) grantTargets(g schema.Grant, at string) []NodeID {
 	if g.All {
 		return []NodeID{0}
@@ -224,7 +221,7 @@ func (l *lowerer) grantTargets(g schema.Grant, at string) []NodeID {
 	for _, n := range g.Nodes {
 		s, ok := l.slotOf[n]
 		if !ok {
-			l.reportf(at, "grant target %s is not a declaration", n.Path) // P2
+			l.reportf(at, "grant target %s is not a declaration", n.Path)
 			continue
 		}
 		out = append(out, s)
@@ -235,7 +232,7 @@ func (l *lowerer) grantTargets(g schema.Grant, at string) []NodeID {
 // foldScope turns a grant on a container into a grant on everything under
 // it. Slots are numbered preorder, so a parent always precedes its children
 // and one linear pass inherits the bits: the compiler walks the scope chain
-// once instead of every request (DESIGN §4.3).
+// once instead of every request.
 func (l *lowerer) foldScope(tables []permTable, n int) {
 	for r := range tables {
 		allow, deny := tables[r].allow, tables[r].deny

@@ -1,20 +1,11 @@
 package monshi_test
 
-// The snapshot a host function is handed (RUNTIME §6; DESIGN §7), seen from
+// The snapshot a host function is handed, seen from
 // outside the module: what a hook is told about the case it was called for,
 // what it may read, and which words its signature carries.
 //
-// The claims here are the ones a host cannot make from any other exported
-// surface. That a registration reaches a handle opened before it, which is
-// what makes a runtime's wiring a runtime's and not a per-case copy. That the
-// address a normalizer is handed is an address `Update` takes back, so a hook
-// that considers dependencies asks about cells it can name. That a read is
-// answered at the *caller's* permission and not at the path's: the same text
-// one actor may read answers nothing for another, which is §7's property 7
-// with a host function as its subject. That the answer does not depend on
-// which operation happened to call the hook. And that the snapshot is a
-// snapshot and not a lease — a context kept past its call reads the state its
-// own batch left, never a later one's.
+// These tests exercise case reads from inside hooks, including late
+// registration, actor-specific visibility, and reads from a retained context.
 //
 // What is asserted in-package instead is the plumbing: that the view's option
 // fetch is still one fetch per binding and not one per row, and that an
@@ -158,14 +149,14 @@ func ctxFilled(t *testing.T) (
 	}
 	// Publishing the copy leaves it where it stood, so the number a later
 	// batch presents is the one the last batch got and not the case's new
-	// head: §6.2's two numbers, kept apart here because four of these tests
+	// head: the two numbers, kept apart here because four of these tests
 	// write after the submit.
 	return rt, c, row, res.Working
 }
 
 // ctxSilent registers the providers a walk over this fixture reaches, so a
 // test that is not about absence does not spend its assertions on a dropdown
-// nobody filled in. It is §7's rule that a missing provider is a failure
+// nobody filled in. It is the rule that a missing provider is a failure
 // standing behind the convenience, and the test for that rule is the one that
 // registers nothing.
 func ctxSilent(rt *monshi.Runtime) {
@@ -180,11 +171,11 @@ func ctxSilent(rt *monshi.Runtime) {
 }
 
 func TestARegisteredHookReachesAHandleOpenedBeforeIt(t *testing.T) {
-	// The registry belongs to the runtime and not to a case or a handle, so
-	// a host that wires its hooks after it created a case is not editing past
-	// the handles it already holds. DESIGN §7's one contract per deployment is
-	// what this buys: register once, and every case the server has ever
-	// opened speaks through the same function.
+	// The registry belongs to the runtime and not to a case or a handle, so a
+	// host that wires its hooks after it created a case is not editing past the
+	// handles it already holds. The one contract per deployment is what this
+	// buys: register once, and every case the server has ever opened speaks
+	// through the same function.
 	rt, c := ctxCase(t, ctxOwner)
 	var calls int
 	name := func(
@@ -239,11 +230,8 @@ func TestARegisteredHookReachesAHandleOpenedBeforeIt(t *testing.T) {
 }
 
 func TestAValidateHookIsHandedTheAddressItsValueIsAt(t *testing.T) {
-	// One binding, three addresses: a form's own field, a member of a row,
-	// and a field of a different form. The text handed over is the text §5.1
-	// spells, which is what lets a host consider a dependency the definition
-	// never named — it can ask about the cell beside the one it was called
-	// for, in the row it is standing in.
+	// One binding, three addresses: a form's own field, a member of a row, and
+	// a field of a different form.
 	rt, c, row, working := ctxFilled(t)
 	var asked []string
 	var atWork []uint64
@@ -307,7 +295,7 @@ type ctxRead struct {
 
 // ctxProbe binds the fixture's `money` type to a normalizer that changes
 // nothing and asks the snapshot about every path in the table, then runs one
-// whole-case view as `actor`. The view is what calls the hook: §5.4's re-ask
+// whole-case view as `actor`. The view is what calls the hook: the re-ask
 // walks the stored values this actor may see, so a path that answers here is
 // one a host rule was really told about.
 func ctxProbe(t *testing.T, rt *monshi.Runtime, actor monshi.Actor,
@@ -339,10 +327,10 @@ func ctxProbe(t *testing.T, rt *monshi.Runtime, actor monshi.Actor,
 }
 
 func TestAContextCannotReadWhatTheCallerMayNotSee(t *testing.T) {
-	// §6's rule about a hook's *output* — a host rule is not entitled to run
+	// The rule about a hook's *output* — a host rule is not entitled to run
 	// over content the caller could not render — asked of a hook's input. A
 	// context that answered an unfiltered path would be a disclosure channel
-	// wearing a host's function, and a wider one than §5.11's trail ever was,
+	// wearing a host's function, and a wider one than the trail ever was,
 	// because it takes arbitrary text.
 	rt, c, row, _ := ctxFilled(t)
 	table := []ctxRead{
@@ -371,10 +359,8 @@ func TestAContextCannotReadWhatTheCallerMayNotSee(t *testing.T) {
 		}
 	}
 
-	// The sibling is the whole point. A rule that asked permission of the
-	// row's *group* — which this clerk may render, because §5.7 reaches a
-	// granted member through its ancestors — would answer true here, and a
-	// host could print a field its caller was refused.
+	// The sibling is the whole point. A rule that asked permission of the row's
+	// *group* — which this clerk may render.
 	if clerk[row+".paid"] {
 		t.Fatal("a grant on one member of a row let a hook read another")
 	}
@@ -402,7 +388,7 @@ func TestAReadAnswersTheSameInAnEditAndInAView(t *testing.T) {
 	// the second half of that is a disclosure the first half refuses.
 	//
 	// The verdict reads are what make this a test rather than a tautology. A
-	// *value* cannot tell the two rules apart, because §3.5's inheritance
+	// *value* cannot tell the two rules apart, because the inheritance
 	// runs downwards only and a leaf's reachability is its own bit. A
 	// container's decision can: `application` is a container this clerk
 	// renders only through the field granted inside it, and the unit's
@@ -530,7 +516,7 @@ func TestAContextReportsTheVerdictsItsCallerWasShown(t *testing.T) {
 		t.Fatalf("Review: %v", err)
 	}
 	// An attestation is made against the head the decision moved, which is
-	// §4.2's reason the hand and the verdict cannot be stamped with one
+	// the reason the hand and the verdict cannot be stamped with one
 	// number: the hand attests to content, and the verdict is about it.
 	after, err := owner.Revision(ctx())
 	if err != nil {
@@ -598,7 +584,7 @@ func TestAContextReportsTheVerdictsItsCallerWasShown(t *testing.T) {
 	// applicant's hand on the signature field, and nothing where no
 	// `verifiable` declaration governs — `ledger` is a plain form, so a
 	// verdict asked there is answered with absence and not with PENDING,
-	// which is §5.9's rule that a unit has a state and a non-unit has none.
+	// which is the rule that a unit has a state and a non-unit has none.
 	check(ctxRuler, map[string]ctxVerdict{
 		"application":       approved,
 		"application.fee":   approved,
@@ -612,11 +598,9 @@ func TestAContextReportsTheVerdictsItsCallerWasShown(t *testing.T) {
 	})
 
 	// The clerk holds one field of the unit and one member of a row. Its view
-	// renders the form node with the unit's decision beside it (§5.7 puts it
-	// there), so a hook reading that path is told the same thing. A path the
-	// clerk may not render — the signature field, the title, the other form
-	// entire — answers absence, the same answer §5.11 gives for a withheld
-	// entry in the trail: a host is refused without being told why.
+	// renders the form node with the unit's decision beside it, so a hook
+	// reading that path is told the same thing. A path the clerk may not
+	// render.
 	check(ctxClerk, map[string]ctxVerdict{
 		"application":           approved,
 		"application.fee":       approved,
@@ -630,12 +614,12 @@ func TestAContextReportsTheVerdictsItsCallerWasShown(t *testing.T) {
 }
 
 func TestAContextIsTheSnapshotItsCallWasCutFrom(t *testing.T) {
-	// DESIGN §7's sentence this test exists for: "no hook result may be
-	// cached across a commit: the context it saw is the snapshot, not a
-	// lease". The store is what makes it true rather than the doc — a working
-	// copy is cloned on the way out and the candidate is cloned on the way in
-	// — so a context retained past its call reads a *finished* state, and a
-	// goroutine reading it is reading bytes nobody writes.
+	// The sentence this test exists for: "no hook result may be cached across a
+	// commit: the context it saw is the snapshot, not a lease". The store is
+	// what makes it true rather than the doc — a working copy is cloned on the
+	// way out and the candidate is cloned on the way in — so a context retained
+	// past its call reads a *finished* state, and a goroutine reading it is
+	// reading bytes nobody writes.
 	rt, c := ctxCase(t, ctxOwner)
 	var (
 		mu   sync.Mutex
@@ -671,10 +655,8 @@ func TestAContextIsTheSnapshotItsCallWasCutFrom(t *testing.T) {
 		t.Fatal("nothing was retained")
 	}
 
-	// The identity of the call, and the numbers it was cut at. `Working` is
-	// the revision the batch started from, which is the honest one: the batch
-	// this hook ran inside is not the store's yet, and a host that guessed at
-	// the number it would become is the caller §7 tells not to cache.
+	// The identity of the call, and the numbers it was cut at. `Working` is the
+	// revision the batch started from.
 	if kept.Case() != c.ID() {
 		t.Errorf("Case() = %v, want %v", kept.Case(), c.ID())
 	}
@@ -696,11 +678,8 @@ func TestAContextIsTheSnapshotItsCallWasCutFrom(t *testing.T) {
 		t.Errorf("Roles() = %v, want the primary role alone", got)
 	}
 
-	// The batch's own candidate is what the snapshot reads, including the
-	// write that landed *after* this hook returned: §7's "a read-only
-	// candidate-state context lets hooks consider dependencies" is this
-	// sentence, and it is the one behaviour of a retained context that a host
-	// could mistake for a lease.
+	// The batch's own candidate is what the snapshot reads, including the write
+	// that landed *after* this hook returned.
 	if v, ok := kept.Value("application.title"); !ok ||
 		v.Text() != "First" {
 		t.Errorf("the later write of the same batch reads %q, %v",
@@ -728,7 +707,7 @@ func TestAContextIsTheSnapshotItsCallWasCutFrom(t *testing.T) {
 
 	// A commit moves the case and not the snapshot. `Revision` stays at the
 	// head the call read, which is the number a host would find stale if it
-	// cached, and the reason §7's rule is stated as a property rather than as
+	// cached, and the reason the rule is stated as a property rather than as
 	// advice.
 	if _, err := c.Submit(ctx(), "application", res.Working+1); err != nil {
 		t.Fatalf("Submit: %v", err)
@@ -844,12 +823,8 @@ func walkProblems(roots []*monshi.ViewNode) []string {
 }
 
 func TestAMissingOptionsProviderRefusesAndAMissingNormalizerDoesNot(t *testing.T) {
-	// The two absence rules §6 keeps apart on purpose, now reachable through
-	// the exported seam: a `Validate` binding with nobody registered is
-	// identity, because a custom type is a name for a type expression and
-	// nothing obliges a host to write a rule for it; an `Options` binding with
-	// nobody registered is a failure, because a dropdown has no list to
-	// invent and a form that renders one blank is the bug the rule prevents.
+	// A missing validator leaves the value unchanged. A missing options
+	// provider cannot supply any choices.
 	rt, c := ctxCase(t, ctxOwner)
 	if _, err := c.Update(ctx(), 0,
 		monshi.Set("application.kind", monshi.Tag("COMPANY")),
@@ -882,10 +857,7 @@ func TestAMissingOptionsProviderRefusesAndAMissingNormalizerDoesNot(t *testing.T
 			ce.Detail)
 	}
 
-	// A scope that reaches no options field asks nothing, so a definition
-	// with a broken half still answers about the other: this is the walk's
-	// rule rather than §7's, and it is what keeps a view of one field from
-	// inheriting a failure from a field it never looked at.
+	// A scope that reaches no options field asks nothing.
 	if _, err := c.View(ctx(), "application.fee"); err != nil {
 		t.Errorf("a scope that reaches no provider = %v, want the answer",
 			err)
@@ -925,12 +897,12 @@ func TestAMissingOptionsProviderRefusesAndAMissingNormalizerDoesNot(t *testing.T
 }
 
 func TestAnOptionsProviderIsAskedOnceForTwoHundredRows(t *testing.T) {
-	// §5.7's fetch rule, priced where it matters. A provider is bound to a
+	// The fetch rule, priced where it matters. A provider is bound to a
 	// *declaration*, so its answer is the field's and not a row's, and a
 	// collection of two hundred instances is one question with two hundred
-	// renderings of the answer. The alternative would be a host function
-	// called once per row for a list the definition says is the field's, and
-	// a client that added rows would find its own server pricing the form.
+	// renderings of the answer. The alternative would be a host function called
+	// once per row for a list the definition says is the field's, and a client
+	// that added rows would find its own server pricing the form.
 	rt, c := ctxCase(t, ctxOwner)
 	edits := []monshi.Edit{monshi.Set("application.kind",
 		monshi.Tag("PERSON"))}
@@ -1042,13 +1014,7 @@ func findNode(roots []*monshi.ViewNode, path string) *monshi.ViewNode {
 }
 
 func TestAZeroContextIsInert(t *testing.T) {
-	// A `CaseContext` has no exported constructor, so the only way a host
-	// holds a zero one is by declaring a struct field and never filling it
-	// — the ordinary Go mistake, and the one this type is expected to survive
-	// rather than panic about. Every read answers the way an unseen one does,
-	// which is the same answer §7's property 7 gives for a withheld path: a
-	// host that forgot to keep its snapshot gets an empty one, and not a
-	// half-read case or a crash inside its own rule.
+	// A zero CaseContext must be safe to read and reveal no data.
 	var at monshi.CaseContext
 	if _, ok := at.Value("application.fee"); ok {
 		t.Error("Value answered true")

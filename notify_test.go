@@ -1,22 +1,12 @@
 package monshi_test
 
-// The post-commit observer (RUNTIME §6; DESIGN §7), seen from outside the
+// The post-commit observer, seen from outside the
 // module: what a host is told after a commit, what it is not allowed to
 // change about it, and where the call sits relative to the store.
 //
-// These are the claims a host can only check from the outside. That the
-// observer is handed the state the commit *installed* — including what
-// §5.6's effects erased — and not the state the operation prepared. That a
-// panicking observer leaves the commit standing, because the type has no way
-// to veto and the clock runs after durability. That the call is not inside
-// the store: an observer re-enters the case through ordinary operations, and
-// the trail it reads holds the commit it was told about. That the record and
-// a later `History` page are one rendering: DeepEqual, for the same actor,
-// says the notification and the audit agree because they are the same code.
-// And that the mask is the committing actor's own — a field the caller may
-// not view is not in the record and not readable through the context, while
-// a wider actor's trail says the entry existed, which is §7's property 7
-// with a notification as its subject.
+// Observers see the installed state, including verdicts erased by the commit,
+// filtered by the committing actor's visibility. An observer panic must not
+// undo that commit.
 //
 // What is asserted in-package instead is plumbing: that the store hands the
 // installed snapshot back, and that an unwired host's dispatch is one slice
@@ -83,7 +73,7 @@ type note struct {
 }
 
 // notifyCase is a runtime with the fixture loaded and one case at revision 0.
-// Every test here registers after the case exists, which is §6's rule for all
+// Every test here registers after the case exists, which is the rule for all
 // three registrations and one of the things being asserted.
 func notifyCase(t *testing.T,
 	actor monshi.Actor) (*monshi.Runtime, monshi.Case) {
@@ -174,10 +164,10 @@ func TestObserverSeesTheCommittedCase(t *testing.T) {
 	if got, ok := at.Value("application.kind"); !ok || got.Tag() != "COMPANY" {
 		t.Errorf("Value(kind) = %v, %v, want the committed tag", got, ok)
 	}
-	// Four entries reach this observer — `application` is its form, and
-	// the second batch added a row to it, which is two entries in §5.1's
-	// accounting: the container's instance list, and the field inside the
-	// row. The withheld case is a commit of the other form, down below.
+	// Four entries reach this observer — `application` is its form, and the
+	// second batch added a row to it, which is two entries in the accounting:
+	// the container's instance list, and the field inside the row. The withheld
+	// case is a commit of the other form, down below.
 	if len(com.Changes) != 4 {
 		t.Fatalf("Changes = %+v, want four disclosed entries", com.Changes)
 	}
@@ -262,7 +252,7 @@ func TestObserverReadsAtItsCallersMask(t *testing.T) {
 
 	// The second commit is the masked one: `ledger.amount` sits under a
 	// form this Editor may write and not read, and a commit entry is
-	// disclosed at its node (§5.11's rule about a verdict on a container
+	// disclosed at its node (the rule about a verdict on a container
 	// applies to a value the same way). The record holds no entry and the
 	// context answers absence.
 	for _, ch := range com.Changes {
@@ -384,9 +374,7 @@ func TestOnlyCommitsNotifyAndEveryCommitDoes(t *testing.T) {
 		t.Fatalf("ops after reads = %v, want just the submit", ops)
 	}
 
-	// A submit of content the case already holds is the sharp case: §6.3
-	// says no meaningless commit, and the notification follows the commit,
-	// not the call — success with an empty diff is success with no news.
+	// A submit of content the case already holds is the sharp case.
 	sub, err := c.Submit(ctx(), "application", work)
 	if err != nil {
 		t.Fatalf("empty submit: %v", err)
@@ -396,9 +384,7 @@ func TestOnlyCommitsNotifyAndEveryCommitDoes(t *testing.T) {
 			ops, sub.Revision)
 	}
 
-	// An edit, and a sync of the draft, are not commits either (invariant
-	// 2's edit is a draft act, and DESIGN §6.5's rebase saves nothing the
-	// case did not already hold).
+	// An edit, and a sync of the draft, are not commits either.
 	res, err := c.Update(ctx(), work,
 		monshi.Set("application.title", monshi.Text("Uncommitted")))
 	if err != nil {
@@ -411,9 +397,8 @@ func TestOnlyCommitsNotifyAndEveryCommitDoes(t *testing.T) {
 		t.Fatalf("ops after a draft act = %v, want no news", ops)
 	}
 
-	// The other three committing verbs: a decision, an attestation, a
-	// stage move. Each produces one commit and one announcement, and the
-	// records carry the entries §5.1 counts.
+	// The other three committing verbs: a decision, an attestation, a stage
+	// move. Each produces one commit and one announcement.
 	rv, err := c.Review(ctx(), "application", monshi.ReviewApprove, 1, "ok")
 	if err != nil {
 		t.Fatalf("Review: %v", err)
@@ -486,7 +471,7 @@ func TestVerdictAndTransitionRecords(t *testing.T) {
 	}
 
 	// The attestation entry: the field, the hand, the reference, and the
-	// revision the signature itself produced (§5.10's binding as a number).
+	// revision the signature itself produced (the binding as a number).
 	sg := notes[2].com.Changes
 	if len(sg) != 1 || sg[0].Kind != monshi.ChangeSign ||
 		sg[0].Path != "application.sealed" ||
@@ -509,7 +494,7 @@ func TestVerdictAndTransitionRecords(t *testing.T) {
 	// the way the same actor's next `View` would — not the way it did
 	// while the case sat in draft, which is what the review's own pin
 	// still says. Two snapshots of one case, two answers, each frozen at
-	// its own commit's state: §5.11's now-mask and §6's snapshot rule in
+	// its own commit's state: the now-mask and the snapshot rule in
 	// one pair.
 	if _, ok := notes[3].at.Value("application.title"); ok {
 		t.Error("the snapshot answered a path the committed stage withholds")
@@ -533,7 +518,7 @@ func TestRoleGrantedByTheCommitCountsAtDispatch(t *testing.T) {
 	// conferred Auditor — and the snapshot is cut from the state *after*
 	// that act, so what the host is told matches what the same actor may
 	// now read. The mask widens with the commit and not with the draft: an
-	// uncommitted assignment confers nothing (§4.3), and here it is the
+	// uncommitted assignment confers nothing, and here it is the
 	// committed one that moves the fold.
 	res, err := c.Update(ctx(), 0,
 		monshi.Set("ledger.keeper", monshi.User("dana")),
@@ -569,7 +554,7 @@ func TestLateRegistrationSpeaksAndClearStops(t *testing.T) {
 	rt, c := notifyCase(t, notifyEditor)
 
 	// Wiring after a case exists reaches it: observers are looked up on the
-	// runtime, and a handle is a handle (§6's registry rule, proven for all
+	// runtime, and a handle is a handle (the registry rule, proven for all
 	// three seams the same way).
 	work, _ := notifyFill(t, c)
 	var calls int
@@ -627,10 +612,10 @@ func TestReadingTheTrailNotifiesNobody(t *testing.T) {
 	rt, c := notifyCase(t, notifyEditor)
 	notifyFill(t, c)
 
-	// Hooks never rerun during replay of old commits (DESIGN §7), and the
-	// shipped form of that rule is that no read dispatches at all: the
-	// observer list is fired by the operations that commit, and §5.11's
-	// fold — or any other read — walks the trail without announcing it.
+	// Hooks never rerun during replay of old commits, and the shipped form of
+	// that rule is that no read dispatches at all: the observer list is fired
+	// by the operations that commit, and the fold — or any other read — walks
+	// the trail without announcing it.
 	var calls int
 	rt.RegisterOnCommit(func(_ context.Context, _ monshi.CaseContext,
 		_ monshi.Commit) {

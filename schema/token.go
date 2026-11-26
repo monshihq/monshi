@@ -16,8 +16,8 @@ type token struct {
 	line, col int
 }
 
-// keywords is the full reserved-word set (SYNTAX.md §2.4). Reserved words
-// never appear as declared names (N1); the parser rejects them in name
+// keywords is the full reserved-word set. Reserved words
+// never appear as declared names; the parser rejects them in name
 // positions.
 var keywords = map[string]bool{
 	// Block keywords.
@@ -35,25 +35,25 @@ var keywords = map[string]bool{
 	"view": true, "edit": true, "submit": true, "review": true, "sign": true,
 }
 
-// blockWords are the four top-level block keywords (§3.1).
+// blockWords are the four top-level block keywords.
 var blockWords = map[string]bool{"types": true, "roles": true, "forms": true, "stages": true}
 
-// permissions are the seven grantable verbs (§3.3).
+// permissions are the seven grantable verbs.
 var permissions = map[string]bool{
 	"view": true, "edit": true, "submit": true, "review": true,
 	"sign": true, "accept": true, "reject": true,
 }
 
-// attrWords introduce a field or group attribute (§3.8).
+// attrWords introduce a field or group attribute.
 var attrWords = map[string]bool{
 	"required": true, "present": true, "verifiable": true, "multiple": true, "default": true,
 }
 
-// compOps are the six comparison operators (§3.6).
+// compOps are the six comparison operators.
 var compOps = map[string]bool{"==": true, "!=": true, "<": true, "<=": true, ">": true, ">=": true}
 
-// orderBases are the types permitting < <= > >= (§5.7-E3).
+// orderBases are the types permitting < <= > >=.
 var orderBases = map[string]bool{"integer": true, "decimal": true, "date": true, "datetime": true, "string": true}
 
-// isTransitionPerm reports whether perm is accept or reject (§5.5-P1).
+// isTransitionPerm reports whether perm is accept or reject.
 func isTransitionPerm(perm string) bool { return perm == "accept" || perm == "reject" }

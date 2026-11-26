@@ -1,10 +1,10 @@
 package engine
 
-// The commit-side half of the walk (RUNTIME §5.3, §5.4, §9), asserted where the
+// The commit-side half of the walk, asserted where the
 // marks, the entry kinds and the store's erasures are visible. What a host
 // sees — the `Affected` fields of `Submit`, `Review` and `Sign` — is
 // `affected_test.go`'s claim; this file holds the three things no host call
-// reaches: what `commit` answers with when §5.6's effects erase a fact, how
+// reaches: what `commit` answers with when the effects erase a fact, how
 // `seedCommit` decides the walk's shape per entry kind, and what the mask walk
 // of a role-conferring commit reports, skips and refuses to reorder.
 
@@ -16,16 +16,7 @@ import (
 )
 
 // seedSrc is the fixture for both walks. One declaration per fact a commit seed
-// has to tell apart: a plain field, two sibling `verifiable` groups — the
-// commit-erase claim needs a content change that moves one unit and leaves the
-// other standing, and F3 takes the nested shape away from a unit, so neither
-// sits in the form's own governed shadow — a field whose guard reads a *member*
-// of the first group, which is what distinguishes re-asking a unit from marking
-// one slot, a `multiple`, a signature field the fixture's one actor may both be
-// granted and be the hand for, a whole second form only the second role
-// reaches — visibility a commit can *add* has to sit outside what the holder
-// already sees, since P6's fold unions allows and strips by any held deny —
-// and a third role that grants a judgement and no view.
+// has to tell apart.
 //
 // One actor holds type, decide and attest deliberately: every claim here is
 // about which slots a commit's facts mark, and an actor who does all three is
@@ -141,7 +132,7 @@ func TestSeedCommitMarksByEntryKind(t *testing.T) {
 			"group answer without the group's walk")
 	}
 	if fan.mark[c] {
-		t.Error("a row set re-asked the collection's members, which E2 " +
+		t.Error("a row set re-asked the collection's members, which the condition checker " +
 			"guarantee no guard reads")
 	}
 	// The walk kept going *past* the re-asked subtree: `extra` is marked only
@@ -157,11 +148,9 @@ func TestSeedCommitMarksByEntryKind(t *testing.T) {
 }
 
 func TestCommitAnswersWithWhatItErased(t *testing.T) {
-	// §5.6's effects run inside the store, and the 4D rule that an operation
-	// reads the *installed* state is what made the store the only place that
-	// knows what a commit erased. This is that knowledge arriving: a case at
-	// a content commit, two unit approvals, a standing signature, and then a
-	// commit of a new value for one member of one group.
+	// The store knows which verdicts the commit actually erased. Those paths
+	// must reach the caller's affected list even when they are outside the
+	// submitted subtree.
 	rt, img, c := seedCase(t)
 	base, err := c.Update(ctx(), 0, Set("application.a", Text("first")))
 	if err != nil {
@@ -211,8 +200,8 @@ func TestCommitAnswersWithWhatItErased(t *testing.T) {
 		t.Errorf("erased = %v, want [%d %d]: the moved unit and the "+
 			"signed field", out.erased, unit, attest)
 	}
-	// The entry account says none of it: a reset writes no entry (DESIGN
-	// §4.2), which is the fact §5.3's commit seed exists to repair.
+	// The entry account says none of it: a reset writes no entry, which is the
+	// fact the commit seed exists to repair.
 	if len(out.rec.changes) != 1 || out.rec.changes[0].slot != b {
 		t.Errorf("the record wrote %d entries, want the one value change",
 			len(out.rec.changes))
@@ -280,11 +269,10 @@ func TestRoleChangesReportsTheTopmostMover(t *testing.T) {
 	if roleSetsMatch(one, two) || roleSetsMatch(nil, one) {
 		t.Error("roleSetsMatch called different sets the same")
 	}
-	// The compare the caller skips on is a *cheap* no, not the whole answer:
-	// a fold can differ and move nothing, because a role that grants a
-	// judgement and no view changes §3.5's output nowhere. That walk runs and
-	// returns nothing, which is the same cost shape §5.5 states for
-	// `overlaysDiffer`'s skip: the guard may save the walk, never a verdict.
+	// The compare the caller skips on is a *cheap* no, not the whole answer: a
+	// fold can differ and move nothing, because a role that grants a judgement
+	// and no view changes the output nowhere. That walk runs and returns
+	// nothing.
 	witness, ok := img.RoleByName("Witness")
 	if !ok {
 		t.Fatal("the fixture lost its witness")

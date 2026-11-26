@@ -1,6 +1,6 @@
 package engine
 
-// The fanout's mechanics (RUNTIME §5.3), asserted where the marks and the queue
+// The fanout's mechanics, asserted where the marks and the queue
 // are visible. What `affected_test.go` covers is the returned list; what is here
 // is the walk that produced it, and the four claims a client is relying on
 // without knowing it: that nothing written escapes the answer, that nothing in
@@ -17,13 +17,11 @@ import (
 
 // shape checks one fanout result against the marks it came from.
 //
-//   - every reported path is a marked slot, so the answer is a rendering of the
-//     walk rather than of anything else;
-//   - every marked slot is either reported or inside a reported subtree, which
-//     is the soundness direction a stale screen depends on;
-//   - declaration order, and no path containing another;
-//   - the queue never grew past `depBound`, which is what §5.3 promises before
-//     any request knows what it is about to write.
+// - every reported path is a marked slot, so the answer is a rendering of the
+// walk rather than of anything else; - every marked slot is either reported or
+// inside a reported subtree, which is the soundness direction a stale screen
+// depends on; - declaration order, and no path containing another; - the queue
+// never grew past `depBound`.
 func shape(t *testing.T, img *program.Program, f *fanout, got []string) {
 	t.Helper()
 
@@ -73,20 +71,16 @@ func shape(t *testing.T, img *program.Program, f *fanout, got []string) {
 	}
 }
 
-// TestEveryWriteIsCoveredBySomeReportedPath runs the walk once per declaration
-// in the SYNTAX §7 example, which is the corpus §8 measures and the one whose
-// guards, stages and collections are already known to be real. The claim is the
-// one that cannot be made from outside: not that a particular batch reports
-// particular paths, but that no single write anywhere in a definition can leave
-// a marked slot unreported — the property a hand-written list of cases argues
-// about one path at a time and never proves.
+// The claim is the one that cannot be made from outside: not that a particular
+// batch reports particular paths, but that no single write anywhere in a
+// definition can leave a marked slot unreported — the property a hand-written
+// list of cases argues about one path at a time and never proves.
 func TestEveryWriteIsCoveredBySomeReportedPath(t *testing.T) {
 	img := lowerExample(t)
 	for n := range img.SlotCount() {
 		id := program.NodeID(n)
 		f := newFanout(img)
-		// A collection is written by an instance arriving or leaving, which is
-		// what §5.1's `Add` does to it; every other slot is a value.
+		// A collection is written by an instance arriving or leaving.
 		if img.Slot(program.NodeID(n)).Coll != 0 {
 			f.wroteRows(id)
 		} else {
@@ -161,8 +155,7 @@ stages {
 // TestADiamondMarksASharedDependentOnce is the closure's other shape: two paths
 // to one declaration. `guard` reads both fields a batch writes, so it is a
 // dependent of two marks at once, and a walk without the visited set would
-// enqueue it twice — which is not merely wasteful, because the queue's bound is
-// `depBound` and a slot counted twice breaks the promise §5.3 makes about it.
+// enqueue it twice — which is not merely wasteful.
 func TestADiamondMarksASharedDependentOnce(t *testing.T) {
 	img := mustLowerSource(t, `
 roles {
@@ -203,18 +196,15 @@ stages {
 }
 
 // TestAGuardInsideACollectionReasksItsCollection is the third rule, and the
-// language is what makes it right rather than merely tidy. F6 says a condition
+// language is what makes it right rather than merely tidy. a condition
 // inside a `multiple` declaration applies uniformly to the whole collection, so
 // when `kind` moves it is the *group's* answer that moved: a client told about
 // `holders.since` would refresh one column of rows whose requiredness all
 // changed at once.
 //
-// E2 is the other half — the reason the collection is enough and not merely
-// neater. A guard whose operand traverses a `multiple` node does not compile, so
-// no slot inside a collection's rows is ever an adjacency key, and there is
-// nothing beyond the group to reach. That is asserted here rather than trusted,
-// because it is the fact the rule is priced by: if E2 ever admits a row operand,
-// this test says so instead of the report quietly getting wrong.
+// A guard whose operand traverses a `multiple` node does not compile, so no
+// slot inside a collection's rows is ever an adjacency key, and there is
+// nothing beyond the group to reach. That is asserted here rather than trusted.
 func TestAGuardInsideACollectionReasksItsCollection(t *testing.T) {
 	img := mustLowerSource(t, `
 roles {
@@ -238,7 +228,7 @@ stages {
 		id := program.NodeID(n)
 		if img.CollOf(id) != 0 && len(img.Dependents(id)) != 0 {
 			t.Fatalf("%s lives in a collection's rows and is an adjacency key "+
-				"with %d owners, so E2 no longer says what this rule assumes",
+				"with %d owners, so the dependency bound does not hold",
 				img.Path(id), len(img.Dependents(id)))
 		}
 	}
@@ -254,8 +244,7 @@ stages {
 	shape(t, img, f, got)
 
 	// Marked, because its guard was re-asked; unnamed, because the group stands
-	// for it. Both halves matter: the first is what a §5.4 walk would use, and
-	// the second is what a client can prefix-match.
+	// for it.
 	if !f.mark[slotByPath(t, img, "application.holders.since")] {
 		t.Error("the member whose condition moved is not marked")
 	}
@@ -264,15 +253,10 @@ stages {
 // TestAFanoutDoesNotSeeWhatWasWritten states the property that makes the walk
 // cheap enough to run per batch: it reads the adjacency and nothing else, so
 // which slots a batch touched decides the answer and what landed in them does
-// not. That is what lets DESIGN §7 re-evaluate dependencies after `Validate`
-// normalization without re-running the closure — the marks name the rows
-// holding normalized values, and whoever *asks* a guard asks the state the save
-// published.
+// not.
 //
 // The hook below is the test's real content. It rewrites the tag the host asked
-// for, so the draft's presence answer differs between the two batches while
-// their affected sets must not: a report that moved with the value would mean
-// the walk consulted data, and data is what §5.2 derives at read time.
+// for.
 func TestAFanoutDoesNotSeeWhatWasWritten(t *testing.T) {
 	rt, img, c := editCase(t, danaEdit)
 	sub := slotByPath(t, img, "application.internal")
@@ -311,7 +295,7 @@ func TestAFanoutDoesNotSeeWhatWasWritten(t *testing.T) {
 	// the report is still identical, because the mark is the slot the
 	// normalizer wrote into rather than the value it put there — while the
 	// *answer* the draft derives is now the hook's, which is the other half of
-	// DESIGN §7's ordering. A client that refreshed `internal` because the
+	// the ordering. A client that refreshed `internal` because the
 	// engine named it is refreshing a subtree the normalization opened, and
 	// nothing but the report could have told it to look.
 	rt.RegisterValidate("legal", func(_ context.Context, _ CaseContext,

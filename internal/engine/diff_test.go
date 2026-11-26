@@ -3,20 +3,17 @@ package engine
 // The forward diff and the graft: what a commit *says* it changed, and what
 // it replaces.
 //
-// These are the two halves of §6.3 that a host cannot see. `submit_test.go`
-// watches the revision number, which is the diff's consequence; what is here
-// is the diff itself, because the entry is what an audit read and a replay
-// are built from (DESIGN §5.1: new values, never old), and a wrong entry is
-// a wrong history that still committed cleanly.
+// `submit_test.go` watches the revision number, which is the diff's
+// consequence; what is here is the diff itself, because the entry is what an
+// audit read and a replay are built from (new values, never old), and a wrong
+// entry is a wrong history that still committed cleanly.
 //
 // Three claims are worth the space. A removal is an entry rather than a
-// silence — §5.1 counts it among the semantic effects, and a diff computed by
-// comparing only the values that exist now would drop it. A `Remove` of an
-// outer row says something about the rows *inside* it, which is why the
-// instances compared are a union of both states rather than the new state's.
-// And the graft replaces rather than merges, because a candidate that removed
-// a row has to be able to commit that removal, which a merge of two row sets
-// could not express.
+// silence. A `Remove` of an outer row says something about the rows *inside*
+// it, which is why the instances compared are a union of both states rather
+// than the new state's. And the graft replaces rather than merges, because a
+// candidate that removed a row has to be able to commit that removal, which a
+// merge of two row sets could not express.
 
 import (
 	"strconv"
@@ -65,7 +62,7 @@ stages {
 
 // diffStates is a committed snapshot and a candidate descended from it, which
 // is the pair `diffForm` is called with. The candidate starts as a clone
-// because that is what §5.1's copy is: a diff between unrelated states would
+// because that is what the copy is: a diff between unrelated states would
 // report every field the draft never mentioned.
 func diffStates(t *testing.T) (*program.Program, *state, *state) {
 	t.Helper()
@@ -133,10 +130,7 @@ func TestDiffIsNothingWhenNothingMoved(t *testing.T) {
 	application := slotByPath(t, img, "application")
 	holders := slotByPath(t, img, "application.holders")
 
-	// An untouched candidate is the no-op case §6.3 decides the commit with,
-	// and the one a wrong comparison would get wrong: a state pair built by
-	// cloning has no differences by construction, so any entry at all means
-	// something is being compared that should not be.
+	// Cloning a snapshot without changing it must produce no diff.
 	wantChanges(t, old, next, application)
 
 	// Fill both the base row and a collection, then diff a clone of the
@@ -177,7 +171,7 @@ func TestDiffComparesAValueByWhatItMeans(t *testing.T) {
 
 	// The same instant through another zone, the same amount with another
 	// written scale, and a field neither state has filled: none of them is a
-	// change, because §5.1's diff records what the case says and not how a
+	// change, because the diff records what the case says and not how a
 	// client typed it. A commit that reported a reformat would advance the
 	// revision for content nobody altered, and the audit read of it would
 	// point at a value that had not moved.
@@ -214,9 +208,7 @@ func TestDiffRecordsAValueAndItsRemoval(t *testing.T) {
 
 	// One entry for the new text and one for the field that has none. The
 	// second is the reason a forward diff cannot be a set of (path, value)
-	// pairs alone: §5.1 counts a removal among the committed effects, so the
-	// entry has to carry the absence rather than omit it, and an audit that
-	// read this diff must be able to tell "cleared" from "never existed".
+	// pairs alone.
 	wantChanges(t, old, next, application,
 		"application.name=Monshi Limited",
 		"application.note=<none>")
@@ -260,7 +252,7 @@ func TestDiffRecordsASetAndTheRowsThatLeftIt(t *testing.T) {
 	// The diff is against the *committed* state and not against the last
 	// call, so row 3 is still a change here: it is part of what this candidate
 	// says that the case does not. Order is the new state's rows first, in the
-	// order they were created, and the vanished ones after — §5.1's argument
+	// order they were created, and the vanished ones after — the argument
 	// that a replay of this lands on what the case says now.
 	wantChanges(t, old, next, application,
 		"application.holders rows=2",
@@ -276,8 +268,8 @@ func TestARemovedRowReportsTheRowsInsideIt(t *testing.T) {
 	homes := slotByPath(t, img, "application.holders.homes")
 
 	// Two holders, one home each. Instance IDs are issued case-wide, so the
-	// inner rows are 3 and 4, and a nested address carries both (§5.1's
-	// reason a report says "holder 1's home 3" rather than "home 3").
+	// inner rows are 3 and 4, and a nested address carries both (the reason a
+	// report says "holder 1's home 3" rather than "home 3").
 	for i := 0; i < 2; i++ {
 		if _, _, ok := old.addAt(holders, nil); !ok {
 			t.Fatal("Add refused the collection")
@@ -326,11 +318,7 @@ func TestDiffStopsAtTheFormsEdge(t *testing.T) {
 	write(t, next, "application.name", "Monshi Limited")
 	write(t, next, "archive.filed", "yes")
 
-	// The same candidate changes both forms, and each commit speaks about
-	// one. §6.3 limits the diff to the selected form for the same reason it
-	// limits completeness and validation: submitting the application is not
-	// an act on the archive, and an entry about a field the caller never
-	// presented would put someone else's draft in this commit's history.
+	// The same candidate changes both forms.
 	wantChanges(t, old, next, slotByPath(t, img, "application"),
 		"application.name=Monshi Limited")
 	wantChanges(t, old, next, slotByPath(t, img, "archive"),
@@ -373,9 +361,8 @@ func TestSubmitGraftsOneFormOntoTheCommittedState(t *testing.T) {
 
 	// The committed snapshot is the *old* one with this subtree replaced: the
 	// application says what the candidate said, and the archive still says
-	// nothing, because §6.3 is explicit that other forms' unsubmitted edits
-	// stay unsubmitted. Reading the store rather than the copy is the point —
-	// the two differ exactly here, and only in package can a test see it.
+	// nothing. Reading the store rather than the copy is the point — the two
+	// differ exactly here, and only in package can a test see it.
 	rec, err := c.w.cases.load(ctx(), newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -403,7 +390,7 @@ func TestSubmitGraftsOneFormOntoTheCommittedState(t *testing.T) {
 
 	// The draft survives its own commit: the archive value is still in the
 	// actor's copy, which is what lets her commit that form next without
-	// retyping it. The copy's data is untouched by the rebase (§6.3), and the
+	// retyping it. The copy's data is untouched by the rebase, and the
 	// one field the store moved is the copy's base.
 	w, err := c.w.cases.working(ctx(), newRefuser("open", c.id), c.actor.User, img)
 	if err != nil {
@@ -421,9 +408,7 @@ func TestSubmitGraftsOneFormOntoTheCommittedState(t *testing.T) {
 
 	// And the history is the diff, in the subtree's own order: the field the
 	// draft changed, the set that moved, the row that joined it and the one
-	// that left. Nothing about the archive, because §6.3 limits an entry to
-	// the form the commit was of, and an entry about a field nobody presented
-	// would put someone else's draft in this commit's record.
+	// that left. Nothing about the archive.
 	hist, err := c.w.cases.history(ctx(), newRefuser("open", c.id), 1, 0)
 	if err != nil {
 		t.Fatalf("history: %v", err)
@@ -508,18 +493,16 @@ func TestACommitNeverTakesTheInstanceNumberBackwards(t *testing.T) {
 	}
 	if rec.commit.s.seq != 2 {
 		t.Errorf("the committed snapshot's allocator is at %d, want 2: the "+
-			"number the draft reached is part of the case's data (§5.1), even "+
+			"number the draft reached is part of the case's data, even "+
 			"when the form that committed holds no rows", rec.commit.s.seq)
 	}
 
 	// Dana drafts a third row, and a second actor's copy — built from the
 	// committed snapshot, which reached 2 — issues 3 as well. That is not a
 	// reused ID: no two *committed* rows share one, and the pair of drafts
-	// cannot both land, because the second commit is refused as stale and
-	// §6.5's rebase is the operation that renumbers it. The alternative would
-	// be reserving numbers at edit time, which would make an abandoned draft
-	// cost the case an ID and put the allocator outside the state §5 says it
-	// belongs to.
+	// cannot both land, because the second commit is refused as stale and the
+	// rebase is the operation that renumbers it. The alternative would be
+	// reserving numbers at edit time.
 	base = mustUpdate(t, c, base, Add("application.holders"))
 	other, err := rt.Open(ctx(), c.ID(), Actor{User: "elliot",
 		PrimaryRole: "A"})
@@ -536,10 +519,8 @@ func TestACommitNeverTakesTheInstanceNumberBackwards(t *testing.T) {
 			res.Created)
 	}
 
-	// The second half of the claim, which is the one §5.1 actually makes: once
-	// a row is committed, its number is the case's forever. Dana commits the
-	// form her three rows live in, and the next copy the case hands out starts
-	// above all of them.
+	// The second half of the claim. Dana commits the form her three rows live
+	// in, and the next copy the case hands out starts above all of them.
 	if _, err := c.Submit(ctx(), "application", base); err != nil {
 		t.Fatalf("submitting the drafted rows: %v", err)
 	}

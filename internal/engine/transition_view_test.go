@@ -1,6 +1,6 @@
 package engine
 
-// The definition half of a transition, in package (RUNTIME §5.5, §3.7, §5.3):
+// The definition half of a transition, in package:
 // the list a stage's `require` expands to, the walk that answers which paths a
 // stage move changes the visibility of, and the shape of the history entry a
 // transition commits.
@@ -11,8 +11,7 @@ package engine
 // shortcut that decides that without visiting a slot — need their own
 // assertions; a list that quietly stopped collapsing would look exactly like a
 // correct one through `Transition`. The history entry is invisible for the same
-// reason in the other direction: a commit whose stage or operation was wrong is
-// a replay that lands somewhere else, and milestone 5 is the one that reads it.
+// reason in the other direction.
 
 import (
 	"strings"
@@ -96,13 +95,10 @@ func TestAStagesRequireListIsFormsInDeclarationOrder(t *testing.T) {
 		t.Fatal("the fixture has no draft stage")
 	}
 
-	// The `require` block names `ledger` first, and ST4 stores the list as a
-	// bitset over form ordinals — so the order the author typed is gone, and
-	// the order that replaces it is the definition's. That is the right answer
-	// rather than a lost one: every other gap list in the engine renders in
-	// preorder (§5.2's walk, §5.4's `Missing`), and a host that reads two
-	// refusals from two operations should not have to know which of them came
-	// from a block whose author was in a hurry.
+	// The `require` block names `ledger` first. That is the right answer rather
+	// than a lost one: every other gap list in the engine renders in preorder,
+	// and a host that reads two refusals from two operations should not have to
+	// know which of them came from a block whose author was in a hurry.
 	want := []string{"application", "ledger"}
 	var got []string
 	for _, n := range img.Requires(draft) {
@@ -138,7 +134,7 @@ func TestViewChangesReportsTheSubtreeAStageMoveUnlocks(t *testing.T) {
 	// every grant the role holds unconditionally, so the answer is the two
 	// forms — and not the forms plus their members: the walk reports the
 	// topmost slot whose view moved and skips what its span covers, which is
-	// §5.3's collapse rule reused, and the reason a client is told to re-read
+	// the collapse rule reused, and the reason a client is told to re-read
 	// a subtree rather than sixteen fields. The order is the definitions's
 	// own preorder, which is what makes the list the same sequence the author
 	// declared the forms in.
@@ -148,11 +144,7 @@ func TestViewChangesReportsTheSubtreeAStageMoveUnlocks(t *testing.T) {
 	}
 
 	// Going back reports the same two paths. The list answers "which views are
-	// now answered differently", not "which were gained": a client holding a
-	// rendered `ledger` has to un-render it, and a list that only carried
-	// arrivals would leave the field on screen for an actor the definition no
-	// longer lets see it — invariant 7's failure mode, reached through an
-	// audit list nobody was supposed to trust.
+	// now answered differently", not "which were gained".
 	back := img.ViewChanges([]program.RoleID{boss}, reviewed, draft)
 	if len(back) != 2 || back[0] != "notes" || back[1] != "ledger" {
 		t.Errorf("viewChanges(reviewed, draft) = %q, want the same two", back)
@@ -204,11 +196,6 @@ func TestViewChangesReportsTheSubtreeAStageMoveUnlocks(t *testing.T) {
 func TestAStagesRequireIsAskedOfCommittedState(t *testing.T) {
 	_, _, c := stageCase(t)
 
-	// The edge here is unconditional, so this reaches the destination's
-	// `require` and asks it of a case whose only content is a draft. §5.5's
-	// "draft cannot satisfy a stage" is the claim, and the drafted value is
-	// the same value the require wants: were the check made against the
-	// working copy, this transition would land.
 	mustUpdate(t, c, 0, Set("application.name", Text("Monshi Ltd")))
 	res, err := c.Transition(ctx(), "reviewed", 0)
 	if !Failed(err, InvalidOp) {
@@ -302,7 +289,7 @@ func TestATransitionCommitsAStageAndNoContent(t *testing.T) {
 		t.Fatalf("history: %v", err)
 	}
 	if len(hist) != 2 {
-		t.Fatalf("%d entries, want 2: a stage move is a commit (§5.1)",
+		t.Fatalf("%d entries, want 2: a stage move is a commit",
 			len(hist))
 	}
 	tr := hist[1]
@@ -326,7 +313,7 @@ func TestATransitionCommitsAStageAndNoContent(t *testing.T) {
 	// And the entry before it still says what it said: the history is a record
 	// and not a view recomputed at read time, so the submit's entry keeps the
 	// stage the case was at *then* even though the case has moved since. That
-	// is the half of §5.1's replay claim a transition can break — a stage
+	// is the half of the replay claim a transition can break — a stage
 	// change that overwrote the shared field would leave one stage in a
 	// history of two moves.
 	if hist[0].stage != before.commit.stage {
@@ -366,7 +353,7 @@ func TestACommitRebasesOnlyTheActorWhoMadeIt(t *testing.T) {
 	}
 	if me.base != moved.Revision {
 		t.Errorf("the committer's copy descends from %d, want %d: she wrote"+
-			" the commit, so nothing about her draft is stale (§6.3)",
+			" the commit, so nothing about her draft is stale",
 			me.base, moved.Revision)
 	}
 	other, err := workingOf(t, bo, img)
@@ -374,10 +361,7 @@ func TestACommitRebasesOnlyTheActorWhoMadeIt(t *testing.T) {
 		t.Fatalf("working: %v", err)
 	}
 	if other.base != 0 {
-		t.Errorf("the other actor's copy was moved to %d, want 0: DESIGN §6.5"+
-			" is explicit that committed changes never rewrite an existing"+
-			" working state, and the transition changed no content for it to"+
-			" merge", other.base)
+		t.Errorf("transition moved another actor's draft base to %d, want 0", other.base)
 	}
 }
 
@@ -410,12 +394,9 @@ func mustRole(t *testing.T, img *program.Program, name string) program.RoleID {
 }
 
 func TestAStageDenialStripsATransitionItsGrantGives(t *testing.T) {
-	// §5.5's `permit` is two mask tests, and the second one is P6's
-	// deny-override applied to a transition: authority granted by one role the
-	// actor holds is stripped by a denial held through any other. Only the
-	// first half is exercised by every other test here, so this asserts the
-	// half that refuses — and that it is the *edge taken* that is denied, not
-	// the destination reached.
+	// Only the first half is exercised by every other test here, so this
+	// asserts the half that refuses — and that it is the *edge taken* that is
+	// denied, not the destination reached.
 	img := mustLowerSource(t, stageSrc)
 	st := img.Stage(mustStage(t, img, "draft"))
 	boss, clerk := mustRole(t, img, "Boss"), mustRole(t, img, "Clerk")
@@ -435,29 +416,25 @@ func TestAStageDenialStripsATransitionItsGrantGives(t *testing.T) {
 
 	// The same actor, the same two roles, the reject edge: `draft` denies
 	// nothing about rejecting, so the grant stands. A denial written for one
-	// direction has to leave the other alone (ST3's edges are separate).
+	// direction has to leave the other alone (the edges are separate).
 	if !st.MayReject([]program.RoleID{boss, clerk}) {
 		t.Error("both roles held may not reject out of draft, want the" +
 			" denial of an accept to leave the reject granted")
 	}
 }
 
-// TestAppendixATransitionTrace executes RUNTIME Appendix A's steps 1 through 6
-// against the SYNTAX §7 example — the conformance gate of §10, clause (c), for
-// the transition half of it. The steps are the ones the trace spells out for
-// `Transition("draft" → "company_review")`, in its order, on its fixture
-// content: an application whose `reviewer` names the user making the call, so
-// that the authority to move the case arrives *only* through a committed
-// role-typed assignment (T4) and not through anybody's primary role.
+// The steps are the ones the trace spells out for `Transition("draft" →
+// "company_review")`, in its order, on its fixture content: an application
+// whose `reviewer` names the user making the call, so that the authority to
+// move the case arrives *only* through a committed role-typed assignment and
+// not through anybody's primary role.
 //
-// Steps 5's other two conjuncts and step 7 are not here: `verif` units
-// APPROVED and signature validity need something to have approved or signed
-// (DESIGN §10's milestone 5), and `OnCommit` is milestone 6's. What is here is
-// every step those two wait behind, so the trace's shape — three integer sets,
-// one `condFn` and no name comparison — is checked now rather than promised.
-func TestAppendixATransitionTrace(t *testing.T) {
+// Steps 5's other two conjuncts and step 7 are not here. What is here is every
+// step those two wait behind, so the trace's shape — three integer sets, one
+// `condFn` and no name comparison — is checked now rather than promised.
+func TestRegistrationTransitionTrace(t *testing.T) {
 	rt := NewRuntime()
-	img := mustLowerSource(t, specExample(t))
+	img := mustLowerSource(t, registrationExample(t))
 	d := &Definition{img: img}
 	if err := rt.Register(d); err != nil {
 		t.Fatalf("Register: %v", err)
@@ -466,7 +443,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 	// The Applicant writes and commits a company application: the two
 	// unconditional required fields, the `reviewer` assignment that makes
 	// elliot a Manager here, and one instance of the collection the `COMPANY`
-	// guard brings into requiredness (§5.2's F6).
+	// guard brings into requiredness.
 	dana, err := rt.Create(ctx(), d.ID(),
 		Actor{User: "dana", PrimaryRole: "Applicant"})
 	if err != nil {
@@ -485,9 +462,6 @@ func TestAppendixATransitionTrace(t *testing.T) {
 		t.Fatalf("Submit: %v", err)
 	}
 
-	// Step 1: the role set. elliot declares no primary role at all, so
-	// everything he holds here is the committed assignment — and `rolesHeld`
-	// is the function Appendix A's set is, not a restatement of the call.
 	elliot, err := rt.Open(ctx(), dana.ID(), Actor{User: "elliot"})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -500,7 +474,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 	manager := mustRole(t, img, "Manager")
 	if !holds(roles, manager) {
 		t.Fatalf("the committed reviewer holds %v, want the Manager role"+
-			" conferred by `application.reviewer` (T4)", roles)
+			" conferred by `application.reviewer`", roles)
 	}
 	if n := len(roles); n != 1 {
 		t.Errorf("the role set is %v, want the one conferred role: an actor"+
@@ -525,7 +499,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 	if _, err := dana.Transition(ctx(), "company_review",
 		rec.revision); !Failed(err, AccessDenied) {
 		t.Errorf("the Applicant who wrote the case accepted it: %v, want"+
-			" ACCESS_DENIED — Appendix A names this exact refusal", err)
+			" ACCESS_DENIED", err)
 	}
 
 	// Step 4: the guard, on the committed frame. The `PERSON` twin is a second
@@ -557,10 +531,10 @@ func TestAppendixATransitionTrace(t *testing.T) {
 	}
 
 	// Step 5's other half, and the reason the trace owes itself a commit before
-	// step 6: `application` is the form-wide unit (F3), so the destination's
+	// step 6: `application` is the form-wide unit, so the destination's
 	// `require` wants the committed reviewer's APPROVED as well as the content
 	// above. Manager is in `draft`'s accept mask and holds `review application`,
-	// so one call answers both §5.5's conjuncts that ship today.
+	// so one call answers both the conjuncts that ship today.
 	rvs, err := elliot.Review(ctx(), "application", ReviewApprove,
 		sub.Revision, "")
 	if err != nil {
@@ -571,16 +545,12 @@ func TestAppendixATransitionTrace(t *testing.T) {
 			rvs.Revision, rvs.Stage, sub.Revision+1)
 	}
 
-	// Step 5's third conjunct, and the reason a trace of §5.5 has to say what it
-	// does *not* ask: SYNTAX §7's example declares two signature fields and marks
-	// neither `required`, so §5.6's "its required signatures are valid" wants
-	// nothing of this destination and step 6 below is the same move milestone 3
-	// ran. The scan is not a no-op by luck — it walks the form's two fields and
-	// reports the absence of a requirement — and one word of the same definition
-	// turns it into a refusal, which the test after this one runs.
+	// The scan is not a no-op by luck — it walks the form's two fields and
+	// reports the absence of a requirement — and one word of the same
+	// definition turns it into a refusal, which the test after this one runs.
 	if got := unsignedSigs(&rec.commit.s, rec.commit.sigs,
 		img.Requires(dest)[0]); len(got) != 0 {
-		t.Errorf("company_review asks %+v, want nothing: §7 marks no signature"+
+		t.Errorf("company_review asks %+v, want nothing: the definition marks no signature"+
 			" required", got)
 	}
 	if n := len(img.SigSlotsOf(img.Slot(img.Requires(dest)[0]).Form)); n != 2 {
@@ -590,7 +560,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 
 	// Step 6: the revision check and one atomic commit, seen from the handle
 	// that was refused three calls ago. Nothing about the content moves, so
-	// the entry this writes is the trace's claim in §5.1: a stage change, and
+	// the entry this writes is the trace's claim: a stage change, and
 	// no diff. The number checked is the decision's, because a review is a
 	// commit like any other and step 6 asks what the caller was last shown.
 	res, err := elliot.Transition(ctx(), "company_review", rvs.Revision)
@@ -614,12 +584,9 @@ func TestAppendixATransitionTrace(t *testing.T) {
 		t.Fatalf("history: %v", err)
 	}
 	tail := hist[len(hist)-1]
-	// The decision's entry sits beside them, and it is the trace's §5.6 claim
-	// in miniature: a commit whose changes are decisions maps no reset, so the
-	// approval the step-5 call wrote is the one step 6 found standing.
+	// The decision's entry sits beside them.
 	if len(tail.changes) != 0 {
-		t.Errorf("a stage move wrote %d changes, want the diff §5.6 maps to"+
-			" nothing here", len(tail.changes))
+		t.Errorf("a stage move wrote %d changes, want no content changes", len(tail.changes))
 	}
 	mid := hist[len(hist)-2]
 	if mid.op != opReview || len(mid.changes) != 1 ||
@@ -634,7 +601,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 	}
 	if tail.op != opTransition || len(tail.changes) != 0 {
 		t.Errorf("the trace's commit is op %d with %d changes, want a"+
-			" transition and no diff: §5.6 maps nothing here", tail.op,
+			" transition and no content changes", tail.op,
 			len(tail.changes))
 	}
 	if tail.stage != dest || hist[len(hist)-2].stage == dest {
@@ -643,10 +610,7 @@ func TestAppendixATransitionTrace(t *testing.T) {
 			hist[len(hist)-2].stage, tail.stage)
 	}
 
-	// And the stage the case now sits at grants the *Registrar* the archive,
-	// which is the half of Appendix A's last bullet a transition is measured
-	// by: the same actor, the same content, and a view that answers
-	// differently because the mask was resolved at a different stage.
+	// And the stage the case now sits at grants the *Registrar* the archive.
 	registrar := mustRole(t, img, "Registrar")
 	if img.Effective([]program.RoleID{registrar}, draft,
 		formSlot(img, "archive"))&program.PermEdit != 0 {
@@ -656,23 +620,20 @@ func TestAppendixATransitionTrace(t *testing.T) {
 	if img.Effective([]program.RoleID{registrar}, dest,
 		formSlot(img, "archive"))&program.PermEdit == 0 {
 		t.Error("a Registrar may not edit the archive at company_review," +
-			" want the stage grant the §7 example declares")
+			" want the stage grant the registration example declares")
 	}
 }
 
-// TestAppendixARequiredSignatureTrace is Appendix A's steps with §5.5's third
-// conjunct load-bearing: the same §7 corpus, with one word added to make the
-// reviewer's attestation something the destination asks for. It is a separate
-// trace rather than a case inside the one above because the point is the whole
-// sequence — a stage that will not open, the remedy that opens it, and the fact
-// that the hand entitled to give it is the one §3.5's fold put in charge of this
-// case and nobody else.
-func TestAppendixARequiredSignatureTrace(t *testing.T) {
-	src := strings.Replace(specExample(t),
+// It is a separate trace rather than a case inside the one above because the
+// point is the whole sequence — a stage that will not open, the remedy that
+// opens it, and the fact that the hand entitled to give it is the one the fold
+// put in charge of this case and nobody else.
+func TestRegistrationRequiredSignatureTrace(t *testing.T) {
+	src := strings.Replace(registrationExample(t),
 		"approved_by : signature(.reviewer);",
 		"approved_by : signature(.reviewer) required;", 1)
-	if src == specExample(t) {
-		t.Fatal("SYNTAX §7's example no longer declares the attestation this" +
+	if src == registrationExample(t) {
+		t.Fatal("the registration example no longer declares the attestation this" +
 			" trace makes required")
 	}
 	rt := NewRuntime()
@@ -730,10 +691,10 @@ func TestAppendixARequiredSignatureTrace(t *testing.T) {
 	}
 
 	// Step 5's answer arrives through the operation that owes it. elliot is the
-	// hand the *committed* content names, and §5.4's completeness and §5.5's
-	// approval conjuncts already hold, so the attestation commits at once — and
-	// the signature stands for the content the case holds, not for the version
-	// the trace began with.
+	// hand the *committed* content names, and the completeness and the approval
+	// conjuncts already hold, so the attestation commits at once — and the
+	// signature stands for the content the case holds, not for the version the
+	// trace began with.
 	sig, err := elliot.Sign(ctx(), "application.approved_by", rvs.Revision,
 		"reviewer-note")
 	if err != nil {
@@ -744,10 +705,8 @@ func TestAppendixARequiredSignatureTrace(t *testing.T) {
 			sig.Revision, sig.Stage, rvs.Revision+1)
 	}
 
-	// Step 6, now with all three conjuncts paid: the same call that was refused,
-	// at the number this commit produced. The trace's last claim is the one §4.2
-	// makes about a signature and a stage — a destination asks, the attestation
-	// answers, and the content it attested to is the content the case holds.
+	// Step 6, now with all three conjuncts paid: the same call that was
+	// refused, at the number this commit produced.
 	res, err := elliot.Transition(ctx(), "company_review", sig.Revision)
 	if err != nil {
 		t.Fatalf("Transition after the attestation = %v, want the move", err)
@@ -766,7 +725,7 @@ func TestAppendixARequiredSignatureTrace(t *testing.T) {
 			g.by, g.at, g.ref, sig.Revision)
 	}
 	// And a content commit at the new stage erases the attestation that opened
-	// the door, which is §5.6's effect seen from the far end of the trace: the
+	// the door, which is the effect seen from the far end of the trace: the
 	// stage does not ask for it again, because the destination's `require` is
 	// only consulted on the way in.
 	if _, err := dana.Rebase(ctx()); err != nil {
@@ -789,24 +748,13 @@ func TestAppendixARequiredSignatureTrace(t *testing.T) {
 	}
 }
 
-// TestAppendixAHistoryTrace is Appendix A's step 8: the trail the trace above
-// left, read through the exported seam (RUNTIME §5.11). The other two traces in
-// this file ask what the operations did to the case. This one asks what the case
-// says about having done them, and it uses the second trace's script for the
-// reason §10 gives: it is the only sequence the conformance corpus runs in which
-// all four commits happen — content, a decision, an attestation, an edge — and
-// the attestation is then erased by content, which is the one fact a state
-// cannot keep and a trail can.
+// The other two traces in this file ask what the operations did to the case.
+// This one asks what the case says about having done them.
 //
-// Three claims, in the order the read has to be able to make them: the six
-// records are the six acts in order, with the hands and the stages; the erased
-// attestation and the replaced decision are still there in the entries, in the
-// shapes the view reports a standing one; and an actor who may not see a form
-// sees no entry of a commit about it, while still seeing that the commit
-// happened — which is §7's property 7 applied to the past, and the half of it the
-// two traces above have no way to state.
-func TestAppendixAHistoryTrace(t *testing.T) {
-	src := strings.Replace(specExample(t),
+// Verify the commits in order, including verdicts that are no longer current.
+// The auditor sees the same envelopes without the changes outside their grant.
+func TestRegistrationHistoryTrace(t *testing.T) {
+	src := strings.Replace(registrationExample(t),
 		"approved_by : signature(.reviewer);",
 		"approved_by : signature(.reviewer) required;", 1)
 	rt := NewRuntime()
@@ -862,7 +810,7 @@ func TestAppendixAHistoryTrace(t *testing.T) {
 	// 5. Content at the new stage, and the reason this trace is the one to read
 	// a history with: the commit erases the attestation that opened the door, so
 	// after it the case holds no answer to "whose hand stood behind
-	// `approved_by`" and §5.10's claim is that the trail still has one.
+	// `approved_by`" and the claim is that the trail still has one.
 	if _, err := dana.Rebase(ctx()); err != nil {
 		t.Fatalf("Rebase: %v", err)
 	}
@@ -945,7 +893,7 @@ func TestAppendixAHistoryTrace(t *testing.T) {
 		}
 	}
 
-	// Step 5's content is the six declarations §5.1's diff walks, in preorder,
+	// Step 5's content is the six declarations the diff walks, in preorder,
 	// and the rows entry is the one that lists instances rather than a value.
 	first := full.Commits[0].Changes
 	if got := first[0].Path; got != "application.kind" {
@@ -963,11 +911,9 @@ func TestAppendixAHistoryTrace(t *testing.T) {
 			" instance the batch added", listed)
 	}
 
-	// The decision, in the shape `View` prints a standing one, and the two facts
-	// a state keeps nowhere: the comment the reviewer typed and the reference the
-	// signer brought. `At` is each record's own revision, which is §5.9's and
-	// §5.10's "the revision this act's commit produced" read back by a caller who
-	// was not the one who made the call.
+	// The decision, in the shape `View` prints a standing one, and the two
+	// facts a state keeps nowhere: the comment the reviewer typed and the
+	// reference the signer brought. `At` is each record's own revision.
 	decisions := entries(t, full.Commits[1], ChangeReview)
 	if len(decisions) != 1 {
 		t.Fatalf("the decision record holds %d entries", len(decisions))
@@ -991,10 +937,8 @@ func TestAppendixAHistoryTrace(t *testing.T) {
 			" reviewer-note", s)
 	}
 
-	// The pair that makes this the milestone's claim and not §5.6's promise: the
-	// case now answers for no attestation, and the trail answers for the one it
-	// got. The record that erased it says nothing about erasing it — a content
-	// commit's diff is content, and §4.2's reset is not an entry.
+	// The signature has been erased from the current case, but its original
+	// entry still belongs to history.
 	if g := sigAt(committedFrame(t, rolf, dana).sigs, field); g.at != 0 {
 		t.Fatalf("the case still holds an attestation by %q at %d, want the"+
 			" content commit to have erased it", g.by, g.at)
@@ -1042,7 +986,7 @@ func TestAppendixAHistoryTrace(t *testing.T) {
 			" grant on the form, want none", got)
 	}
 	// And withholding is not ignorance about the acts the Applicant *is* in:
-	// §5.9's disclosure rule read in the past, so dana may now read the approval
+	// the disclosure rule read in the past, so dana may now read the approval
 	// and the attestation she could never have made.
 	if got := entries(t, hers.Commits[1], ChangeReview); len(got) != 1 ||
 		got[0].Review.Comment != "clean" {
@@ -1146,7 +1090,7 @@ func committedFrame(t *testing.T, by, of Case) committedState {
 // holds and formSlot read the two bits of the trace's fixture this test would
 // otherwise assert through a name it is trying to avoid comparing: `holds`
 // looks for one ordinal in a role set, and `formSlot` is the one place the
-// §7 corpus's form is addressed by its declaration slot rather than by
+// registration fixture's form is addressed by its declaration slot rather than by
 // guessing at which index `img.forms` happens to hold it at.
 func holds(roles []program.RoleID, want program.RoleID) bool {
 	for _, r := range roles {
@@ -1176,7 +1120,7 @@ func TestATransitionDoesNotGiveAStaleDraftThePresent(t *testing.T) {
 		t.Fatalf("Submit: %v", err)
 	}
 	// Somebody else commits the same form on top of it. The case moves to
-	// revision 2 and dana's copy is left behind — which is §6.5's whole point:
+	// revision 2 and dana's copy is left behind — which is the whole point:
 	// the draft stays editable and its lineage is not silently repaired.
 	bo, err := rt.Open(ctx(), dana.ID(), Actor{User: "bo",
 		PrimaryRole: "Boss"})
@@ -1221,8 +1165,7 @@ func TestATransitionDoesNotGiveAStaleDraftThePresent(t *testing.T) {
 	}
 
 	// And the copy that *did* descend from the state the transition extended
-	// follows it, which is the half of §6.3 the unconditional version of this
-	// rule was written for.
+	// follows it.
 	bo2, err := workingOf(t, bo, img)
 	if err != nil {
 		t.Fatalf("working: %v", err)

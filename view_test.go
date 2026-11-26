@@ -1,14 +1,14 @@
 package monshi_test
 
-// The view seen from outside the module (DESIGN §6.1; RUNTIME §5.7): what a
+// The view seen from outside the module: what a
 // host gets when it asks what one actor sees — the selected subtrees, the
 // draft's values at instance addresses, the permissions the operation will
 // itself apply, and the refusals that say nothing about what is behind them.
 //
-// Two of §6.1's facts are missing here on purpose, and both are missing for
+// Two of the facts are missing here on purpose, and both are missing for
 // the same reason: the `Options` list a field shows and the `Validate` sentence
 // a node carries each need a hook to be *registered*, and the seam that
-// registers one is not exported until `CaseContext` exists (RUNTIME §6). So the
+// registers one is not exported until `CaseContext` exists. So the
 // hook half of the view lives in `view_hook_test.go`, in-package, and moves here
 // the day a host can bind a function.
 //
@@ -18,11 +18,7 @@ package monshi_test
 // role with every grant would test nothing about filtering. `stranger` is
 // edit_test.go's actor with no role at all.
 //
-// The two role-typed fields are not redundancy: `owner` is the declaration's
-// name for its own author's role, and is what gives a view a `role` kind to
-// report; `reviewer` names a role whose grants are *elsewhere*, and so is the
-// one thing in the definition that can widen a view — which is how §5.7's
-// "the commit for authority" half gets tested at all.
+// The two role-typed fields are not redundancy.
 
 import (
 	"strconv"
@@ -98,7 +94,7 @@ stages {
 `
 
 // manager is the subset actor. A distinct identity from `dana` matters: two
-// actors of one user share one working copy (invariant 4), and half the claims
+// actors of one user share one working copy, and half the claims
 // below are about a draft that is not the viewer's.
 var manager = monshi.Actor{User: "myra", PrimaryRole: "Manager"}
 
@@ -178,10 +174,7 @@ func TestViewWithoutPathsIsTheWholeVisibleCase(t *testing.T) {
 	rt, dana := viewCase(t, applicant)
 	res := look(t, dana)
 
-	// One root per top-level form the actor may see, in declaration order —
-	// which is what §6.1's "with no paths, the entire permission-filtered case
-	// view" means, and the reason `risk` is not here rather than an error
-	// about it.
+	// One root per top-level form the actor may see, in declaration order.
 	if len(res.Roots) != 1 || res.Roots[0].Path != "application" {
 		t.Fatalf("the applicant sees %s, want application alone",
 			render(res.Roots, ""))
@@ -193,8 +186,7 @@ func TestViewWithoutPathsIsTheWholeVisibleCase(t *testing.T) {
 		t.Errorf("the view says stage %q at revision %d, want draft at 0",
 			res.Stage, res.Revision)
 	}
-	// A case nobody has edited has no draft, and says so with the number §6.2
-	// documents for one: 0 is both "no copy" and "the base to send".
+	// A case nobody has edited has no draft.
 	if res.Working != 0 {
 		t.Errorf("Working = %d for an actor who never wrote, want 0",
 			res.Working)
@@ -228,16 +220,12 @@ func TestViewSelectsSubtreesAndMergesOverlaps(t *testing.T) {
 		t.Errorf("holders has %d children with no rows added, want none",
 			len(one.Roots[0].Children))
 	}
-	// An *absent* selection is an empty view rather than a refusal. §5.2 says
-	// a node whose guard is false is not part of the effective state, and a
-	// view that contained it would contradict the walk that prunes it from the
-	// whole-case answer.
 	if got := look(t, dana, "application.detail"); len(got.Roots) != 0 {
 		t.Errorf("selecting an absent node returned %s, want nothing",
 			render(got.Roots, ""))
 	}
 
-	// Overlapping selections merge (§6.1): the wider one renders, and the
+	// Overlapping selections merge: the wider one renders, and the
 	// narrower one adds nothing beside it. Order is the caller's, so the
 	// merged root keeps the position it was named at.
 	merged := look(t, dana, "application.holders", "application")
@@ -281,7 +269,7 @@ func TestViewPrunesAnAbsentSubtree(t *testing.T) {
 	_, dana := viewCase(t, applicant)
 
 	// `detail` is gated on kind == COMPANY and kind is unset, so the guard is
-	// false (§5.2) and the subtree is not part of the effective state —
+	// false and the subtree is not part of the effective state —
 	// including its required member, which is therefore not a gap.
 	res := look(t, dana)
 	absent(t, res, "application.detail")
@@ -320,8 +308,7 @@ func TestViewReportsBlankFields(t *testing.T) {
 
 	// The one place this walk does not prune is an unset cell. `kind` is
 	// required and empty, and a view that hid it would report what has been
-	// typed rather than what is left to do (§5.1 keeps a cleared field, and
-	// §5.2 makes it fail `required`).
+	// typed rather than what is left to do.
 	kind := node(t, res, "application.kind")
 	if !kind.Required || kind.Value.Kind() != monshi.KindNone {
 		t.Errorf("kind = required %v, value kind %q, want required and none",
@@ -337,18 +324,15 @@ func TestViewReportsBlankFields(t *testing.T) {
 			"all three on the form", name.CanEdit, name.CanSubmit)
 	}
 	// A form's own node reports its structure and no content of its own: forms
-	// and groups are not data (§5.1).
+	// and groups are not data.
 	form := res.Roots[0]
 	if form.Value.Kind() != monshi.KindNone || form.Multiple {
 		t.Errorf("application = value kind %q, multiple %v, want neither",
 			form.Value.Kind(), form.Multiple)
 	}
-	// `CanEdit` is the mask at the node it is reported on, and a mask is what
-	// §3.5 folds down the scope chain: the definition wrote `edit application`
-	// and so the form's own flag is true, as is every member's, and the one
-	// node an edit will be judged at is the field it names. A container's flag
+	// `CanEdit` is the mask at the node it is reported on. A container's flag
 	// is therefore the grant's shape rather than a promise that a path to the
-	// container holds a value — §5.1 says it does not.
+	// container holds a value.
 	if !form.CanEdit {
 		t.Error("edit was granted on the form, so its own mask should say so")
 	}
@@ -356,7 +340,7 @@ func TestViewReportsBlankFields(t *testing.T) {
 		t.Error("submit targets top-level forms, and this one is granted")
 	}
 	// Every node of a form answers the submit question the same way, because
-	// there is one answer (P3) and the client holding a field is asking about a
+	// there is one answer and the client holding a field is asking about a
 	// button.
 	for _, path := range []string{"application.kind", "application.name"} {
 		if got := node(t, res, path).CanSubmit; got != form.CanSubmit {
@@ -365,11 +349,11 @@ func TestViewReportsBlankFields(t *testing.T) {
 		}
 	}
 
-	// `required[cond]` is §5.2's other half, and the condition is read from
+	// `required[cond]` is the other half, and the condition is read from
 	// the same draft the values are — no demand while the amount is small,
 	// and a demand the moment the draft makes it a big one. Nothing was
 	// committed to get here, which is the point: a form is completed before
-	// it is filed, and §6.1's client is completing it.
+	// it is filed, and the client is completing it.
 	note := node(t, res, "application.note")
 	if note.Required {
 		t.Errorf("note is required with no amount entered, want the guard to"+
@@ -397,9 +381,7 @@ func TestViewReportsBlankFields(t *testing.T) {
 func TestViewEnforcesViewPermissionAtEveryNode(t *testing.T) {
 	_, dana := viewCase(t, applicant)
 
-	// Nothing under an ungranted form is in the whole-case view, and their
-	// absence is not announced: invariant 7 is about disclosure, and listing
-	// what a caller may not see discloses the shape of it.
+	// Nothing under an ungranted form is in the whole-case view.
 	res := look(t, dana)
 	absent(t, res, "risk")
 	absent(t, res, "risk.internal")
@@ -501,11 +483,11 @@ func TestViewDoesNotRevealWhatItWithheld(t *testing.T) {
 func TestViewAddressesInstancesByIds(t *testing.T) {
 	_, dana := viewCase(t, applicant)
 
-	// §5.1's model, read back: a collection as declared holds no value and its
+	// The model, read back: a collection as declared holds no value and its
 	// children are its instances, each addressed by the stable ID `Add` handed
 	// out, and each instance node's children are the members. The IDs are read
-	// out of the batch rather than guessed, because §5.1's counter belongs to
-	// the case and not to the collection: a nested collection's first row is
+	// out of the batch rather than guessed, because the counter belongs to the
+	// case and not to the collection: a nested collection's first row is
 	// numbered after every row that came before it anywhere.
 	added, err := dana.Update(ctx(), 0,
 		monshi.Add("application.holders"),
@@ -562,9 +544,9 @@ func TestViewAddressesInstancesByIds(t *testing.T) {
 	}
 
 	// A collection inside an instance is addressed by both IDs, outermost
-	// first (§5.1's "holders.42.homes"), and only inside the instance it
-	// belongs to: the second holder has no homes at all, and its own node is
-	// there without borrowing the first holder's rows.
+	// first, and only inside the instance it belongs to: the second holder has
+	// no homes at all, and its own node is there without borrowing the first
+	// holder's rows.
 	inner := node(t, res, first+".homes")
 	if len(inner.Children) != 2 {
 		t.Fatalf("%s.homes has %d instances, want 2", first,
@@ -577,9 +559,9 @@ func TestViewAddressesInstancesByIds(t *testing.T) {
 	if where.Value.Text() != "Gandhinagar" {
 		t.Errorf("where = %q, want Gandhinagar", where.Value.Text())
 	}
-	// And the row that was added and never filled is here, empty: §5.1's
-	// instance exists from the moment `Add` gave it an ID, which is the fact a
-	// client needs in order to put a blank box in front of somebody.
+	// And the row that was added and never filled is here, empty: the instance
+	// exists from the moment `Add` gave it an ID, which is the fact a client
+	// needs in order to put a blank box in front of somebody.
 	if find(inner.Children, home2+".where") == nil {
 		t.Errorf("%s is an instance with no value and is not in the view:\n%s",
 			home2, render(inner.Children, ""))
@@ -592,9 +574,7 @@ func TestViewAddressesInstancesByIds(t *testing.T) {
 
 	// A repeated *field* is the other shape: the same slot appears once per
 	// row, and the value lives on the instance node rather than the
-	// declaration's. The second element was added and never set, which is the
-	// state §5.1 says `Empty` leaves behind too — a row that is still there
-	// with no value — so it renders rather than vanishing.
+	// declaration's. The second element was added and never set.
 	tags := node(t, res, "application.tags")
 	if !tags.Multiple || tags.Kind != "string" {
 		t.Errorf("tags = kind %q, multiple %v, want string and true",
@@ -605,7 +585,7 @@ func TestViewAddressesInstancesByIds(t *testing.T) {
 	}
 	if len(tags.Children) != 2 {
 		t.Fatalf("tags has %d instances, want 2: an element with no value is "+
-			"still an element (§5.1)", len(tags.Children))
+			"still an element", len(tags.Children))
 	}
 	// The instance nodes are addressed by the IDs the batch handed back, and
 	// requiredness is the declaration's: an instance is asked for what its
@@ -632,11 +612,7 @@ func TestViewAddressesInstancesByIds(t *testing.T) {
 func TestViewReportsARequiredEmptyCollection(t *testing.T) {
 	_, dana := viewCase(t, applicant)
 
-	// `holders multiple required` with no rows is §5.4's "still has no
-	// instances" gap, in the shape a form can render: required, present, and
-	// with nothing under it. Pruning it would hide the one thing the actor has
-	// to do, and §4's "required multiple means at least one element" is the
-	// sentence that makes the empty collection the gap rather than a member.
+	// Pruning it would hide the one thing the actor has to do.
 	holders := node(t, look(t, dana), "application.holders")
 	if !holders.Required || len(holders.Children) != 0 {
 		t.Errorf("holders = required %v with %d instances, want required and "+
@@ -679,9 +655,7 @@ func TestViewReadsTheDraftAndLeavesTheCommitAlone(t *testing.T) {
 		t.Errorf("the view of a draft says %q, want what was typed", got)
 	}
 
-	// The same actor on a second handle sees the same copy: invariant 4 is
-	// about the actor, not the session, and a view that kept its own answer
-	// would be the first place that stopped being true.
+	// The same actor on a second handle sees the same copy.
 	again, err := rt.Open(ctx(), dana.ID(), applicant)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -712,7 +686,7 @@ func TestViewCreatesNoWorkingCopy(t *testing.T) {
 	_, dana := viewCase(t, applicant)
 
 	// A read is not an edit. The claim is not that nothing is allocated — it
-	// is that the actor still has no copy, which is observable: §6.2's guard
+	// is that the actor still has no copy, which is observable: the guard
 	// accepts `base` 0 only for a copy that has never been written, so a view
 	// that silently made one would make the first edit stale on its face.
 	look(t, dana)
@@ -758,8 +732,7 @@ func TestViewPermissionsComeFromTheCommittedStage(t *testing.T) {
 	}
 
 	// The stage moved, so the manager's masks moved with it — with no value
-	// having changed, which is the fact §5.5's `Affected` list is about. The
-	// view is where a client finds out without asking.
+	// having changed. The view is where a client finds out without asking.
 	after := node(t, look(t, myra, "application"), "application.name")
 	if !after.CanEdit || !after.CanSubmit {
 		t.Errorf("at %q the manager edits %v and submits %v, want both",
@@ -770,7 +743,7 @@ func TestViewPermissionsComeFromTheCommittedStage(t *testing.T) {
 	// and only one of them moved: the case advanced when its author
 	// committed, and this actor still has no copy at all. A view that
 	// answered `Working` with the case's revision would tell the manager to
-	// present a base they were never handed, and §6.2's guard would refuse
+	// present a base they were never handed, and the guard would refuse
 	// their first edit as stale — which is why 0 here is a fact about the
 	// copy and not a placeholder.
 	theirs := look(t, myra)
@@ -799,10 +772,9 @@ func TestViewPermissionsComeFromTheCommittedStage(t *testing.T) {
 func TestViewGrantsNoRoleThatIsNotCommitted(t *testing.T) {
 	rt, dana := viewCase(t, applicant)
 
-	// A role-typed field is how a case hands out a role (SYNTAX §5.2-T4), and
-	// §5.5-P6 says a pending edit confers nothing. The view is where that rule
-	// could be read two ways: values come from the draft, so a careless fold
-	// would take the roles from the draft too, and an applicant who writes
+	// A role-typed field is how a case hands out a role. The view is where that
+	// rule could be read two ways: values come from the draft, so a careless
+	// fold would take the roles from the draft too, and an applicant who writes
 	// their own user into `reviewer` would see the risk form before anyone
 	// committed the grant. `risk` is the only thing the Manager role sees that
 	// the Applicant role does not, so one node answers the whole question.
@@ -825,7 +797,7 @@ func TestViewGrantsNoRoleThatIsNotCommitted(t *testing.T) {
 	// The same edit, committed, does confer it: the grant was the draft's and
 	// the permission is the commit's, and this is the one line between them.
 	// A reopen is what proves it is the *stored* state being folded and not
-	// the handle remembering the edit — §3.5's mask is derived, never cached.
+	// the handle remembering the edit — the mask is derived, never cached.
 	_, err := dana.Submit(ctx(), "application", base)
 	if err != nil {
 		t.Fatalf("Submit: %v (%s)", err, render(look(t, dana).Roots, ""))
@@ -840,9 +812,6 @@ func TestViewGrantsNoRoleThatIsNotCommitted(t *testing.T) {
 			render(seen.Roots, ""))
 	}
 
-	// And the field that granted it reads back as a user, at the vocabulary
-	// §5.7 gives a role-typed field: kind `role` from the declaration, and the
-	// identity the edit wrote as the value.
 	rv := node(t, look(t, dana, "application"), "application.reviewer")
 	if rv.Kind != "role" {
 		t.Errorf("reviewer is kind %q, want role", rv.Kind)
@@ -940,7 +909,7 @@ func TestValueReadersAnswerOnlyTheirOwnClass(t *testing.T) {
 		t.Errorf("a stored false reads as kind %q, value %v",
 			flag.Value.Kind(), flag.Value.Bool())
 	}
-	// The unset cell is the one `Empty` leaves behind too (§5.1), so every
+	// The unset cell is the one `Empty` leaves behind too, so every
 	// reader has to answer its zero rather than guess: the test for content is
 	// `Kind`, and `Kind` says there is none.
 	blank := node(t, res, "application.detail.ref")
@@ -960,9 +929,6 @@ func TestViewNamesTheKindTheDeclarationUsed(t *testing.T) {
 	_, dana := viewCase(t, applicant)
 	res := look(t, dana)
 
-	// §6.1's "clients need no copy of the DSL" is what this table is for: every
-	// one of these words is the definition's, not the row's, and a client that
-	// renders a form from a view never loads a schema.
 	kinds := map[string]string{
 		"application":         "form",
 		"application.kind":    "enum",
@@ -976,8 +942,8 @@ func TestViewNamesTheKindTheDeclarationUsed(t *testing.T) {
 	}
 	for path, want := range kinds {
 		if path == "application.detail" {
-			// The gated group is absent with its guard false, and §6.1's
-			// point about kinds is not a licence to render a pruned node.
+			// The gated group is absent with its guard false, and the point
+			// about kinds is not a licence to render a pruned node.
 			absent(t, res, path)
 			continue
 		}
@@ -986,7 +952,7 @@ func TestViewNamesTheKindTheDeclarationUsed(t *testing.T) {
 		}
 	}
 	// A custom type reads as its base class, because the name the definition
-	// gave it is documentation the engine holds in its own table and §3.3's row
+	// gave it is documentation the engine holds in its own table and the row
 	// keeps only what the value is. A host that needs the declared name for a
 	// label has it in its own source; the view's job is what to render.
 	if got := node(t, res, "application.amount").Kind; got != "decimal" {

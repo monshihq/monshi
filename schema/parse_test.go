@@ -1,7 +1,5 @@
-// Package schema_test exercises the public API of the schema package:
-// Parse, NewParser, the compiled Schema model and the Problem
-// diagnostics. Everything here goes through the documented entry points
-// of docs/SYNTAX.md; no internal identifier is reachable.
+// Package schema_test exercises the public API of the schema package: Parse,
+// NewParser, the compiled Schema model and the Problem diagnostics.
 package schema_test
 
 import (
@@ -13,7 +11,7 @@ import (
 )
 
 // minimalSrc is the smallest definition that compiles with no
-// diagnostics at all (SYNTAX.md §3.1).
+// diagnostics at all.
 const minimalSrc = `forms { f { a : string; } } stages { d { } }`
 
 // --- helpers shared by every file in this package ---
@@ -200,6 +198,6 @@ func TestMinimalDefinitionIsClean(t *testing.T) {
 		t.Fatalf("forms/stages = %d/%d, want 1/1", len(s.Forms), len(s.Stages))
 	}
 	if s.Initial != s.Stages[0] {
-		t.Error("Initial must be the first declared stage (SYNTAX.md §5.6-ST1)")
+		t.Error("Initial must be the first declared stage")
 	}
 }

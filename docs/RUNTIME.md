@@ -2295,7 +2295,7 @@ an `Update` on it impossible.
 | `BenchmarkViewWide/one` | one field by path, wide | 1.3 µs, 21 allocs |
 | `BenchmarkLoweringOnly` | schema → image, §7 | 12.6 µs, 248 allocs |
 | `BenchmarkLoweringWideOnly` | schema → image, wide | 30.3 µs, 295 allocs |
-| `BenchmarkLowerSpecExample` | source → image, §7 | 41.7 µs, 1074 allocs |
+| `BenchmarkLowerRegistrationExample` | source → image, §7 | 41.7 µs, 1074 allocs |
 | `BenchmarkLoweringWide` | source → image, wide | 61.0 µs, 1214 allocs |
 | `BenchmarkRebaseClean` | an unseen commit and its merge | 3.3 µs, 61 allocs |
 | `BenchmarkRebaseSynced` | `Rebase` with nothing to merge | 288 ns, 6 allocs |
@@ -3408,29 +3408,29 @@ bytes mean belongs to the host service that produced them.
 - Conformance gate: the SYNTAX §7 example must (a) compile with zero
   diagnostics, (b) lower to the shape traced in Appendix A, and
   (c) execute Appendix A's runtime steps as a test once milestone 2
-  lands. (a) and (b) are `TestSpecExample*` in `lower_test.go`, with the
+  lands. (a) and (b) are `TestRegistrationExample*` in `lower_test.go`, with the
   source read out of SYNTAX.md so the fixture cannot drift from the
   document it is traced against; (a) is also checked through `Load`, so
   the seam is not merely documentation. (c) is arriving with the
   operations it traces rather than as one final test: §5.2's presence and
-  requiredness is `TestAppendixARequiredness`, and the trace's
+  requiredness is `TestRegistrationRequiredness`, and the trace's
   `Transition` steps 1 through 6 — role set from a committed assignment,
   edge, mask, guard, the destination's `require`, and the commit that
-  moves only the stage — are `TestAppendixATransitionTrace`, which also
+  moves only the stage — are `TestRegistrationTransitionTrace`, which also
   checks the two `permTables` answers the trace ends on. Step 5's approval
   conjunct is part of that trace, which is why the test performs a
   `Review` of the required form before it asks for the move: SYNTAX §7's
   walkthrough says the case goes to `company_review` only after the
   `Registrar` or `Manager` approves, so the gate is checked where the spec
   states it rather than in a fixture of its own. Step 5's signature
-  conjunct is checked the same way, in `TestAppendixARequiredSignatureTrace`
+  conjunct is checked the same way, in `TestRegistrationRequiredSignatureTrace`
   beside it: the shipped §7 example marks no signature `required`, so the
   trace above asserts that the third scan wants nothing, and the second
   runs the same corpus with one word added to make the attestation
   something the destination asks for. Both shapes are in the gate because
   both are in the language, and a single trace could only have shown one.
   The trace's step 8 — the trail the second script left, read through the
-  exported seam — is `TestAppendixAHistoryTrace`, and it belongs in the gate
+  exported seam — is `TestRegistrationHistoryTrace`, and it belongs in the gate
   for the reason the two conjuncts do: §5.11's read is where the entries the
   other steps wrote turn out to have been worth writing, so the corpus is
   asked what it *recorded* as well as what it decided. Step 7's
@@ -3521,8 +3521,8 @@ Runtime steps for `Transition(reviewer-user → "draft" →
    the committed `reviewer` user signed that content. All three halves run
    today. The shipped §7 marks neither signature `required`, so the third
    scan finds two slots and asks neither of them, which
-   `TestAppendixATransitionTrace` asserts as an empty list; the conjunct's
-   live shape is `TestAppendixARequiredSignatureTrace` beside it (§5.5).
+   `TestRegistrationTransitionTrace` asserts as an empty list; the conjunct's
+   live shape is `TestRegistrationRequiredSignatureTrace` beside it (§5.5).
 
    The approval half is why this trace has a step the spec's listing does
    not: `Review(holderOfManager, "application", APPROVE, observed, "")`

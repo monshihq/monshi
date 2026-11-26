@@ -1,25 +1,18 @@
 package engine
 
-// The cost of the exported hook seam (RUNTIME §6, §8).
+// The cost of the exported hook seam.
 //
-// Three shapes per operation, because a host can be in any of them and the
-// differences are what §8 is asked to state. No binding at all: the registry
-// is consulted and answers absent, which is the price every assignment in
-// this package has paid since `Validate` existed — an unbound custom type is
-// identity, and identity arrives here as a map miss rather than a branch. One
-// normalizer that returns what it was handed: the floor no host rule can go
-// below, and the cost of the call itself. And the same normalizer with one
-// masked read first, which is what `CaseContext` adds to the middle row — a
-// snapshot beside the call, and §6's mask test in front of an answer.
+// Three shapes per operation. No binding at all: the registry is consulted and
+// answers absent, which is the price every assignment in this package has paid
+// since `Validate` existed — an unbound custom type is identity, and identity
+// arrives here as a map miss rather than a branch. One normalizer that returns
+// what it was handed: the floor no host rule can go below, and the cost of the
+// call itself. And the same normalizer with one masked read first, which is
+// what `CaseContext` adds to the middle row — a snapshot beside the call, and
+// the mask test in front of an answer.
 //
-// The read is priced on both operations rather than once, because the mask
-// has two shapes and they are not the same work: a view hands its snapshot
-// the caller's visibility fold, so a read is one array lookup; an edit
-// computes no fold and pays one pass over the node's own preorder range,
-// which is what §5.9's and §5.10's gates already charge for a single path.
-// `update/*` is therefore the range branch and `view/*` the fold, on one
-// corpus, so the gap between `bound_read` and `bound` in each pair is the
-// read and nothing else.
+// Compare the same hook with and without one case read. View already has a
+// visibility mask, while Update scans the node's subtree for visible grants.
 //
 // `BenchmarkCaseContextReads` prices the snapshot's reads apart from any
 // operation, and on two corpora for that reason: the wide one, where the role
@@ -28,12 +21,9 @@ package engine
 // shape on which a scan may cost more than a fold, and the one that gives the
 // scan its bound.
 //
-// The corpus is §8's wide one with its ten decimal fields declared through a
+// The corpus is the wide one with its ten decimal fields declared through a
 // custom type, because a binding is keyed by a type name and a definition of
-// built-ins alone gives a host nothing to bind to. Nothing else moved: the
-// slot count and the row count are the numbers §8 already records, and every
-// one of those ten holds a value once the defaults are materialized, so a
-// whole-case read asks the bound rule ten times.
+// built-ins alone gives a host nothing to bind to.
 
 import (
 	"context"
@@ -147,7 +137,7 @@ func identity() ValidateFunc {
 
 // blindHookSrc is the corpus the mask's two branches are *not* obliged to
 // answer alike: the actor's role is granted one form and refused the other,
-// which is the case §6's mask rule is really about. The visible form
+// which is the case the mask rule is really about. The visible form
 // carries one field of the bound type, so a host rule runs; the hidden one
 // carries forty fields, so the preorder span a scan must walk to answer
 // "nothing here is visible" is wide.
@@ -254,9 +244,7 @@ func BenchmarkHookSeam(b *testing.B) {
 		}
 	})
 
-	// The same corpus read whole, with no host function on its types at all:
-	// §8's `ViewWide` shape with the bindable declaration, which is the
-	// baseline for the two rows after it.
+	// The same corpus read whole, with no host function on its types at all.
 	b.Run("view/no_binding", func(b *testing.B) {
 		_, c, _ := benchHookCase(b, 4)
 		b.ReportAllocs()
@@ -267,10 +255,10 @@ func BenchmarkHookSeam(b *testing.B) {
 		}
 	})
 
-	// §5.4's second reading: a view asks the same normalizer of every stored
-	// value it renders, so all ten decimal fields are ten calls in the read —
-	// five because the batch wrote them and five because their declared default
-	// is a value — and the fixed-point check runs on each.
+	// The second reading: a view asks the same normalizer of every stored value
+	// it renders, so all ten decimal fields are ten calls in the read — five
+	// because the batch wrote them and five because their declared default is a
+	// value — and the fixed-point check runs on each.
 	b.Run("view/bound", func(b *testing.B) {
 		rt, c, _ := benchHookCase(b, 4)
 		rt.RegisterValidate("q", identity())
@@ -313,9 +301,7 @@ var (
 // BenchmarkCaseContextReads isolates the snapshot's own reads from the
 // operations that hand it out, by keeping a snapshot a real batch pinned and
 // calling it the way a host's rule does. The two `value` rows are the mask's
-// two branches on one path, which is the comparison §6's mask rule states
-// and §8 prices: an edit's read is a subtree scan and a view's one array
-// lookup.
+// two branches on one path.
 func BenchmarkCaseContextReads(b *testing.B) {
 	pin := func(viaView bool) CaseContext {
 		rt, c2, base := benchHookCase(b, 4)
@@ -420,12 +406,8 @@ func BenchmarkCaseContextReads(b *testing.B) {
 		}
 	})
 
-	// The two branches asked the question they exist for: a field of the
-	// form this actor was pruned from, on a definition that grants the role
-	// one form and not the other. The leaf's own subtree is one node, so the
-	// fold's array read and the scan's single step cost the same — the rule
-	// is one rule — and the answer is absence either way, which is §7's
-	// property 7 with a host function as its subject.
+	// Both paths must look absent to this actor, even though one exists outside
+	// the actor's visible subtree.
 	b.Run("hidden_value_fold", func(b *testing.B) {
 		at := pinBlind(b, true)
 		b.ReportAllocs()
@@ -472,7 +454,7 @@ func BenchmarkCaseContextReads(b *testing.B) {
 
 	// Every role name the actor holds, folded from the committed state. It
 	// allocates because the answer is a list the host keeps after the call;
-	// §8's cost claim is about the reads that hold nothing new.
+	// the cost claim is about the reads that hold nothing new.
 	b.Run("roles", func(b *testing.B) {
 		at := pin(true)
 		b.ReportAllocs()
@@ -494,8 +476,8 @@ func BenchmarkCaseContextReads(b *testing.B) {
 // folds, the render and the snapshot — with the cheapest possible body.
 var commitSink int
 
-// BenchmarkCommitNotify prices §6's dispatch on the operation that pays it
-// most: a submit, whose commit also runs §5.6's effects, and whose observer
+// BenchmarkCommitNotify prices the dispatch on the operation that pays it
+// most: a submit, whose commit also runs the effects, and whose observer
 // is handed the widest record. The flow inside each iteration is one edit
 // and one submit, so every row after `none` differs from it by exactly the
 // notification — and `none` is the claim that an unwired host pays one nil
@@ -533,9 +515,6 @@ func BenchmarkCommitNotify(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				// A fresh value each round: a submit of content the case
-				// already holds commits nothing and notifies nobody, and
-				// that row is the one §8 already prices elsewhere.
 				up, err := c.Update(ctx(), work, Set("f.i0", Int(int64(i))))
 				if err != nil {
 					b.Fatalf("Update: %v", err)

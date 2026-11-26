@@ -10,8 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// specExample returns the language document's complete example.
-var specExample = testfixture.Example
+var registrationExample = testfixture.Example
 
 // compile checks source through the real front end and lowers it. Errors
 // fail the test; warnings are returned for the caller to judge.
@@ -33,9 +32,9 @@ func compile(t *testing.T, src string) (*Program, []schema.Problem) {
 
 func lowerExample(t *testing.T) *Program {
 	t.Helper()
-	img, warnings := compile(t, specExample(t))
+	img, warnings := compile(t, registrationExample(t))
 	if len(warnings) != 0 {
-		t.Fatalf("the §7 example must compile clean, got %s", join(diagnostics(warnings)))
+		t.Fatalf("the registration example must compile clean, got %s", join(diagnostics(warnings)))
 	}
 	return img
 }
@@ -68,10 +67,8 @@ func slotByPath(t *testing.T, img *Program, path string) NodeID {
 	return found[0]
 }
 
-// nestedSrc is the shape the §7 example cannot express: a repeated field, and
-// a collection inside a collection. SYNTAX §4 allows `multiple` on a field and
-// on a group, and nothing forbids a group inside a group, so the row model has
-// to answer for all three at once.
+// nestedSrc is the shape the registration example cannot express: a repeated
+// field, and a collection inside a collection.
 const nestedSrc = `
 roles {
     A { allow view, edit all; }
@@ -118,7 +115,7 @@ func stageIDBy(t *testing.T, img *Program, name string) StageID {
 	return 0
 }
 
-func TestSpecExampleLowers(t *testing.T) {
+func TestRegistrationExampleLowers(t *testing.T) {
 	img := lowerExample(t)
 
 	if img.id != "test" {
@@ -142,7 +139,7 @@ func TestSpecExampleLowers(t *testing.T) {
 	}
 
 	// Types: the enum carries dense tags in declaration order, and
-	// decimal(14, 2) arrives with its bounds test built once (§3.3).
+	// decimal(14, 2) arrives with its bounds test built once.
 	kind := slotByPath(t, img, "application.kind")
 	kt := img.types[img.slots[kind].Type]
 	if kt.Base != BaseEnum || len(kt.Tags) != 2 {
@@ -164,7 +161,7 @@ func TestSpecExampleLowers(t *testing.T) {
 		t.Error("decimal(14, 2) bounds test accepts or rejects the wrong edge")
 	}
 
-	// Defaults are materialized constants, typed at compile time (§3.3):
+	// Defaults are materialized constants, typed at compile time:
 	// an ISO 8601 default is an ordered instant, not text to parse.
 	reg := img.ConstOf(img.slots[slotByPath(t, img, "application.registered")].Def)
 	if !reg.Set || !reg.Time.Equal(day(2026, 1, 1)) {
@@ -178,7 +175,7 @@ func TestSpecExampleLowers(t *testing.T) {
 		t.Errorf("fee default = %+v, want decimal zero", d)
 	}
 
-	// ST1: the first declared stage is the initial stage as a constant.
+	// the first declared stage is the initial stage as a constant.
 	if img.initial != stageIDBy(t, img, "draft") {
 		t.Errorf("initial stage = %d, want draft", img.initial)
 	}
@@ -186,9 +183,9 @@ func TestSpecExampleLowers(t *testing.T) {
 		t.Errorf("%d role tables, want three roles plus the no-role table",
 			len(img.perms.byRole))
 	}
-	// No map is reachable from the image: every table is index-addressable
-	// (§3.8). depOwners and effective are the only lookups, and both are
-	// binary searches over sorted arrays.
+	// No map is reachable from the image: every table is index-addressable.
+	// depOwners and effective are the only lookups, and both are binary
+	// searches over sorted arrays.
 	if img.depBound != uint32(len(img.slots)) {
 		t.Errorf("fanout queue bound %d, want the slot count %d",
 			img.depBound, len(img.slots))
@@ -196,10 +193,10 @@ func TestSpecExampleLowers(t *testing.T) {
 }
 
 // day builds the UTC midnight a date literal names, which is how the
-// compiler normalizes `"YYYY-MM-DD"` (§5.8).
+// compiler normalizes `"YYYY-MM-DD"`.
 func day(y, m, d int) time.Time { return time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC) }
 
-func TestSpecExampleStageTables(t *testing.T) {
+func TestRegistrationExampleStageTables(t *testing.T) {
 	img := lowerExample(t)
 	draft := stageIDBy(t, img, "draft")
 	company := stageIDBy(t, img, "company_review")
@@ -214,8 +211,6 @@ func TestSpecExampleStageTables(t *testing.T) {
 	kt := img.types[img.slots[kind].Type]
 	companyTag := kt.Tags[1]
 
-	// Both conditional accepts survive: ST3 bounds multiplicity per
-	// destination, not per source stage (§3.7).
 	eCompany, ok := info.EdgeTo(company)
 	if !ok || eCompany.Reject || eCompany.Guard == 0 {
 		t.Fatalf("draft → company_review = %+v, want a guarded accept", eCompany)
@@ -233,9 +228,8 @@ func TestSpecExampleStageTables(t *testing.T) {
 		t.Error("a stage must not transition to itself")
 	}
 
-	// The guard reads one dense slot and nothing else: PERSON admits the
-	// person branch, COMPANY the company branch, and an unset kind admits
-	// neither (SYNTAX Appendix C: absence satisfies nothing).
+	// The guard reads one dense slot and nothing else: PERSON admits the person
+	// branch, COMPANY the company branch, and an unset kind admits neither.
 	frame := make(Row, len(img.slots))
 	if img.Cond(eCompany.Guard)(frame) || img.Cond(ePerson.Guard)(frame) {
 		t.Error("an unset kind must not satisfy either accept guard")
@@ -249,7 +243,7 @@ func TestSpecExampleStageTables(t *testing.T) {
 		t.Error("PERSON must satisfy exactly the person guard")
 	}
 
-	// require is a bitset over top-level forms (ST4): application is
+	// require is a bitset over top-level forms: application is
 	// formID 1, so company_review holds exactly bit 0.
 	if got := img.stages[company].Requires; got != 1 {
 		t.Errorf("company_review requires %#x, want %#x", got, 1)
@@ -260,9 +254,6 @@ func TestSpecExampleStageTables(t *testing.T) {
 			len(got.edges), got.Requires)
 	}
 
-	// P1 gave transitions no per-node representation: draft grants accept
-	// to Manager alone, so an actor who is only an Applicant or only a
-	// Registrar fails the mask, and so does one who holds neither.
 	manager := roleIDBy(t, img, "Manager")
 	applicant := roleIDBy(t, img, "Applicant")
 	registrar := roleIDBy(t, img, "Registrar")
@@ -278,19 +269,18 @@ func TestSpecExampleStageTables(t *testing.T) {
 		}
 	}
 	// An empty role set transitions nowhere: authority derives from roles
-	// alone (DESIGN §4.3).
+	// alone.
 	if img.stages[draft].MayAccept(nil) {
 		t.Error("no roles must not accept")
 	}
-	// Draft grants no accept through a role block: P1 keeps that shape
-	// impossible, so the mask came only from the stage's own statements.
+	// Draft grants no accept through a role block.
 	if img.stages[draft].accept != 1<<(manager-1) {
 		t.Errorf("draft accept mask = %#x, want the Manager bit alone",
 			img.stages[draft].accept)
 	}
 }
 
-func TestSpecExamplePermissions(t *testing.T) {
+func TestRegistrationExamplePermissions(t *testing.T) {
 	img := lowerExample(t)
 	risk := slotByPath(t, img, "application.internal.risk_score")
 	internal := slotByPath(t, img, "application.internal")
@@ -312,7 +302,7 @@ func TestSpecExamplePermissions(t *testing.T) {
 		t.Error("the denied group itself must not be editable")
 	}
 	// The deny was declared on the group, not the leaf: the fold put both
-	// bits on every slot the scope chain reaches (§3.5).
+	// bits on every slot the scope chain reaches.
 	if img.perms.byRole[applicant].allow[risk]&PermEdit == 0 {
 		t.Error("edit must be allowed on the leaf before the denial applies")
 	}
@@ -324,7 +314,7 @@ func TestSpecExamplePermissions(t *testing.T) {
 		t.Errorf("manager on risk_score = %05b, want edit", got)
 	}
 	// One actor with both roles: deny overrides allow across all effective
-	// roles, whoever granted what (DESIGN §4.3).
+	// roles, whoever granted what.
 	if got := img.Effective([]RoleID{applicant, manager}, noStage, risk); got&PermEdit != 0 {
 		t.Errorf("a dual role still edits risk_score: %05b", got)
 	}
@@ -338,9 +328,6 @@ func TestSpecExamplePermissions(t *testing.T) {
 		t.Errorf("nobody may sign archive: %05b", got)
 	}
 
-	// P3 made the target shapes true at compile time, so a sign bit lands on
-	// a signature field, and review is Manager's too: `review application`
-	// is granted to both Registrar and Manager in the example.
 	if got := img.Effective([]RoleID{applicant}, noStage,
 		slotByPath(t, img, "application")); got&permReview != 0 {
 		t.Errorf("the Applicant was never granted review: %05b", got)
@@ -387,7 +374,7 @@ func TestSpecExamplePermissions(t *testing.T) {
 	// Both layers hold the bit in correction: the stage's `allow Applicant
 	// edit application` reaches the leaf, and so does the role block's
 	// denial. Deny-override is then one AND-NOT at the end, so a stage
-	// cannot outrun a denial (§3.5, DESIGN §4.3).
+	// cannot outrun a denial.
 	allow, deny := img.perms.permAt(applicant, over2[1].at, risk)
 	if allow&PermEdit == 0 || deny&PermEdit == 0 {
 		t.Errorf("applicant in correction: allow %05b deny %05b, want edit in both",
@@ -413,7 +400,7 @@ func TestSpecExamplePermissions(t *testing.T) {
 	}
 }
 
-func TestSpecExampleConditions(t *testing.T) {
+func TestRegistrationExampleConditions(t *testing.T) {
 	img := lowerExample(t)
 	kind := slotByPath(t, img, "application.kind")
 	kt := img.types[img.slots[kind].Type]
@@ -440,7 +427,7 @@ func TestSpecExampleConditions(t *testing.T) {
 
 	// Relative and absolute operands anchor at the same slot: the group's
 	// own `.kind` and the stage guard's `application.kind` resolve to one
-	// index, which the folded adjacency shows in one list (§5.3).
+	// index, which the folded adjacency shows in one list.
 	owners := img.depOwners(kind)
 	if len(owners) != 2 {
 		t.Fatalf("kind is read by %v, want the group and the collection", owners)
@@ -456,7 +443,7 @@ func TestSpecExampleConditions(t *testing.T) {
 	}
 
 	// required[.kind == COMPANY] on a multiple collection is one closure
-	// for the collection, not one per member (F6).
+	// for the collection, not one per member.
 	shSlot := slotByPath(t, img, "application.shareholders")
 	sh := img.slots[shSlot]
 	if sh.CondReq == 0 || sh.Flags&flagMultiple == 0 {
@@ -466,9 +453,9 @@ func TestSpecExampleConditions(t *testing.T) {
 		t.Error("required and required[expr] must not both be set")
 	}
 
-	// Preorder numbering is what makes §3.2's dense ranges true: the
+	// Preorder numbering is what makes the dense ranges true: the
 	// collection's span covers exactly its members, and members of a
-	// collection are never read by a condition (E2).
+	// collection are never read by a condition.
 	app := slotByPath(t, img, "application")
 	holder := slotByPath(t, img, "application.shareholders.holder_name")
 	shares := slotByPath(t, img, "application.shareholders.shares")
@@ -477,11 +464,11 @@ func TestSpecExampleConditions(t *testing.T) {
 			"contiguous slots", sh.Span, shSlot, holder, shares)
 	}
 	if len(img.depOwners(holder)) != 0 || len(img.depOwners(shares)) != 0 {
-		t.Error("no condition may read a collection member") // E2
+		t.Error("no condition may read a collection member")
 	}
 
 	// Every declaration in the form is governed by the form itself, the
-	// outermost verifiable unit (F3).
+	// outermost verifiable unit.
 	for _, s := range []NodeID{app, shSlot, holder, shares, internalSlot} {
 		if img.slots[s].Verif != app {
 			t.Errorf("%s verifiable unit = %d, want the form %d", img.Path(s),
@@ -495,8 +482,6 @@ func TestSpecExampleConditions(t *testing.T) {
 		t.Error("holder_name must carry the plain required flag")
 	}
 
-	// Signature entries read exactly as S2 resolved them (§3.6): one field
-	// per entry, no fallback.
 	sub := img.sigs[img.slots[slotByPath(t, img, "application.submitted")].Sig]
 	if sub.Role != roleIDBy(t, img, "Applicant") || sub.Assigned != 0 {
 		t.Errorf("submitted = %+v, want the Applicant role only", sub)
@@ -505,7 +490,7 @@ func TestSpecExampleConditions(t *testing.T) {
 	if appr.Role != 0 || appr.Assigned != slotByPath(t, img, "application.reviewer") {
 		t.Errorf("approved_by = %+v, want the reviewer slot only", appr)
 	}
-	// The role-typed field confers Manager and holds no value type (T4).
+	// The role-typed field confers Manager and holds no value type.
 	rev := img.slots[slotByPath(t, img, "application.reviewer")]
 	if rev.Role != roleIDBy(t, img, "Manager") || rev.Type != 0 {
 		t.Errorf("reviewer = role %d type %d, want Manager and no value type",
@@ -540,10 +525,10 @@ stages {
 `
 	img, warnings := compile(t, src)
 	if len(warnings) == 0 {
-		t.Error("a constant transition guard must draw ST6's warning")
+		t.Error("a constant transition guard must draw a warning")
 	}
 	// A folded guard is always() or never(): identical semantics, zero
-	// evaluation (§3.4), so the closure's answer must not depend on data.
+	// evaluation, so the closure's answer must not depend on data.
 	for _, tc := range []struct {
 		path string
 		want bool
@@ -571,7 +556,7 @@ stages {
 
 // isNever and isAlways identify folded guards by behaviour: a guard whose
 // answer does not move between an empty case and a case where every slot
-// carries a value is a constant (§3.4).
+// carries a value is a constant.
 func isNever(c Predicate, n int) bool {
 	return !c(make(Row, n)) && !c(fullView(n))
 }
@@ -581,8 +566,7 @@ func isAlways(c Predicate, n int) bool {
 }
 
 // fullView is the probe for a folded guard: every slot present and every
-// payload zero. A guard whose answer moves under it reads data, so it is
-// not the constant §3.4 claims it is.
+// payload zero. A guard whose answer moves under it reads data.
 func fullView(n int) Row {
 	v := make(Row, n)
 	for i := range v {
@@ -624,8 +608,8 @@ stages {
 	if !img.stages[a].MayAccept([]RoleID{boss}) {
 		t.Error("Boss must accept out of a")
 	}
-	// P6: the deny is kept as its own mask, because the actor's roles are
-	// only known per request (§3.7).
+	// Keep the deny mask separate: the actor's roles are not known until the
+	// request.
 	if !img.stages[b].MayAccept([]RoleID{boss}) {
 		t.Error("Boss must still accept out of b on its own")
 	}
@@ -663,7 +647,7 @@ stages {
 	value := slotByPath(t, img, "secret.value")
 
 	// The role block allows edit unconditionally; the stage's overlay adds
-	// a denial, and deny-override is one AND-NOT at the end (§3.5).
+	// a denial, and deny-override is one AND-NOT at the end.
 	if img.Effective([]RoleID{keeper}, noStage, value)&PermEdit == 0 {
 		t.Error("the role grant must hold outside the denying stage")
 	}
@@ -743,7 +727,7 @@ stages {
 		t.Error("10 > 10 must be false")
 	}
 
-	// Slot-versus-slot comparison (E3: identical types).
+	// Slot-versus-slot comparison (identical types).
 	g3 := eval("f.g3")
 	v = make(Row, len(img.slots))
 	set(v, "count", Cell{Set: true, Int: 3})
@@ -757,9 +741,9 @@ stages {
 		t.Error("an equal string must fail the conjunction")
 	}
 
-	// The disjunction pairs a decimal with an integer literal normalized
-	// to decimal, and a date with an ISO string normalized to an instant
-	// (SYNTAX §5.8), so both branches compare typed values.
+	// The disjunction pairs a decimal with an integer literal normalized to
+	// decimal, and a date with an ISO string normalized to an instant, so both
+	// branches compare typed values.
 	g4 := eval("f.g4")
 	v = make(Row, len(img.slots))
 	set(v, "fee", Cell{Set: true, Decimal: decimal.RequireFromString("5.00")})
@@ -779,7 +763,7 @@ stages {
 		t.Error("neither branch holds at the boundary")
 	}
 
-	// Both guards read exactly the slots they name (§5.3's adjacency).
+	// Both guards read exactly the slots they name (the adjacency).
 	if got := img.depOwners(slots["urgent"]); len(got) != 2 {
 		t.Errorf("urgent is read by %d owners, want g1 and g2", len(got))
 	}
@@ -833,9 +817,7 @@ stages {
 
 // condShapesSrc exercises every comparator the emitter can produce: slot
 // against literal, literal against slot, slot against slot, negation,
-// conjunction, disjunction, truth, and each value class. The assertions
-// below are the semantics table §4's E1–E4 rows promise, so this is also
-// the test that catches a comparator wired to the wrong operand class.
+// conjunction, disjunction, truth, and each value class.
 const condShapesSrc = `
 types {
     money : decimal(8, 2);
@@ -908,7 +890,7 @@ func TestConditionShapes(t *testing.T) {
 		return Cell{Set: true,
 			Time: time.Date(y, time.Month(mo), d, hh, mm, ss, 0, time.UTC)}
 	}
-	// state's tags are OPEN then SHUT, dense within the type (§3.1).
+	// state's tags are OPEN then SHUT, dense within the type.
 	state := img.types[img.slots[at("st")].Type].Tags
 	on := Cell{Set: true, Int: int64(state[0])}
 	off := Cell{Set: true, Int: int64(state[1])}
@@ -924,9 +906,9 @@ func TestConditionShapes(t *testing.T) {
 	yes := map[string]Cell{"flag": iv(1)}
 	no := map[string]Cell{"flag": iv(0)}
 
-	// Absence satisfies nothing, in either direction: every guard here
-	// reads data, so an empty case answers false for all of them (SYNTAX
-	// Appendix C). !(1 < 2) folds to never() and agrees by construction.
+	// Absence satisfies nothing, in either direction: every guard here reads
+	// data, so an empty case answers false for all of them. !(1 < 2) folds to
+	// never() and agrees by construction.
 	empty := make(Row, len(img.slots))
 	for _, group := range []string{"tTrue", "tNeg", "tAnd", "tOr", "tRev",
 		"tRevLe", "tRevGt", "tRevGe",
@@ -937,7 +919,7 @@ func TestConditionShapes(t *testing.T) {
 		}
 	}
 	if !isNever(guard("tFold"), len(img.slots)) {
-		t.Error("!(1 < 2) must fold to never(), reading no slot (§3.4)")
+		t.Error("!(1 < 2) must fold to never(), reading no slot")
 	}
 
 	cases := []struct {
@@ -958,8 +940,8 @@ func TestConditionShapes(t *testing.T) {
 			false, "neither branch"},
 		{"tRev", fill(map[string]Cell{"n": iv(11)}), true, "10 < 11"},
 		{"tRev", fill(map[string]Cell{"n": iv(10)}), false, "10 < 10"},
-		// A literal on the left reverses the operator it is read with
-		// (§3.4), so each direction needs its own case.
+		// A literal on the left reverses the operator it is read with, so each
+		// direction needs its own case.
 		{"tRevLe", fill(map[string]Cell{"n": iv(10)}), true, "10 <= 10"},
 		{"tRevLe", fill(map[string]Cell{"n": iv(9)}), false, "10 <= 9"},
 		{"tRevGt", fill(map[string]Cell{"n": iv(9)}), true, "10 > 9"},
@@ -971,8 +953,7 @@ func TestConditionShapes(t *testing.T) {
 		{"tDec", fill(map[string]Cell{"fee": money("5.50")}), true,
 			"the boundary itself"},
 		{"tDec", fill(map[string]Cell{"fee": money("5.49")}), false, "below it"},
-		// An integer literal against a decimal slot: §5.8 normalizes 5 to
-		// decimal 5, so 5.00 satisfies >= 5 and 4.99 does not.
+		// An integer literal against a decimal slot.
 		{"tDecI", fill(map[string]Cell{"fee": money("5.00")}), true,
 			"decimal against an integer literal"},
 		{"tDecI", fill(map[string]Cell{"fee": money("4.99")}), false,
@@ -980,7 +961,7 @@ func TestConditionShapes(t *testing.T) {
 		{"tTime", fill(map[string]Cell{"at": stamp(2025, 12, 31, 23, 59, 59)}),
 			true, "before the instant"},
 		{"tTime", fill(map[string]Cell{"at": stamp(2026, 1, 1, 0, 0, 0)}),
-			false, "ISO 8601 normalized to an instant (§5.8)"},
+			false, "ISO 8601 normalized to an instant"},
 		{"tTag", fill(map[string]Cell{"st": on}), true, "OPEN"},
 		{"tTag", fill(map[string]Cell{"st": off}), false, "SHUT"},
 		{"tBoolC", fill(map[string]Cell{"flag": iv(0)}), true, "false != true"},
@@ -1022,7 +1003,7 @@ func TestConditionShapes(t *testing.T) {
 	}
 
 	// The folded adjacency lists exactly the slots each guard reads, so
-	// §5.3's fanout can never visit a path no operand mentioned.
+	// the fanout can never visit a path no operand mentioned.
 	for group, want := range map[string][]string{
 		"tTrue":  {"f.flag"},
 		"tRev":   {"f.n"},
@@ -1043,9 +1024,8 @@ func TestConditionShapes(t *testing.T) {
 }
 
 // readBy inverts the fanout table: the paths whose affected set names this
-// declaration as a condition owner, in slot order. It reads only §3.8's
-// arrays, so it proves what Update will actually walk rather than what the
-// emitter meant.
+// declaration as a condition owner, in slot order. It reads only the arrays, so
+// it proves what Update will actually walk rather than what the emitter meant.
 func readBy(img *Program, owner NodeID) []string {
 	var out []string
 	for s := range img.depFrom {
@@ -1086,7 +1066,7 @@ stages {
 `
 	img, _ := compile(t, src)
 	// A folded guard answers without reading data, so it owns no fanout
-	// either (§5.3): the walk never enqueues anything for it.
+	// either: the walk never enqueues anything for it.
 	for _, tc := range []struct {
 		group string
 		want  bool
@@ -1094,7 +1074,7 @@ stages {
 	}{
 		{"a", true, 0}, {"b", true, 0}, {"c", true, 0}, {"d", true, 0},
 		{"e", true, 0}, {"g", false, 1},
-		// Two number literals of different widths are one class (§3.4).
+		// Two number literals of different widths are one class.
 		{"h", true, 0}, {"i", true, 0},
 	} {
 		id := img.slots[slotByPath(t, img, "f."+tc.group)].CondPres
@@ -1140,7 +1120,7 @@ func TestLowerRefusesViolatedInvariants(t *testing.T) {
 		x := s.Forms[0].Nodes[0]
 		x.Required = true
 		// A legal condition on a sibling: the violation is the flag pair,
-		// not the expression (§5.2).
+		// not the expression.
 		x.RequiredCond = &schema.Expr{Op: "", Node: s.Forms[0].Nodes[1]}
 		_, err := Compile("test", s)
 		requireProblem(t, err, "required and required[expr]")
@@ -1170,16 +1150,14 @@ func TestLowerRefusesViolatedInvariants(t *testing.T) {
 	t.Run("edge destination unnumbered", func(t *testing.T) {
 		s := base()
 		// The destination stage exists as a value but is not in Stages, so
-		// no ordinal was ever assigned to it (ST2's shape).
+		// no ordinal was ever assigned to it (the shape).
 		s.Stages[0].Edges = []schema.Edge{{Dest: &schema.Stage{Name: "t"}}}
 		_, err := Compile("test", s)
 		requireProblem(t, err, "was not numbered")
 	})
 
-	// The emitter's anti-drift branches (§4's table, read as assertions).
-	// Each shape below is one the checker rejects, so the message is the
-	// runtime saying "the front end and I disagree about E2, E3, E4 or F7",
-	// and the definition is refused rather than compiled on a guess.
+	// The emitter's anti-drift branches (the table, read as assertions). Each
+	// shape below is one the checker rejects.
 
 	t.Run("ordering a boolean pair", func(t *testing.T) {
 		s := base()
@@ -1188,7 +1166,7 @@ func TestLowerRefusesViolatedInvariants(t *testing.T) {
 			Left:  &schema.Expr{Node: x},
 			Right: &schema.Expr{Node: y}}
 		_, err := Compile("test", s)
-		requireProblem(t, err, "cannot order") // E3
+		requireProblem(t, err, "cannot order")
 	})
 
 	t.Run("standalone literal is not a condition", func(t *testing.T) {
@@ -1196,7 +1174,7 @@ func TestLowerRefusesViolatedInvariants(t *testing.T) {
 		z := s.Forms[0].Nodes[2]
 		z.PresentCond = &schema.Expr{Lit: &schema.Value{Kind: "integer", Int: 5}}
 		_, err := Compile("test", s)
-		requireProblem(t, err, "not a condition") // E4
+		requireProblem(t, err, "not a condition")
 	})
 
 	t.Run("constants of unrelated classes", func(t *testing.T) {
@@ -1206,7 +1184,7 @@ func TestLowerRefusesViolatedInvariants(t *testing.T) {
 			Left:  &schema.Expr{Lit: &schema.Value{Kind: "string", Str: "a"}},
 			Right: &schema.Expr{Lit: &schema.Value{Kind: "integer", Int: 1}}}
 		_, err := Compile("test", s)
-		requireProblem(t, err, "cannot be compared") // E3
+		requireProblem(t, err, "cannot be compared")
 	})
 
 	t.Run("operand is not a declaration", func(t *testing.T) {
@@ -1227,7 +1205,7 @@ func TestLowerRefusesViolatedInvariants(t *testing.T) {
 		s.Forms[0].Nodes = append(s.Forms[0].Nodes, holder)
 		z.PresentCond = &schema.Expr{Node: holder}
 		_, err := Compile("test", s)
-		requireProblem(t, err, "is not a value") // E2, T4
+		requireProblem(t, err, "is not a value")
 	})
 
 	t.Run("condition reads inside a collection", func(t *testing.T) {
@@ -1240,20 +1218,20 @@ func TestLowerRefusesViolatedInvariants(t *testing.T) {
 		s.Forms[0].Nodes = append(s.Forms[0].Nodes, rows)
 		z.PresentCond = &schema.Expr{Node: inner}
 		_, err := Compile("test", s)
-		requireProblem(t, err, "inside a multiple collection") // E2
+		requireProblem(t, err, "inside a multiple collection")
 	})
 
 	t.Run("twoSlots of two different types", func(t *testing.T) {
 		s := base()
 		// The owner is a third field: a condition that names itself is
-		// F7's self-reference, and that check answers first.
+		// the self-reference, and that check answers first.
 		y, z := s.Forms[0].Nodes[1], s.Forms[0].Nodes[2]
 		x := s.Forms[0].Nodes[0]
 		x.PresentCond = &schema.Expr{Op: "==",
 			Left:  &schema.Expr{Node: y},
 			Right: &schema.Expr{Node: z}}
 		_, err := Compile("test", s)
-		requireProblem(t, err, "not the same type") // E3
+		requireProblem(t, err, "not the same type")
 	})
 
 	t.Run("twoSlots of two different enums", func(t *testing.T) {
@@ -1270,7 +1248,7 @@ func TestLowerRefusesViolatedInvariants(t *testing.T) {
 			Left:  &schema.Expr{Node: p},
 			Right: &schema.Expr{Node: q}}
 		_, err := Compile("test", s)
-		requireProblem(t, err, "different enums") // E3
+		requireProblem(t, err, "different enums")
 	})
 
 	t.Run("signature target is not role-typed", func(t *testing.T) {
@@ -1281,7 +1259,7 @@ func TestLowerRefusesViolatedInvariants(t *testing.T) {
 			SignField: x}
 		s.Forms[0].Nodes = append(s.Forms[0].Nodes, sig)
 		_, err := Compile("test", s)
-		requireProblem(t, err, "not a role-typed field") // S2
+		requireProblem(t, err, "not a role-typed field")
 	})
 
 	t.Run("a group carries a value type", func(t *testing.T) {
@@ -1330,10 +1308,9 @@ func contains(list []NodeID, want NodeID) bool {
 	return false
 }
 
-// A definition may grant and deny the same permission to the same role in
-// the same stage. The front end warns (CONTRADICTORY_GRANTS) and lowering
-// keeps both bits, because the §3.5 algebra is what answers a request:
-// the warning is not a defect, so the image must still be built.
+// A definition may grant and deny the same permission to the same role in the
+// same stage. The front end warns (CONTRADICTORY_GRANTS) and lowering keeps
+// both bits.
 func TestContradictoryGrantsAreCarriedNotRefused(t *testing.T) {
 	const src = `
 roles {
@@ -1371,11 +1348,10 @@ stages {
 	}
 }
 
-// E6's absence rule, both directions. A comparison whose operand has no
-// value is unsatisfied, and negation does not rescue it: the runtime must
-// never make structure appear, or demand a value, because nothing was
-// entered. Defaults are materialized before evaluation (§5.1), so an
-// operand below is genuinely unset.
+// The absence rule, both directions. A comparison whose operand has no value is
+// unsatisfied, and negation does not rescue it: the runtime must never make
+// structure appear, or demand a value, because nothing was entered. Defaults
+// are materialized before evaluation, so an operand below is genuinely unset.
 func TestAbsenceIsNotSatisfactionUnderNegation(t *testing.T) {
 	const src = `
 roles {
@@ -1429,7 +1405,7 @@ stages {
 		t.Error("!false must be satisfied")
 	}
 	// required[!(.n > 3)] must not demand a value from an empty case:
-	// condReq is consulted only when the node is present (§5.2), and here
+	// condReq is consulted only when the node is present, and here
 	// it is unsatisfied, so z stays not required.
 	c := img.slots[slotByPath(t, img, "f.c")]
 	if c.CondReq == 0 {
@@ -1455,11 +1431,9 @@ stages {
 	}
 }
 
-// The accessors are what View, Submit and §5.3's walk will use, and
-// Appendix A's "one contiguous interval" claim is only true of the arrays
-// if the numbering really is preorder. This walks the §7 example both ways
-// and requires the same set: children by declaration order, subtree by
-// index range.
+// The accessors are what View, Submit and the walk will use. This walks the
+// registration example both ways and requires the same set: children by
+// declaration order, subtree by index range.
 func TestImageAccessorsWalkTheTree(t *testing.T) {
 	img := lowerExample(t)
 
@@ -1497,7 +1471,7 @@ func TestImageAccessorsWalkTheTree(t *testing.T) {
 			}
 		}
 		// Every child names its parent, and sits inside its range: that
-		// is the fold §3.5's inheritance and §5.4's walks both assume.
+		// is the fold the inheritance and the walks both assume.
 		for _, c := range img.ChildrenOf(id) {
 			if img.slots[c].Parent != id {
 				t.Errorf("%s is %s's child but names %d as parent",
@@ -1532,12 +1506,12 @@ func TestImageAccessorsWalkTheTree(t *testing.T) {
 		}
 	}
 	// The tables index by ordinal, index 0 is "none" everywhere, and no
-	// accessor has to search for anything (§3.1).
+	// accessor has to search for anything.
 	if img.TagName(0) != "" || img.RoleName(0) != "" {
 		t.Error("ordinal 0 should have no name")
 	}
 	if img.Cond(0) == nil || img.Cond(0)(make(Row, len(img.slots))) {
-		t.Error("condID 0 must answer false without reading data (§3.4)")
+		t.Error("condID 0 must answer false without reading data")
 	}
 	if sv := img.ConstOf(0); sv.Set || sv.Int != 0 || sv.Text != "" || !sv.Decimal.IsZero() {
 		t.Errorf("valueID 0 = %+v, want the no-value placeholder", sv)

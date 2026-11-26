@@ -114,7 +114,7 @@ func TestStoreSettlesEachClassIntoItsPayload(t *testing.T) {
 			if bad != "" {
 				t.Fatalf("store(%s) refused: %s", tc.path, bad)
 			}
-			// Every accepted value is *set*: §5.2's distinction between a
+			// Every accepted value is *set*: the distinction between a
 			// value and no value is the payload's `set` bit, and an empty
 			// string, a false and a zero are values.
 			if !got.Set {
@@ -181,7 +181,7 @@ func TestStoreRefusesWhatTheFieldDoesNotTake(t *testing.T) {
 	}
 }
 
-// The decimal bounds are §3.3's prebuilt `fits`, and `money : decimal(6, 2)`
+// The decimal bounds are the prebuilt `fits`, and `money: decimal(6, 2)`
 // makes both edges reachable: four integer digits and two fractional.
 func TestStoreChecksADecimalAgainstItsType(t *testing.T) {
 	img := valueImage(t)
@@ -228,7 +228,7 @@ func TestStoreChecksADecimalAgainstItsType(t *testing.T) {
 }
 
 // An enum's ordinal is what the row holds, and it is the same ordinal a
-// literal compiles to (E3), which is what lets a stored value and a stored
+// literal compiles to, which is what lets a stored value and a stored
 // default mean one thing.
 func TestStoreResolvesATagToItsOwnEnumsOrdinal(t *testing.T) {
 	img := valueImage(t)
@@ -266,10 +266,9 @@ func TestStoreResolvesATagToItsOwnEnumsOrdinal(t *testing.T) {
 	}
 }
 
-// The `options` class is the one soft spot at the boundary — its value is
-// text, and `Text` is the only spelling text has — and an options field's
-// hook binding is by *path*, which milestone 3's `View` consults and a
-// normalizer must not.
+// The `options` class is the one soft spot at the boundary — its value is text,
+// and `Text` is the only spelling text has — and an options field's hook
+// binding is by *path*.
 func TestCarriesIsSoftForOptionsOnly(t *testing.T) {
 	img := valueImage(t)
 	if !carries(program.BaseOptions, classText) || !carries(program.BaseString, classText) {
@@ -284,7 +283,7 @@ func TestCarriesIsSoftForOptionsOnly(t *testing.T) {
 	grade := slotByPath(t, img, "application.grade")
 	sl := img.Slot(grade)
 	if sl.Hook == 0 {
-		t.Fatal("an options field carries no binding, so §6's path key is " +
+		t.Fatal("an options field carries no binding, so the path key is " +
 			"untested")
 	}
 	if img.Type(sl.Type).Hook != 0 {
@@ -340,7 +339,7 @@ func TestStructuralSentencesNameTheShape(t *testing.T) {
 	}
 	// Both shapes `multiple` is legal on have instances to add, and say
 	// nothing about it — including the repeated field, whose rows are values
-	// rather than containers of them (DESIGN §5.1). A message here would be
+	// rather than containers of them. A message here would be
 	// the bug this table exists to keep: the verb refused for the shape that
 	// needs it.
 	for _, path := range []string{"application.rows", "application.tags"} {

@@ -9,8 +9,7 @@ import (
 // fanout is the re-evaluated set of one batch: the slots it wrote, the
 // declarations whose guard reads those, and transitively whatever those moved.
 // It is built per batch, not shared, because two racing `Update` calls must not
-// be able to see each other's partial closure (invariant 4's discipline about
-// state, applied to a scratch array).
+// be able to see each other's partial closure.
 type fanout struct {
 	img   *program.Program
 	mark  []bool           // per slot: reached by the walk, so its view may differ
@@ -26,21 +25,21 @@ func newFanout(img *program.Program) *fanout {
 }
 
 // wroteField records that one field's cell changed. A group is never the target
-// of a write — §5.1's verbs refuse it before this is reached — so the slot is a
+// of a write — the verbs refuse it before this is reached — so the slot is a
 // value's own and marking it alone is exact.
 func (f *fanout) wroteField(n program.NodeID) { f.add(n) }
 
 // wroteRows records that an instance of a collection appeared or went away: a
 // change to the collection, which is the declaration whose rows a client counts,
-// and — by E2 — the only one any guard could be reached through.
+// and — by the only one any guard could be reached through.
 func (f *fanout) wroteRows(coll program.NodeID) { f.add(coll) }
 
-// add marks one slot and puts it in the frontier, which is the only place a slot
-// is enqueued. §5.3's bound is that no slot is visited twice, so the queue cannot
-// outgrow the slot count no matter what the batch wrote; F7's acyclicity is what
-// would make an unbounded walk impossible in the first place, and this is the
-// property that makes the walk *finite* without relying on that proof being
-// right.
+// add marks one slot and puts it in the frontier, which is the only place a
+// slot is enqueued. The bound is that no slot is visited twice, so the queue
+// cannot outgrow the slot count no matter what the batch wrote; the acyclicity
+// is what would make an unbounded walk impossible in the first place, and this
+// is the property that makes the walk *finite* without relying on that proof
+// being right.
 func (f *fanout) add(n program.NodeID) {
 	if f.mark[n] {
 		return
@@ -49,9 +48,8 @@ func (f *fanout) add(n program.NodeID) {
 	f.queue = append(f.queue, n)
 }
 
-// reask marks one owner as the unit §5.2 and §5.4 will walk: itself, everything
-// under it, and — for an owner whose rows a collection holds — the collection
-// rather than the member.
+// reask marks an owner's subtree for reevaluation. If the owner lives in a
+// collection, mark the collection's subtree instead.
 func (f *fanout) reask(owner program.NodeID) {
 	if coll := f.img.CollOf(owner); coll != 0 {
 		owner = coll
@@ -99,18 +97,15 @@ func (f *fanout) affected() []string {
 	return out
 }
 
-// seedCommit feeds one commit's facts into a walk, and the entry's kind
-// decides the shape — the same question §5.6's effects and §5.11's rendering
-// ask of every entry, because what a client re-renders is a function of what
-// kind of fact moved. A value marks its cell and a row set marks the
-// collection, which is §5.3's Add/Remove rule at the other end: the entry
-// keys the container, and a client counts rows per declaration. A decision
-// re-asks the unit's subtree, because the verdict renders across it — this is
-// the one place the §5.9 answer says "the group, not the flag". An
-// attestation marks its field, whose rendering is the field's own.
+// seedCommit feeds one commit's facts into a walk, and the entry's kind decides
+// the shape — the same question the effects and the rendering ask of every
+// entry, because what a client re-renders is a function of what kind of fact
+// moved. A value marks its cell and a row set marks the collection. A decision
+// re-asks the unit's subtree. An attestation marks its field, whose rendering
+// is the field's own.
 //
 // `erased` is what the store's effects removed and the diff does not record:
-// a reset writes no entry beside the content that caused it (DESIGN §4.2),
+// a reset writes no entry beside the content that caused it,
 // so without this seed a client would learn of a vanished decision only by
 // rendering it. The units come back as `reask` seeds for the same reason a
 // verdict entry does: what moved is the fact shown across the unit.
@@ -133,7 +128,7 @@ func seedCommit(fan *fanout, changes []commitChange, erased []program.NodeID) {
 }
 
 // roleSetsMatch asks two folded role lists the one question a commit cares
-// about: whether §3.5's function was handed the same input. `rolesHeld`
+// about: whether the function was handed the same input. `rolesHeld`
 // orders by data rather than by ordinal, so membership is the comparison and
 // the lengths are its cheap no.
 func roleSetsMatch(a, b []program.RoleID) bool {

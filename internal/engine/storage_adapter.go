@@ -23,12 +23,8 @@ func stampNow() time.Time { return time.Now() }
 // observe, and a conformance suite written against one implementation
 // reads the same on any other.
 //
-// Anything else a host returns becomes STORAGE_FAILURE with the host's
-// error as Cause — the one category DESIGN §9 reserves for an explanation
-// that belongs to somebody else — and a refusal whose bytes this package
-// itself wrote (a corrupt or foreign `State`) lands in the same
-// category, because from the caller's side a store that cannot answer is
-// a store that failed.
+// Anything else a host returns becomes STORAGE_FAILURE with the host's error as
+// Cause.
 type hostBackend struct {
 	st   Storage
 	defs *registry
@@ -88,9 +84,7 @@ func (b *hostBackend) head(ctx context.Context, r refuser,
 }
 
 // readWorking decodes one draft. A decoded state arrives built through
-// `newState`'s shape (codec.go), so the reinterpret is the same no-op
-// it is on the in-memory path for a matching image — and for a
-// reloaded one, the same re-pointing §3.9 allows.
+// `newState`'s shape (codec.go).
 func (b *hostBackend) readWorking(r refuser, img *program.Program,
 	w WorkingRecord) (workingState, error) {
 	s, err := decodeWorking(img, w.State)
@@ -208,14 +202,12 @@ func (b *hostBackend) saved(r refuser, expected uint64, err error) error {
 func (b *hostBackend) saveWorking(ctx context.Context, r refuser,
 	user UserID, expected uint64, next workingState, onto uint64) (
 	uint64, error) {
-	// The read first, for both guards: the revision the caller
-	// presented is checked against the copy the store holds, and the
-	// lineage `Rebase` asks to move needs the copy's own base and the
-	// case's revision to be bounded. The store's Save re-checks the
-	// guard atomically; this one is what makes the refusal a sentence
-	// instead of a race, and the defect guard (§6.5, and the same
-	// SchemaMismatch the in-memory path gives) needs both numbers
-	// before anything is encoded.
+	// The read first, for both guards: the revision the caller presented is
+	// checked against the copy the store holds, and the lineage `Rebase` asks
+	// to move needs the copy's own base and the case's revision to be bounded.
+	// The store's Save re-checks the guard atomically; this one is what makes
+	// the refusal a sentence instead of a race, and the defect guard needs both
+	// numbers before anything is encoded.
 	w0, have, err := b.st.Draft(ctx, r.id, user)
 	if err != nil {
 		return 0, b.failed(r, err)
@@ -261,11 +253,8 @@ func (b *hostBackend) discard(ctx context.Context, r refuser,
 	case errors.Is(err, ErrNoSuchCase):
 		return r.now(NotFound, "no such case")
 	case errors.Is(err, ErrNoDraft):
-		// §6.5's rule, stated here rather than by the host because it
-		// is an engine rule: a caller who presented 0 asked for the
-		// state they are already in, and one who presented a number
-		// for a copy that does not exist is the caller bug the
-		// in-memory store refuses in these words.
+		// Discarding revision zero of a missing draft is already a success. A
+		// positive revision names a copy the caller could not have held.
 		if expected == 0 {
 			return nil
 		}
@@ -277,7 +266,7 @@ func (b *hostBackend) discard(ctx context.Context, r refuser,
 	return b.failed(r, err)
 }
 
-// commit is the whole of DESIGN §8's atomic step seen from the engine:
+// commit is the whole of the atomic step seen from the engine:
 // the effects run on the caller's snapshot copy (the in-memory store's
 // order — guard, install, effects — survives as guard-in-the-store,
 // effects-before-the-encode, because a refused transaction shows its
@@ -319,7 +308,7 @@ func (b *hostBackend) commit(ctx context.Context, r refuser, img *program.Progra
 
 // history reads one page and decodes it. The committed record is read
 // for its definition name alone: trail entries are written under the
-// image the case lives on, and §3.9's compatibility is what makes their
+// image the case lives on, and the compatibility is what makes their
 // slot ordinals mean anything on the way back.
 func (b *hostBackend) history(ctx context.Context, r refuser,
 	cursor uint64, limit int) ([]commitRecord, error) {
@@ -349,7 +338,7 @@ func (b *hostBackend) history(ctx context.Context, r refuser,
 var _ caseBackend = (*hostBackend)(nil)
 
 // NewRuntimeWithStorage assembles a runtime whose case state lives
-// behind the exported contract (DESIGN §8): every operation encodes the
+// behind the exported contract: every operation encodes the
 // state it changes and reads back what a host stored, so the same
 // program runs against the in-memory storage above, a database, or a
 // service's own backend without the operations knowing. A nil argument

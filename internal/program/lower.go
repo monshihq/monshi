@@ -8,7 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Ceilings recorded in RUNTIME §3.1. They bound definitions, never cases,
+// Ceilings recorded. They bound definitions, never cases,
 // and exceeding one is reported at Load as an internal defect rather than
 // silently widening a mask.
 const (
@@ -19,7 +19,7 @@ const (
 	maxTags   = 65535
 
 	// How deep `multiple` may nest. Instance paths are addressed by a fixed
-	// array at request time, so resolution allocates nothing (§3.9), and a
+	// array at request time, so resolution allocates nothing, and a
 	// path deeper than this cannot be formed by a definition that loaded.
 	MaxCollDepth = 4
 )
@@ -42,16 +42,13 @@ type lowerer struct {
 
 	nextID NodeID // next preorder slot index
 	nodeAt []*schema.Node
-	// collection marks slots inside a multiple subtree: E2 keeps them out
-	// of every condition, which §5's "one evaluation per collection"
-	// argument depends on.
+	// collection marks slots inside a multiple subtree.
 	collection map[NodeID]bool
-	// sigNodes keeps the front end's field reference per signature entry
-	// until every slot exists, because S1/S2 allow a signature to point at
-	// a role-typed field declared later in the same form.
+	// sigNodes keeps the front end's field reference per signature entry until
+	// every slot exists.
 	sigNodes []sigTarget
 	// condOwner and reads belong to the conditions pass: fanout is built
-	// from what each compiled guard reads (§5.3).
+	// from what each compiled guard reads.
 	condOwner map[ConditionID]NodeID
 	reads     map[ConditionID][]NodeID
 
@@ -96,7 +93,7 @@ func Compile(id string, s *schema.Schema) (*Program, error) {
 	l.conditions()
 	l.permissions()
 	l.dependencies()
-	// The §4 checks read the image as if it were finished. A build that had
+	// The consistency checks read the image as if it were finished. A build that had
 	// to refuse something — a ceiling, a missing ordinal — leaves arrays
 	// short, and walking them would report a second defect about the wrong
 	// node, or crash before saying anything. The first problem is the one
@@ -107,7 +104,7 @@ func Compile(id string, s *schema.Schema) (*Program, error) {
 
 	if len(l.problems) > 0 {
 		// Refused, not repaired: the definition compiled, so the fault is
-		// the runtime's (RUNTIME §10).
+		// the runtime's.
 		return nil, &Error{ID: id, Defects: l.problems}
 	}
 	l.img.layout = layoutID(l.img)
@@ -120,7 +117,7 @@ func newImage(id string) *Program {
 		names:    []string{""}, // stringID 0 is the empty name
 		types:    []Type{{}},
 		consts:   []Cell{{}},
-		conds:    []Predicate{never()}, // conds[0] is never called (§3.4)
+		conds:    []Predicate{never()}, // conds[0] is never called
 		forms:    []NodeID{0},
 		sigs:     []Signature{{}},
 		stages:   []Stage{{}},
@@ -130,7 +127,7 @@ func newImage(id string) *Program {
 		roleIdx:  []StringID{0},
 		initial:  noStage,
 		// perms, depFrom and depOwn are filled by their own passes; the
-		// zero values are the empty tables §10's verify pass checks.
+		// zero values are the empty tables the verify pass checks.
 	}
 }
 
@@ -145,7 +142,7 @@ func (l *lowerer) internName(s string) StringID {
 }
 
 // reportf records an invariant violation. Lowering never panics and never
-// guesses: the definition is refused instead (RUNTIME §10).
+// guesses: the definition is refused instead.
 func (l *lowerer) reportf(at, format string, args ...any) {
 	if at == "" {
 		at = "case root"
@@ -153,8 +150,7 @@ func (l *lowerer) reportf(at, format string, args ...any) {
 	l.problems = append(l.problems, at+": "+fmt.Sprintf(format, args...))
 }
 
-// roles assigns role ordinals in declaration order (P4 already proved every
-// referenced role is declared).
+// roles assigns role ordinals in declaration order.
 func (l *lowerer) roles() {
 	if len(l.s.Roles) > maxRoles {
 		l.reportf("", "definition declares %d roles, the limit is %d",
@@ -172,9 +168,7 @@ func (l *lowerer) roles() {
 	}
 }
 
-// types numbers every declared custom type before the slot pass runs, so a
-// tag or default that belongs to a type no field uses is still resolvable:
-// P5 makes an unused declaration harmless, not invisible (§4).
+// types numbers every declared custom type before the slot pass runs.
 func (l *lowerer) types() {
 	for _, t := range l.s.Types {
 		l.internType(t)
@@ -193,7 +187,7 @@ func (l *lowerer) roleIDOf(r *schema.Role) RoleID {
 }
 
 // baseCode maps the compiled model's type base name to its ordinal class.
-// Every name comes from SYNTAX Appendix A; anything else means the front end
+// Every name comes from the built-in type set; anything else means the front end
 // produced a type the language does not define.
 func baseCode(base string) uint8 {
 	switch base {
@@ -251,7 +245,7 @@ func ClassName(base uint8) string {
 
 // internType numbers one compiled type. Built-ins are shared pointers in the
 // front end, so each arrives once; inline enums and custom types arrive once
-// per declaration, which is exactly how E3 pairs them.
+// per declaration.
 func (l *lowerer) internType(t *schema.Type) TypeID {
 	if t == nil {
 		return 0
@@ -276,7 +270,7 @@ func (l *lowerer) internType(t *schema.Type) TypeID {
 		info.Tags = make([]TagID, 0, len(t.Tags))
 		for _, tag := range t.Tags {
 			if _, dup := l.tagOf[tag]; dup {
-				l.reportf(t.Name, "enum tag %s is declared twice", tag) // N3
+				l.reportf(t.Name, "enum tag %s is declared twice", tag)
 				continue
 			}
 			if len(l.img.tagNames) > maxTags {
@@ -293,8 +287,7 @@ func (l *lowerer) internType(t *schema.Type) TypeID {
 		info.Fits = decimalFits(t.Precision, t.Scale)
 	}
 	if l.custom[t] {
-		// DESIGN §7 binds Validate by custom type, so a declared type
-		// always carries its lookup key; built-ins never do.
+		// Bind Validate by custom type name. Built-in types have no binding.
 		info.Hook = l.internHook(HookByType, t.Name)
 	}
 	l.img.types = append(l.img.types, info)
@@ -302,9 +295,7 @@ func (l *lowerer) internType(t *schema.Type) TypeID {
 	return id
 }
 
-// decimalFits builds the precision/scale predicate once per decimal type,
-// mirroring the bound T2 validated at compile time: the value must need at
-// most s fractional digits and at most p significant ones.
+// decimalFits builds one precision and scale check per declared decimal type.
 func decimalFits(precision, scale int) func(decimal.Decimal) bool {
 	return func(d decimal.Decimal) bool {
 		return schema.FitsDecimal(d, precision, scale)
@@ -318,10 +309,8 @@ func (l *lowerer) typeBase(id TypeID) uint8 {
 	return l.img.types[id].Base
 }
 
-// internConst numbers one compile-time constant: a default or a guard
-// literal. The class is the operand type's, which SYNTAX §5.8 guarantees the
-// literal was already normalized to — lowering asserts that, it does not
-// parse or widen anything.
+// internConst numbers one compile-time constant: a default or a guard literal.
+// The class is the operand type's.
 func (l *lowerer) internConst(class uint8, at string, v *schema.Value) ValueID {
 	if v == nil {
 		return 0
@@ -452,19 +441,18 @@ func (l *lowerer) forms() {
 // formAnchors answers "which form owns this slot" once, for the whole image,
 // so that no request-time path walks one. Preorder makes the answer a range
 // copy: a form's subtree is contiguous, so stamping the ordinal over it is
-// the same loop the span already describes (§3.2).
+// the same loop the span already describes.
 //
-// Two things are read from it at request time and neither is a walk. §5.6's
-// commit effects map a changed slot to the signature fields its form's
-// content binds — `slot.form` is the whole question, one array read per diff
-// entry — and the merge's veiled-clash address asks for the form whose name
-// it may print when the slot's own address is case data (§5.8).
+// Two things are read from it at request time and neither is a walk. The commit
+// effects map a changed slot to the signature fields its form's content binds —
+// `slot.form` is the whole question, one array read per diff entry — and the
+// merge's veiled-clash address asks for the form whose name it may print when
+// the slot's own address is case data.
 //
-// The same pass groups the signature fields by form, declaration order,
-// because a destination that requires a form asks about its signatures and
-// nothing else (S1 keeps them direct members). The group is a dense range,
-// so that question is bounded by the signatures a form declares rather than
-// by its fields.
+// The same pass groups the signature fields by form, declaration order, because
+// a destination that requires a form asks about its signatures and nothing
+// else. The group is a dense range, so that question is bounded by the
+// signatures a form declares rather than by its fields.
 func (l *lowerer) formAnchors() {
 	img := l.img
 	img.sigSpan = make([]depRange, len(img.forms)+1)
@@ -492,8 +480,8 @@ func (l *lowerer) formAnchors() {
 // buildNode numbers one subtree and returns its slot. parent is the slot of
 // the enclosing declaration (0 for a form), unit the outermost verifiable
 // ancestor's slot, and depth the number of `multiple` collections enclosing
-// this one: their members are stored one row per instance (§5.1) and kept out
-// of every condition (E2).
+// this one: their members are stored one row per instance and kept out
+// of every condition.
 func (l *lowerer) buildNode(n *schema.Node, parent, unit NodeID, depth int) NodeID {
 	id := l.nextID
 	slot := Slot{
@@ -529,7 +517,7 @@ func (l *lowerer) buildNode(n *schema.Node, parent, unit NodeID, depth int) Node
 	if n.Verifiable {
 		slot.Flags |= FlagVerifiable
 		if unit == 0 {
-			unit = id // F3: the outermost unit governs
+			unit = id // The outermost verifiable declaration governs its descendants.
 		}
 	}
 	slot.Verif = unit
@@ -541,13 +529,13 @@ func (l *lowerer) buildNode(n *schema.Node, parent, unit NodeID, depth int) Node
 	case BaseSignature:
 		slot.Sig = l.addSigEntry(n)
 	case BaseOptions:
-		// DESIGN §7 binds Options by field path; the view layer decides
-		// whether to call it, permission-gated like any other value.
+		// Bind Options by field path. The view asks for choices only if the
+		// field is visible.
 		slot.Hook = l.internHook(HookByPath, n.Path)
 	}
 
 	// A collection gets a dense ordinal, so a state addresses its rows by
-	// index rather than by lookup (§5.1). Preorder numbering makes img.colls
+	// index rather than by lookup. Preorder numbering makes img.colls
 	// the declaration-order list as well, which is what collOf relies on.
 	if n.Multiple {
 		if depth+1 > MaxCollDepth {
@@ -561,7 +549,7 @@ func (l *lowerer) buildNode(n *schema.Node, parent, unit NodeID, depth int) Node
 	}
 	l.appendSlot(slot, n)
 	if depth > 0 {
-		l.collection[id] = true // E2 keeps this subtree out of conditions
+		l.collection[id] = true // Conditions cannot read a single value through a collection.
 	}
 
 	kids := make([]NodeID, 0, len(n.Nodes))
@@ -591,16 +579,15 @@ func (l *lowerer) appendSlot(s Slot, n *schema.Node) {
 	}
 }
 
-// addSigEntry records the S2 resolution. Only the role half is known here:
-// the field target is patched in the signatures pass, because S2 permits a
-// signature to name a role-typed field declared later in the same form.
+// addSigEntry records the role now and patches field references after all slots
+// exist. A signature may name a role-typed field declared later in its form.
 func (l *lowerer) addSigEntry(n *schema.Node) uint32 {
 	switch {
 	case n.Signer != nil && n.SignField != nil:
 		l.reportf(n.Path, "signature reference resolved to a role and a field")
 		return 0
 	case n.Signer == nil && n.SignField == nil:
-		l.reportf(n.Path, "signature reference is unresolved") // S2
+		l.reportf(n.Path, "signature reference is unresolved")
 		return 0
 	}
 	l.img.sigs = append(l.img.sigs, Signature{Role: l.roleIDOf(n.Signer)})
@@ -612,9 +599,6 @@ func (l *lowerer) addSigEntry(n *schema.Node) uint32 {
 }
 
 // signatures patches signature-field targets now that every slot exists.
-// S1 puts signature fields at form level and S2 resolved the reference to a
-// role-typed field of the same form, so an unresolvable target here means a
-// front-end guarantee was broken.
 func (l *lowerer) signatures() {
 	for _, t := range l.sigNodes {
 		slot, ok := l.slotOf[t.node]
@@ -642,7 +626,7 @@ func (l *lowerer) sigSlot(idx uint32) NodeID {
 }
 
 // stages numbers the stage graph. Ordinals follow declaration order, which
-// makes ST1's first declared stage the initial stage as a constant.
+// makes the first declared stage the initial stage as a constant.
 func (l *lowerer) stages() {
 	if len(l.s.Stages) > maxStages {
 		l.reportf("", "definition declares more than %d stages", maxStages)
@@ -660,7 +644,7 @@ func (l *lowerer) stages() {
 				l.reportf(st.Name, "require names %s, not a declared form", f.Path)
 				continue
 			}
-			info.Requires |= 1 << (fid - 1) // ST4: top-level forms only
+			info.Requires |= 1 << (fid - 1) // top-level forms only
 		}
 		for _, e := range st.Edges {
 			dest, ok := l.stageOf[e.Dest]
@@ -669,11 +653,11 @@ func (l *lowerer) stages() {
 				continue
 			}
 			if dest == id {
-				l.reportf(st.Name, "stage %s transitions to itself", st.Name) // ST3
+				l.reportf(st.Name, "stage %s transitions to itself", st.Name)
 				continue
 			}
 			if _, dup := info.EdgeTo(dest); dup {
-				l.reportf(st.Name, "two edges lead to stage %s", e.Dest.Name) // ST3
+				l.reportf(st.Name, "two edges lead to stage %s", e.Dest.Name)
 				continue
 			}
 			info.edges = append(info.edges, Edge{dest: dest, Reject: e.Reject})

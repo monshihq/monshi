@@ -7,10 +7,9 @@ import (
 	"github.com/monshihq/monshi/internal/program"
 )
 
-// ReviewState is a verifiable unit's effective review state (DESIGN §4.2).
-// The three words are the design document's, and `ReviewPending` is also what
-// a unit whose content moved is now: a reset is not a third state, it is the
-// absence of a decision.
+// ReviewState describes the current decision on a verifiable unit. If its
+// content changes, the decision is cleared and the unit returns to
+// ReviewPending.
 type ReviewState string
 
 const (
@@ -19,12 +18,8 @@ const (
 	ReviewRejected ReviewState = "REJECTED"
 )
 
-// ReviewAction is what a `Review` call asks the case to do. The words are
-// §4.2's three — approval, rejection with a required comment, revocation —
-// and they are deliberately not the three states: `ReviewRevoke` produces
-// `ReviewPending`, and a caller who could write a state directly could set
-// PENDING over somebody else's decision, which is the one thing revocation is
-// restricted away from below.
+// ReviewAction names an operation, not a state. Reject requires a comment;
+// Revoke withdraws the actor's own decision and leaves the unit pending.
 type ReviewAction string
 
 const (
@@ -33,11 +28,10 @@ const (
 	ReviewRevoke  ReviewAction = "REVOKE"
 )
 
-// ReviewInfo is one node's report about the verifiable unit that governs it
-// (DESIGN §6.1's verification state, RUNTIME §5.7). It is a value and not a
-// pointer because most nodes have no unit to report, and a zero `ReviewInfo`
-// says exactly that: `Unit` empty means no declaration in this actor's view
-// governs this node, and `State` says nothing about anything.
+// ReviewInfo is one node's report about the verifiable unit that governs it. It
+// is a value and not a pointer because most nodes have no unit to report, and a
+// zero `ReviewInfo` says exactly that: `Unit` empty means no declaration in
+// this actor's view governs this node, and `State` says nothing about anything.
 //
 // `At` is the revision this decision's own commit produced, and not the
 // revision of the content approved. The difference is load-bearing: a review
@@ -45,7 +39,7 @@ const (
 // version would be a statement about a revision that no longer exists as
 // "current" the moment the approval lands, and a second reviewer reading it
 // would conclude the case had moved when only decisions had. Staleness is
-// §5.6's reset's job — content moves, the unit goes back to PENDING — and not
+// the reset's job — content moves, the unit goes back to PENDING — and not
 // a comparison of two numbers.
 type ReviewInfo struct {
 	Unit    string      // the governing verifiable declaration, "" if none
@@ -60,7 +54,7 @@ type ReviewInfo struct {
 // caller did not have to ask about and cannot get any other way, and the
 // decision itself is something the caller just made.
 //
-// `Affected` is the unit's own path (§5.3's collapse of a re-asked subtree):
+// `Affected` is the unit's own path (the collapse of a re-asked subtree):
 // a decision lands *on* the unit, the view renders it there, and a client
 // that refreshes the unit refreshes every field the verdict speaks about.
 // Nil on a no-op decision and on every refusal — the list follows the commit.
@@ -101,18 +95,18 @@ func (r reviewState) state() ReviewState {
 
 // Review decides a `verifiable` declaration: `ReviewApprove` and
 // `ReviewReject` record this actor's judgement of the content the case holds
-// now, and `ReviewRevoke` takes back the actor's own decision (§4.2). A
+// now, and `ReviewRevoke` takes back the actor's own decision. A
 // rejection must say why, because a state with no reason attached is not
 // something a second reviewer can act on; a revocation must say nothing,
 // because it leaves no decision standing to attach a note to.
 //
 // `observed` is the committed revision the caller was shown, in the same sense
-// as `Transition`'s (§6.4): a decision is about the whole case the reviewer
+// as `Transition`'s: a decision is about the whole case the reviewer
 // read, so any other commit that moved the number is refused even when it
 // touched an unrelated form.
 //
 // Repeating a decision that already stands — same action, same author, same
-// comment — is success that commits nothing, for §6.3's reason stated for a
+// comment — is success that commits nothing, for the reason stated for a
 // submit: the caller's request is already true, and a revision that counts
 // commits must not count this one. The three facts that make a decision
 // *this* one are compared and not merely the state, because a second
@@ -128,12 +122,7 @@ func (c Case) Review(ctx context.Context, target string, act ReviewAction,
 	}
 	img := d.img
 
-	// Resolution and authority, both asked of the committed state, and the
-	// two refusals told apart the way §5.7 tells them apart: a path that does
-	// not resolve is only a `NOT_FOUND` when this actor may decide at the node
-	// the walk stopped at, because the walk fails at a *name* against the
-	// definition and at an instance against somebody's data (§3.9), and the
-	// second is a fact about the case.
+	// Resolution and authority, both asked of the committed state.
 	roles := rolesHeld(img, c.actor, rec.commit.s)
 	r, ok := rec.commit.s.resolve(target)
 	granted := img.MayReview(roles, rec.commit.stage, r.slot)
@@ -146,12 +135,9 @@ func (c Case) Review(ctx context.Context, target string, act ReviewAction,
 			"review is not granted at "+quote(target))
 	}
 
-	// The named declaration has to be a unit that can be decided, and only the
-	// *governing* one: F3 gives a nested `verifiable` declaration an ancestor,
-	// and P2's "review targets are verifiable declarations" is the same fact
-	// read from the other side. A refusal that named the caller's path alone
-	// would leave the host to discover by trial what it can decide, so the
-	// unit that answers is named with it.
+	// The named declaration has to be a unit that can be decided. A refusal
+	// that named the caller's path alone would leave the host to discover by
+	// trial what it can decide, so the unit that answers is named with it.
 	unit, sl := r.slot, img.Slot(r.slot)
 	if sl.Verif != unit {
 		if sl.Verif == 0 {
@@ -162,9 +148,8 @@ func (c Case) Review(ctx context.Context, target string, act ReviewAction,
 			quote(img.Path(unit))+" is not the unit to decide; "+
 				quote(img.Path(sl.Verif))+" governs it")
 	}
-	// F4's "reviewed as a whole, not per member" read as a refusal: a path
-	// through a row addresses one instance, and a host that believed it had
-	// approved one holder would be wrong in a way no later answer corrects.
+	// Decisions cover the entire verifiable unit. A row address cannot identify
+	// a separate decision.
 	if r.depth != 0 {
 		return ReviewResult{}, refuse.now(InvalidOp,
 			quote(target)+" names a row, and a review decides "+
@@ -199,12 +184,12 @@ func (c Case) Review(ctx context.Context, target string, act ReviewAction,
 
 	cur := reviewAt(rec.commit.reviews, unit)
 	if act == ReviewRevoke {
-		// §4.2's restriction, stated as the two ways it can fail: nothing is
+		// The restriction, stated as the two ways it can fail: nothing is
 		// decided (so there is nothing to take back), or somebody else decided
 		// it (so this actor is not the author). The second is a permission
-		// answer and the first is not: `ACCESS_DENIED` here would tell a
-		// caller the unit has a decision when it has none, and that is a fact
-		// about the case a refusal should not volunteer.
+		// answer and the first is not: `ACCESS_DENIED` here would tell a caller
+		// the unit has a decision when it has none, and that is a fact about
+		// the case a refusal should not volunteer.
 		if cur.code == verifPending {
 			return res, refuse.now(InvalidOp, "nothing is decided at "+
 				quote(img.Path(unit))+" to revoke")
@@ -251,10 +236,8 @@ func (c Case) Review(ctx context.Context, target string, act ReviewAction,
 		return ReviewResult{}, err
 	}
 	res.Revision = out.rec.revision
-	// One entry seeds the walk, and the walk is the same rule as §5.4's: the
-	// verdict re-asks its unit, and whatever a guard hangs off the unit's own
-	// path rides along with it. No content moved, so no effect erased a fact
-	// and no role set can have changed; the empty terms cost nothing.
+	// No content moved, so no effect erased a fact and no role set can have
+	// changed; the empty terms cost nothing.
 	fan := newFanout(img)
 	seedCommit(fan, out.rec.changes, out.erased)
 	res.Affected = fan.affected()
@@ -278,7 +261,7 @@ func reviewAt(have []reviewState, unit program.NodeID) reviewState {
 // sizing the copy to the definition's slots. Sizing to the slots rather than
 // to the count of units is what makes `reviewAt`'s index the slot's own number
 // and not a lookup, and a case with one verifiable form pays len(slots) words
-// for its first decision: dense, because §3.9's rule about what indexes by
+// for its first decision: dense, because the rule about what indexes by
 // data has no exception here and a map would be the exception.
 func reviewTable(img *program.Program, have []reviewState) []reviewState {
 	next := make([]reviewState, img.SlotCount())
@@ -286,24 +269,21 @@ func reviewTable(img *program.Program, have []reviewState) []reviewState {
 	return next
 }
 
-// verifReset is §4.2's rule to the first of the two things that are not
-// content: a committed content change puts every verifiable unit whose content
-// moved back to PENDING. The mapping is one array read per entry —
-// `slots[n].verif` is the governing unit F3 settled at lowering — which is what
-// makes this the effect that costs nothing on a commit that changed nothing
-// under a unit.
+// verifReset is the rule to the first of the two things that are not content: a
+// committed content change puts every verifiable unit whose content moved back
+// to PENDING. The mapping is one array read per entry.
 //
-// Two kinds of entry are told apart, and the telling is the store's: §5.6's
-// driver skips the entries that are not content before `reach` is asked, so a
-// decision that reset its own unit cannot happen and neither can a signature
-// that invalidated the content it stands on. A rows entry *is* content: a row
+// Two kinds of entry are told apart, and the telling is the store's: the driver
+// skips the entries that are not content before `reach` is asked, so a decision
+// that reset its own unit cannot happen and neither can a signature that
+// invalidated the content it stands on. A rows entry *is* content: a row
 // appearing or vanishing under a verifiable group is that group's content
 // changing, and its slot's `verif` is the unit that governs it.
 type verifReset struct{}
 
 // reach counts the unit one entry moves, and only if the unit has a decision
 // standing: a commit that lands in a case nobody has reviewed has nothing to
-// erase, and §5.6's rule must not become an allocation for the sake of writing
+// erase, and the rule must not become an allocation for the sake of writing
 // zeroes over zeroes.
 func (verifReset) reach(img *program.Program, next *committedState, ch commitChange,
 	hits []program.NodeID) []program.NodeID {
@@ -321,23 +301,20 @@ func (verifReset) open(img *program.Program, next *committedState) {
 }
 
 // erase is the reset: the zero value, which is PENDING with nobody's name on
-// it. The decision itself is not rewritten anywhere else, because §5.9 keeps
-// resets out of history — the entry that says who decided survives its own
-// erasure, and replaying the entries between it and now is what says whether it
-// still stands.
+// it. The decision itself is not rewritten anywhere else.
 func (verifReset) erase(next *committedState, unit program.NodeID) {
 	next.reviews[unit] = reviewState{}
 }
 
 // pendingUnits lists the verifiable units inside one form that the case has
-// not approved: §5.5's second conjunct of a destination's `require`, reported
-// as gaps on the same list §5.4's completeness walk produces, because the
+// not approved: the second conjunct of a destination's `require`, reported
+// as gaps on the same list the completeness walk produces, because the
 // question is already "what does the destination still want".
 //
-// Only *governing* units are listed (F3), so one decision is named once and a
-// rejected unit cannot arrive under two paths. The walk honors §5.2's
-// pruning exactly as `incomplete` does: a unit inside a subtree the effective
-// state does not reach is not a question the destination can ask.
+// Only *governing* units are listed, so one decision is named once and a
+// rejected unit cannot arrive under two paths. The walk honors the pruning
+// exactly as `incomplete` does: a unit inside a subtree the effective state
+// does not reach is not a question the destination can ask.
 func pendingUnits(s *state, reviews []reviewState, form program.NodeID) []gap {
 	img := s.img
 	var out []gap
@@ -361,7 +338,7 @@ func pendingUnits(s *state, reviews []reviewState, form program.NodeID) []gap {
 
 // reviewInfoOf is the node's report: the unit that governs it, and what the
 // case has decided about that unit. Values come from the caller's draft and
-// this comes from the committed snapshot, which is §6.1's split stated in the
+// this comes from the committed snapshot, which is the split stated in the
 // one place where it is most visible: a form can hold a value somebody is
 // still typing beside an APPROVED mark that is about what the case holds, and
 // both statements are true because they are about different content.

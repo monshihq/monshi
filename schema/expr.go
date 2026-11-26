@@ -16,7 +16,7 @@ type vt struct {
 	text       string // literal text, for diagnostics and pairing
 	val        *Value // the literal's compiled value, for normalization
 	typ        *Type  // node or tag type; nil for literals
-	isBoolExpr bool   // usable where a boolean expression is required (E4)
+	isBoolExpr bool   // usable where a boolean expression is required
 	bad        bool   // already reported; suppresses cascades
 }
 
@@ -65,8 +65,8 @@ func (a *analyzer) checkExpr(x *astExpr, st *site) (*Expr, vt) {
 	}
 }
 
-// checkOperandExpr classifies a name-shaped operand per the §3.6 table
-// and applies E1/E2 value rules.
+// checkOperandExpr resolves a named operand and checks that it denotes a single
+// value.
 func (a *analyzer) checkOperandExpr(o *astOperand, st *site) (*Expr, vt) {
 	p := pos{o.line, o.col}
 	switch o.kind {
@@ -102,9 +102,9 @@ func (a *analyzer) checkOperandExpr(o *astOperand, st *site) (*Expr, vt) {
 			return &Expr{Tag: o.segs[0]}, vt{typ: t}
 		}
 		if _, ok := a.roles[o.segs[0]]; ok {
-			a.errf(p, CodeInvalidOperand, "role "+o.segs[0]+" is not a value") // E1
+			a.errf(p, CodeInvalidOperand, "role "+o.segs[0]+" is not a value")
 		} else {
-			a.errf(p, CodeInvalidOperand, "unknown enum tag "+o.segs[0]) // E1
+			a.errf(p, CodeInvalidOperand, "unknown enum tag "+o.segs[0])
 		}
 		return nil, vt{bad: true}
 	case len(o.segs) == 1:
@@ -123,7 +123,7 @@ func (a *analyzer) checkOperandExpr(o *astOperand, st *site) (*Expr, vt) {
 	}
 }
 
-// finishOperand rejects non-value paths (E2).
+// finishOperand rejects non-value paths.
 func (a *analyzer) finishOperand(n *Node, p pos, st *site) (*Expr, vt) {
 	if n.Kind != "field" {
 		a.errf(p, CodeInvalidOperand, n.Path+" is a "+n.Kind+", not a value")
@@ -149,7 +149,7 @@ func (a *analyzer) finishOperand(n *Node, p pos, st *site) (*Expr, vt) {
 		return nil, vt{bad: true}
 	}
 	for q := n.Parent; q != nil && q.Kind != "form"; q = q.Parent {
-		if q.Multiple { // E2: no single value per case through a collection
+		if q.Multiple { // no single value per case through a collection
 			a.errf(p, CodeInvalidOperand, "path to "+n.Path+" traverses multiple node "+q.Path)
 			return nil, vt{bad: true}
 		}
@@ -158,8 +158,8 @@ func (a *analyzer) finishOperand(n *Node, p pos, st *site) (*Expr, vt) {
 	return &Expr{Node: n}, vt{typ: n.Type, isBoolExpr: n.Type.Base == "boolean"}
 }
 
-// checkPair applies the E3 comparison typing rules and reports the first
-// violation. It returns whether the pair is well-typed.
+// checkPair validates comparison operands and reports the first incompatible
+// pairing.
 func (a *analyzer) checkPair(op string, l, r vt, p pos) bool {
 	order := op == "<" || op == "<=" || op == ">" || op == ">="
 	switch {
@@ -218,13 +218,13 @@ func (a *analyzer) checkPair(op string, l, r vt, p pos) bool {
 		if order && !orderBases[typ.Base] {
 			return a.mismatch(p, op, typeName(typ))
 		}
-		normalizeLiteral(val, typ) // compiled literals are typed (SYNTAX §5.8)
+		normalizeLiteral(val, typ) // compiled literals are typed
 		return true
 	default:
 		if l.typ == nil || r.typ == nil {
 			return false
 		}
-		if l.typ != r.typ { // identical types, incl. same-enum tags (E3)
+		if l.typ != r.typ { // identical types, incl. same-enum tags
 			return a.mismatch(p, typeName(l.typ), typeName(r.typ))
 		}
 		if order && !orderBases[l.typ.Base] {
@@ -239,14 +239,8 @@ func (a *analyzer) mismatch(p pos, l, r string) bool {
 	return false
 }
 
-// normalizeLiteral retypes a comparison literal to the operand type it
-// was paired with, once E3 has accepted the pairing: an ISO 8601 string
-// against a date/datetime operand becomes an ordered time value, and an
-// integer literal against a decimal operand becomes a decimal. The
-// compiled model therefore carries typed operands throughout, and
-// interpretation never parses a literal again (SYNTAX §5.8). A parse
-// failure here is impossible — E3 validated this exact text with these
-// exact layouts — so the value is left untouched rather than corrupted.
+// normalizeLiteral converts a comparison literal to its checked operand type,
+// so evaluation never reparses it.
 func normalizeLiteral(v *Value, t *Type) {
 	if v == nil || t == nil {
 		return
@@ -274,7 +268,7 @@ func normalizeLiteral(v *Value, t *Type) {
 	}
 }
 
-// decimalFits checks a literal against decimal(p, s) (T2/F5): the value
+// decimalFits checks a literal against decimal(p, s): the value
 // must need at most s fractional digits and at most p significant ones,
 // so trailing zeros beyond the scale still fit (1.200 in decimal(4,2)).
 func decimalFits(text string, t *Type) bool {
@@ -291,8 +285,8 @@ func FitsDecimal(d decimal.Decimal, precision, scale int) bool {
 	return r.Equal(d) && r.NumDigits() <= precision
 }
 
-// checkDefault enforces F5: the operand must be a compile-time constant
-// compatible with the field's resolved type.
+// checkDefault requires a compile-time constant compatible with the field's
+// resolved type.
 func (a *analyzer) checkDefault(n *Node, at *astAttr) {
 	p := pos{at.line, at.col}
 	o := at.value
@@ -313,7 +307,7 @@ func (a *analyzer) checkDefault(n *Node, at *astAttr) {
 		return
 	}
 	if a.bad[t] {
-		return // T2 failure already reported
+		return
 	}
 	switch t.Base {
 	case "enum":
@@ -390,7 +384,7 @@ func parseDateTimeOnly(s string) (time.Time, bool) {
 }
 
 // constantExpr reports whether an expression has no data-path operands,
-// i.e. its value is fixed at compile time (ST6).
+// i.e. its value is fixed at compile time.
 func constantExpr(e *Expr) bool {
 	if e == nil {
 		return false

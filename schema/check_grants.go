@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// checkRoleGrants validates role-block grants (P1–P3, P5 inputs).
+// checkRoleGrants validates role-block grants.
 func (a *analyzer) checkRoleGrants() {
 	for _, r := range a.s.Roles {
 		d := a.roleAST[r.Name]
@@ -19,8 +19,8 @@ func (a *analyzer) checkRoleGrants() {
 	}
 }
 
-// checkGrant enforces statement shape (P1), target resolution (P2) and
-// permission compatibility (P3); it collects allow/deny keys for P5.
+// checkGrant enforces statement shape, target resolution and permission
+// compatibility.
 func (a *analyzer) checkGrant(g *astGrant, role *Role, st *Stage) Grant {
 	p := pos{g.line, g.col}
 	nTrans, other := 0, 0
@@ -56,7 +56,7 @@ func (a *analyzer) checkGrant(g *astGrant, role *Role, st *Stage) Grant {
 			keys = append(keys, path)
 			node, ok := a.nodes[path]
 			if !ok {
-				a.errf(g.pathPos[i], CodeUnknownTarget, path) // P2
+				a.errf(g.pathPos[i], CodeUnknownTarget, path)
 				continue
 			}
 			gr.Nodes = append(gr.Nodes, node)
@@ -84,7 +84,8 @@ func (a *analyzer) checkGrant(g *astGrant, role *Role, st *Stage) Grant {
 	return gr
 }
 
-// checkPermShapes enforces P3.
+// checkPermShapes rejects permissions that do not apply to the target's
+// declaration kind.
 func (a *analyzer) checkPermShapes(perms []string, node *Node, path string, p pos) {
 	isSig := node.Type != nil && node.Type.Base == "signature"
 	for _, perm := range perms {
@@ -110,7 +111,7 @@ func (a *analyzer) checkPermShapes(perms []string, node *Node, path string, p po
 }
 
 // reportContradictions warns on allow+deny of the same permission and
-// target for the same role (P5).
+// target for the same role.
 func (a *analyzer) reportContradictions() {
 	for _, r := range a.s.Roles {
 		for _, key := range slices.Sorted(maps.Keys(a.denies[r.Name])) {

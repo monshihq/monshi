@@ -65,7 +65,7 @@ func (l *lowerer) verifySlots(n int) {
 			l.reportf(at, "type ordinal %d is not declared", s.Type)
 		}
 		if s.Flags&FlagRequired != 0 && s.CondReq != 0 {
-			l.reportf(at, "required and required[expr] are one attribute") // §5.2
+			l.reportf(at, "required and required[expr] are one attribute")
 		}
 		if int(s.Def) >= len(img.consts) {
 			l.reportf(at, "default constant %d is out of range", s.Def)
@@ -81,7 +81,7 @@ func (l *lowerer) verifySlots(n int) {
 				l.reportf(at, "verifiable unit %d is out of range", s.Verif)
 			} else if img.slots[s.Verif].Flags&FlagVerifiable == 0 {
 				l.reportf(at, "governing unit %s is not verifiable",
-					img.Path(s.Verif)) // F3
+					img.Path(s.Verif))
 			}
 		}
 		for _, c := range []ConditionID{s.CondPres, s.CondReq} {
@@ -94,7 +94,7 @@ func (l *lowerer) verifySlots(n int) {
 			}
 		}
 		// The collection ordinal is how a state finds a collection's rows by
-		// index (§5.1), so it has to point back and be dense.
+		// index, so it has to point back and be dense.
 		switch {
 		case s.Coll != 0 && s.Flags&flagMultiple == 0:
 			l.reportf(at, "a non-collection carries a collection ordinal")
@@ -110,7 +110,7 @@ func (l *lowerer) verifySlots(n int) {
 	for k, c := range img.colls {
 		// collOf stops at the first ordinal past its slot and keeps the last
 		// one that reaches, so preorder is what makes it find the *innermost*
-		// enclosing collection (§5.1).
+		// enclosing collection.
 		if k > 0 && c <= img.colls[k-1] {
 			l.reportf(l.where(c), "collection ordinals are not in preorder")
 		}
@@ -189,17 +189,17 @@ func (l *lowerer) verifyConds(n int) {
 			if int(s) >= len(img.slots) {
 				l.reportf("", "condition %d reads slot %d, not a declaration", id, s)
 			} else if l.collection[s] {
-				l.reportf(img.Path(s), "a condition reads inside a collection") // E2
+				l.reportf(img.Path(s), "a condition reads inside a collection")
 			}
 		}
 		if len(reads) != 0 {
 			continue
 		}
-		// §3.4's containment claim, asserted: a guard that registered no
-		// reads must answer without data. This catches a mis-wired
-		// constructor that captured a slot nobody declared; it cannot
-		// prove the converse for a closure that happens to answer alike
-		// either way, and §3.4's construction argument is what does that.
+		// The containment claim, asserted: a guard that registered no reads
+		// must answer without data. This catches a mis-wired constructor that
+		// captured a slot nobody declared; it cannot prove the converse for a
+		// closure that happens to answer alike either way, and the construction
+		// argument is what does that.
 		c := img.conds[id]
 		empty := c(make(Row, n))
 		if c(probeView(n)) != empty {
@@ -257,11 +257,9 @@ func (l *lowerer) verifyPerms(n int) {
 				if i > 0 && o.slots[i-1] >= s {
 					l.reportf(at, "overlay slots are not sorted and unique")
 				}
-				// add and del overlapping is not drift: a definition may
-				// grant and deny the same permission to the same role in
-				// the same stage, and the front end only warns about it
-				// (DESIGN §4.3). Both bits are kept, and §3.5's AND-NOT
-				// resolves it the way deny-override requires.
+				// add and del overlapping is not drift: a definition may grant
+				// and deny the same permission to the same role in the same
+				// stage, and the front end only warns about it.
 			}
 		}
 	}
@@ -284,16 +282,16 @@ func (l *lowerer) verifySigs() {
 				l.reportf("", "signature entry %d targets slot %d", i, e.Assigned)
 			} else if img.slots[e.Assigned].Role == 0 {
 				l.reportf(img.Path(e.Assigned),
-					"signature target is not a role-typed field") // S2
+					"signature target is not a role-typed field")
 			}
 		}
 	}
 }
 
-// sigKind renders the half of S2's contract that an entry got wrong. Its
+// sigKind renders the half of the contract that an entry got wrong. Its
 // caller is an assertion: every way to build such an entry reports a problem
 // during the build, so verify does not run on that image at all and this
-// branch is unreachable from a definition — it is here because §4's table
+// branch is unreachable from a definition — it is here because the table
 // says so, and it costs nothing but a sentence.
 // sigKind names the shape of a signature entry for a defect message. The
 // caller reaches it only when the two targets agree on being empty, so the
@@ -329,18 +327,18 @@ func (l *lowerer) verifyStages() {
 				l.reportf(at, "edge destination %d is out of range", e.dest)
 			}
 			if e.dest == StageID(i) {
-				l.reportf(at, "stage transitions to itself") // ST3
+				l.reportf(at, "stage transitions to itself")
 			}
 			if seen[e.dest] {
-				l.reportf(at, "two edges lead to stage %d", e.dest) // ST3
+				l.reportf(at, "two edges lead to stage %d", e.dest)
 			}
 			seen[e.dest] = true
 			if int(e.Guard) >= len(img.conds) {
 				l.reportf(at, "edge guard %d is out of range", e.Guard)
 			}
 		}
-		// ST4 put only top-level forms in `require`, and every one of them
-		// has an ordinal below the form count, so no bit may reach past it.
+		// Only top-level forms have requirement bits. Reject any bit beyond the
+		// form table.
 		if n := bits.Len64(st.Requires); n > len(img.forms)-1 {
 			l.reportf(at, "require bitset names form %d, not declared", n)
 		}

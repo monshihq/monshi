@@ -1,14 +1,10 @@
 package monshi_test
 
-// The edit operation seen from outside the module (RUNTIME §5.1, DESIGN
-// §5.1, §6.2): what a host can observe without reaching into a state, which
-// is refusals, the working revision, the paths a batch created, and what an
-// abandoned batch did *not* do.
+// The edit operation seen from outside the module: what a host can observe
+// without reaching into a state, which is refusals, the working revision, the
+// paths a batch created, and what an abandoned batch did *not* do.
 //
-// Reading a value back is not in this list. The exported read of a case is
-// milestone 3's `View`, so what a draft edit did to a field is asserted in
-// package — see `update_test.go` — and what it did to a *request* is
-// asserted here.
+// Reading a value back is not in this list.
 
 import (
 	"strings"
@@ -60,8 +56,7 @@ stages {
 `
 
 // applicant is the role the fixture hands the whole form to and denies one
-// subtree of it; watchman holds the other half; stranger holds no role, which
-// is the case §4's "no role, no edit" answers about.
+// subtree of it; watchman holds the other half; stranger holds no role.
 var (
 	applicant = monshi.Actor{User: "dana", PrimaryRole: "Applicant"}
 	watchman  = monshi.Actor{User: "elliot", PrimaryRole: "Manager"}
@@ -90,13 +85,13 @@ func TestUpdateEditsTheWorkingCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	// One batch is one step of the copy's revision, not three: §6.2's
-	// atomicity is what makes "province and city are evaluated together"
-	// mean the pair arrived as one state.
+	// One batch is one step of the copy's revision, not three: the atomicity is
+	// what makes "province and city are evaluated together" mean the pair
+	// arrived as one state.
 	if res.Working != 1 {
 		t.Errorf("Working = %d, want 1 for a single accepted batch", res.Working)
 	}
-	// Nothing about the *case* moved: an edit is not a commit (invariant 2),
+	// Nothing about the *case* moved: an edit is not a commit,
 	// so the committed revision the handle reports is still 0.
 	if rev, err := c.Revision(ctx()); err != nil || rev != 0 {
 		t.Errorf("Revision = %d, %v, want an edit to leave it at 0", rev, err)
@@ -191,10 +186,7 @@ func TestUpdateRefusesWhatItCannotCarryOut(t *testing.T) {
 	}
 
 	t.Run("a decimal past its scale", func(t *testing.T) {
-		// The bounds belong to the type, and T2 made them checkable at
-		// compile time and §3.3 made them a closure, so this is the runtime
-		// half of the same rule: a value the type cannot hold is not content
-		// the row may carry.
+		// The bounds belong to the type.
 		c := openCase(t, editSrc, applicant)
 		_, err := c.Update(ctx(), 0, monshi.Set("application.fee",
 			monshi.Decimal(decimal.RequireFromString("1.2345"))))
@@ -222,7 +214,7 @@ func TestUpdateRefusesWhatItCannotCarryOut(t *testing.T) {
 	})
 }
 
-// An abandoned batch is not a partial batch: DESIGN §9's guarantee is that a
+// An abandoned batch is not a partial batch: the guarantee is that a
 // refused operation has no persistent effect, and the way a host can see
 // that without a view is that its revision did not move and its next
 // presentation of the same number is still accepted.
@@ -271,8 +263,8 @@ func TestRefusedUpdateSavesNothing(t *testing.T) {
 	}
 }
 
-// §5.1's `Add` takes no value because the engine allocates the ID, so a
-// created instance is filled in by the batch that could name it.
+// Add allocates the ID. Fill the row in a subsequent batch using its returned
+// path.
 func TestAddThenSetByTheIDItReports(t *testing.T) {
 	c := openCase(t, editSrc, applicant)
 
@@ -293,8 +285,7 @@ func TestAddThenSetByTheIDItReports(t *testing.T) {
 		t.Errorf("Working = %d, want one revision for two instances", res.Working)
 	}
 
-	// Now each row is addressable in the language's own path syntax (§3.7 of
-	// SYNTAX: a data path with an ID segment, no bracket form).
+	// Now each row is addressable in the language's own path syntax.
 	who := first + ".who"
 	what := first + ".what"
 	if _, err := c.Update(ctx(), res.Working,
@@ -310,7 +301,7 @@ func TestAddThenSetByTheIDItReports(t *testing.T) {
 		t.Errorf("a member that is not declared = %v, want NOT_FOUND", err)
 	}
 	// Dropping the other row works, and dropping it twice is NOT_FOUND the
-	// second time: stable IDs are not reused (§5.1), so a host cannot be told
+	// second time: stable IDs are not reused, so a host cannot be told
 	// it removed a different instance.
 	if _, err := c.Update(ctx(), 2, monshi.Remove(second)); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -321,8 +312,8 @@ func TestAddThenSetByTheIDItReports(t *testing.T) {
 	}
 }
 
-// DESIGN §6.2's reason the guard exists: two sessions of one actor are one
-// working copy, and the second must not silently overwrite the first.
+// The reason the guard exists: two sessions of one actor are one working copy,
+// and the second must not silently overwrite the first.
 func TestConcurrentSessionsShareOneGuard(t *testing.T) {
 	c := openCase(t, editSrc, applicant)
 
@@ -373,7 +364,7 @@ func TestConcurrentSessionsShareOneGuard(t *testing.T) {
 	}
 }
 
-// A handle opened by `Open` edits the same copy the creator made (§5's one
+// A handle opened by `Open` edits the same copy the creator made (the one
 // working state per case and user), and the revision travels with the copy
 // rather than with the handle.
 func TestSessionsOfOneActorShareOneWorkingCopy(t *testing.T) {
@@ -406,10 +397,7 @@ func TestSessionsOfOneActorShareOneWorkingCopy(t *testing.T) {
 		t.Errorf("a second session at the shared revision: %v", err)
 	}
 
-	// A second actor gets a copy of its own, and it starts at its own
-	// revision 0 — invariant 4 read the other way: the copy is keyed by
-	// identity, so `elliot` inherits nothing from `dana`'s two edits and
-	// presents nothing from them either.
+	// A second actor gets a copy of its own.
 	mgr, err := rt.Open(ctx(), first.ID(), watchman)
 	if err != nil {
 		t.Fatalf("Open as Manager: %v", err)

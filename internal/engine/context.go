@@ -11,17 +11,15 @@ import (
 // was already reading, pinned to the actor it is reading for.
 //
 // It has no methods that write, and it holds no handle: a host cannot reach
-// `Update` from inside a hook, which is DESIGN §7's "hooks are read-only with
-// respect to case state" (invariant 9) enforced by the type rather than by
-// advice. A zero value is inert — every read answers the way an unseen one
-// does — because a host that stores a `CaseContext` in a struct gets the zero
-// value whether it meant to or not.
+// `Update` from inside a hook. A zero value is inert — every read answers the
+// way an unseen one does — because a host that stores a `CaseContext` in a
+// struct gets the zero value whether it meant to or not.
 type CaseContext struct {
 	img     *program.Program
 	s       *state // the operation's own clone: the draft, or the commit
 	reviews []reviewState
 	sigs    []sigState       // the committed verdict tables, never the draft's
-	roles   []program.RoleID // folded from committed data (§4.3, T4)
+	roles   []program.RoleID // folded from committed data
 	stage   program.StageID  // where the case stands, not where the draft imagines
 	only    []bool           // the caller's visibility fold, nil when it has none
 	id      CaseID
@@ -34,8 +32,7 @@ type CaseContext struct {
 // pinned is the one construction, and every caller already holds all six
 // arguments: `Case.Update` and `Case.Submit` pass the candidate and no fold,
 // `Case.View` passes the draft it just cloned and the fold it computed for the
-// same walk. Nothing here copies state — that is §7's "not necessarily a copy"
-// arriving as a parameter list rather than as a caveat.
+// same walk.
 //
 // `work` is the copy's number as the operation found it, not as it will save
 // it: a hook that runs during a batch sees a snapshot whose `Working` is the
@@ -60,13 +57,13 @@ func (c Case) pinned(img *program.Program, rec caseHead, s *state, roles []progr
 
 // pinnedPost cuts the snapshot an `OnCommit` observer is handed: the state the
 // store *installed*, not one the operation prepared. That difference is the
-// whole reason it exists — §5.6's effects erase verdicts inside the store's
+// whole reason it exists — the effects erase verdicts inside the store's
 // commit, so the caller's `next` can be a state the commit did not leave. Every
 // field here is what the commit produced: `rev` is the number the entry got,
 // the tables are post-erasure, and `work` is the committer's copy as the same
 // locked act left it. `only` is the fold the dispatcher rendered the record
 // through, so an observer's read of a path and its copy of the entry naming
-// that path answer with one mask — §6's agreement rule again, one construction
+// that path answer with one mask — the agreement rule again, one construction
 // away.
 func (c Case) pinnedPost(img *program.Program, rec caseHead, got committed,
 	roles []program.RoleID, only []bool) CaseContext {
@@ -86,30 +83,20 @@ func (c Case) pinnedPost(img *program.Program, rec caseHead, got committed,
 	}
 }
 
-// seen is §7's property 7 asked of a host function: the read answers at the
-// nodes this caller could have *rendered*, which is §5.7's rule and nothing
-// looser. It is the caller's own visibility fold when the caller computed one,
-// and §5.7's reachability otherwise — the node's own `view` bit, or a
-// descendant's — because a read that has no fold still has to answer the way
-// the same actor's view would, and the two are not allowed to disagree about
-// who may see what.
+// seen checks whether the actor could see the node in a view of this snapshot.
+// Reuse the visibility mask when the caller has already computed one.
 //
 // The distinction only bites on a container. A value lives at a leaf, and a
-// leaf's fold is its own bit: §3.5's inheritance is top-down, so nothing below
-// a leaf can grant it. That is what closes the hole the rule exists to close —
-// a grant that reaches one member of a row leaves its siblings unreachable, and
-// a host asking for one of those by path is answered with absence, the same
-// answer §5.11 gives for a withheld trail entry. What it deliberately does not
-// hide is a unit's verdict showing on a container the caller *can* render: a
-// form node carries its decision in `ViewNode.Review`, and a hook reading that
-// path is reading what the caller was already shown.
+// leaf's fold is its own bit: the inheritance is top-down, so nothing below a
+// leaf can grant it. That is what closes the hole the rule exists to close.
+// What it deliberately does not hide is a unit's verdict showing on a container
+// the caller *can* render: a form node carries its decision in
+// `ViewNode.Review`, and a hook reading that path is reading what the caller
+// was already shown.
 //
-// The cost is one array read where there is a fold, which is the view's case
-// and its cheapest; an edit or a submit pays one pass over the node's
-// preorder range, which is what `effective` already charges §5.9's and
-// §5.10's gates for a single path. A hook that reads a hundred fields pays a
-// hundred of those, and folding an array per hook call to answer one question
-// would make the cheapest hook the most expensive read in the package.
+// With a precomputed view mask, each read costs one lookup. During Update and
+// Submit, checking the node's subtree avoids building a full-case mask for a
+// hook that may read only one field.
 //
 // Every caller has already answered for the zero snapshot: a read that gets
 // this far holds a state, and `pinned` builds no state without the image it
@@ -150,9 +137,9 @@ func (x CaseContext) Case() CaseID { return x.id }
 func (x CaseContext) Definition() string { return x.def }
 
 // Actor is who is asking, as the operation was told — the identity a role-typed
-// field confers a role *to*, and the primary role the host asserted (DESIGN
-// §4.3). A hook that logs or delegates needs this and cannot derive it from
-// data, because two users of one case share one draft by design (invariant 4).
+// field confers a role *to*, and the primary role the host asserted. A hook
+// that logs or delegates needs this and cannot derive it from data, because two
+// users of one case share one draft by design.
 func (x CaseContext) Actor() Actor { return x.actor }
 
 // Stage is the case's current stage name, read from the committed snapshot.
@@ -164,8 +151,8 @@ func (x CaseContext) Stage() string {
 	return x.img.StageName(x.stage)
 }
 
-// Revision is the committed head this snapshot was cut at — the number §5.9's
-// and §5.10's verdicts are stamped against, and the one `Submit` guards.
+// Revision returns the committed revision used by the operation that supplied
+// this context.
 func (x CaseContext) Revision() uint64 { return x.rev }
 
 // Working is the copy's number, or 0 when the actor has no draft. It is
@@ -174,10 +161,10 @@ func (x CaseContext) Revision() uint64 { return x.rev }
 func (x CaseContext) Working() uint64 { return x.work }
 
 // Roles names every role this actor holds for this case: the primary role plus
-// the ones a *committed* role-typed field confers (SYNTAX §5.2-T4), which is
+// the ones a *committed* role-typed field confers, which is
 // the set the masks in this snapshot are computed from. An edit that assigns a
 // role confers nothing here, because the fold is taken from the committed
-// state and not from the draft (§4.3) — and a hook is the most likely place in
+// state and not from the draft — and a hook is the most likely place in
 // a host to guess wrong about that, so the answer is the folded set rather
 // than the data behind it.
 func (x CaseContext) Roles() []string {
@@ -191,18 +178,14 @@ func (x CaseContext) Roles() []string {
 	return out
 }
 
-// Value reads one cell of the snapshot, at the address §5.1 spells and
-// `Update` accepts. `false` covers three facts the caller cannot usefully
-// separate: the path reaches no declaration, the node is not this actor's to
-// see, and the cell holds nothing. The second is why the answer is not an
-// error — §7's property 7 makes a withheld value indistinguishable from an
-// absent one everywhere else in this package, and a hook is not an exception
-// to that rule; it is the reason the rule exists.
+// Value reads the cell at path. It returns false for an unknown path, a hidden
+// node, or an unset cell, so a hook cannot use it to distinguish hidden data
+// from missing data.
 //
 // A `Validate` hook is handed the value it is being asked about, so reading its
 // own path answers with what the cell held *before* this write: the hook's
 // output is what gets stored, and until it returns there is nothing to read.
-// That is the snapshot's own discipline rather than a wart — §6's chain runs
+// That is the snapshot's own discipline rather than a wart — the chain runs
 // apply, normalize, store — and it is why the proposed value arrives as an
 // argument instead of being left for a hook to find.
 func (x CaseContext) Value(path string) (Value, bool) {
@@ -222,7 +205,7 @@ func (x CaseContext) Value(path string) (Value, bool) {
 
 // Review answers the decision that stands about the unit governing this path,
 // in the shape `ViewNode.Review` reports it — so a hook and a form cannot
-// disagree about what was decided, and §5.9's rule that the table's zero value
+// disagree about what was decided, and the rule that the table's zero value
 // is the whole answer holds here too. `false` says the path is invisible or
 // reaches no decided unit; a revoked decision answers `true` with `PENDING`,
 // because "nothing stands" is a fact about the unit rather than a lack of one.
@@ -240,9 +223,9 @@ func (x CaseContext) Review(path string) (ReviewInfo, bool) {
 // Signature answers the attestation standing on a signature field, as
 // `ViewNode.Signature` reports it, and with the same `false` for a path that is
 // withheld or is not a signature field at all. An erased attestation is the
-// zero value with `true`: §5.10's point that a field left signable and a field
+// zero value with `true`: the point that a field left signable and a field
 // never signed are one fact about the *state*, with the difference belonging to
-// history (§5.11) rather than to a hook.
+// history rather than to a hook.
 func (x CaseContext) Signature(path string) (SignatureInfo, bool) {
 	if x.s == nil {
 		return SignatureInfo{}, false
@@ -256,51 +239,32 @@ func (x CaseContext) Signature(path string) (SignatureInfo, bool) {
 
 // ValidateFunc is a `Validate` hook: the value a host assigned, the address it
 // was assigned at, and the snapshot around it, in exchange for the value the
-// engine stores and re-asks (DESIGN §7, RUNTIME §6).
+// engine stores and re-asks.
 //
-// The two contexts are different things and both are needed. Go's `ctx` is
-// cancellation and deadline — the argument §10's contract requires of anything
-// that may do I/O, which for a hook means an RPC-backed host function — and
-// `at` is the case. DESIGN §7's sketch names only the case one; §10's rule is
-// that the design records what shipped.
+// ctx carries the caller's cancellation and deadline. at provides read-only
+// access to the case as this actor sees it.
 //
-// A non-nil error means the value is refused. Which refusal that is depends on
-// the call site, and that is the whole of §7's tri-state today: an error
-// against a value being written abandons the batch with `HOOK_FAILURE`, because
-// nothing was stored and the actor is the one to hear about it, while the same
-// error against a *stored* value at submit or in a view is a `FieldProblem`
-// about that field, because a read cannot un-store it. Giving a hook the word
-// for "invalid, and keep it" is a decision about what an accepted `Update`
-// reports, and it is RUNTIME §9's to make with the result contract rather than
-// here.
+// A validation error during Update rejects the batch. During Submit or View,
+// rejecting an already stored value produces a FieldProblem at its path
+// instead.
 type ValidateFunc func(ctx context.Context, at CaseContext, path string,
 	v Value) (Value, error)
 
 // OptionsFunc is an `Options` hook: the declared path it is bound at, and the
 // snapshot, in exchange for the texts the field may hold.
 //
-// The path is the *declaration's* address, with no instance in it, and a
-// provider's answer is fetched once per binding per view for the reason §5.7
-// gives: the binding is a field's and so is its list, and a two-hundred-row
-// collection is one question with two hundred renderings of the answer. A hook
-// that needs the row to answer is being asked a per-row question, which is
-// SYNTAX's F6 uniformity this language does not have — so the snapshot here is
-// the case's, not an instance's, and `Value` reads what the form holds at
-// paths the caller names.
+// The path is the *declaration's* address, with no instance in it. A hook that
+// needs the row to answer is being asked a per-row question.
 type OptionsFunc func(ctx context.Context, at CaseContext,
 	path string) ([]string, error)
 
 // RegisterValidate installs the normalizer for one custom type's name,
-// replacing whatever was bound there (RUNTIME §6, DESIGN §7's lookup rule).
+// replacing whatever was bound there.
 //
 // It cannot refuse a name no definition declares, and it does not try: a
-// runtime holds no definition at the moment a host calls this, and §3.8's
-// binding is a key rather than a symbol, so the check that would be needed is
-// the one every case operation already pays when it resolves the image. What
-// the key costs when it is wrong is stated by the two absence rules §6 keeps
-// apart on purpose — an unbound `Validate` is identity, and a host that
-// mistyped one gets unchanged values, while an unbound `Options` provider is
-// `HOOK_FAILURE` naming the binding on the first view that needs the list.
+// runtime holds no definition at the moment a host calls this, and the binding
+// is a key rather than a symbol, so the check that would be needed is the one
+// every case operation already pays when it resolves the image.
 func (r *Runtime) RegisterValidate(typeName string, fn ValidateFunc) {
 	r.w.hooks.bindType(typeName, fn)
 }
@@ -313,19 +277,13 @@ func (r *Runtime) RegisterOptions(fieldPath string, fn OptionsFunc) {
 	r.w.hooks.bindPath(fieldPath, fn)
 }
 
-// OnCommitFunc is the observer §6 and DESIGN §7 describe: it is told that a
-// commit happened, with the record the store actually wrote and a snapshot of
-// the state that commit left.
+// OnCommitFunc observes a durable commit and its resulting case snapshot.
 //
-// It returns nothing, and that absence is the contract. DESIGN's sketch ends
-// "→ observer result", but the only fact the runtime could act on is the
-// commit's outcome, and the design forbids an observer from changing it: a
-// result the engine must ignore is a result the signature should not carry. A
-// void function states "never vetoes" in the type, the way `CaseContext`'s
-// missing methods state invariant 9. What an observer does with a delivery
-// failure — retry, queue, alert — is the host's, and DESIGN §7's outbox lives
-// there: the engine holds no queue and runs no retry, because a runtime that
-// delivered reliably would be a service, and this package is not one.
+// It returns nothing, and that absence is the contract. A void function states
+// "never vetoes" in the type. What an observer does with a delivery failure —
+// retry, queue, alert — is the host's, and the outbox lives there: the engine
+// holds no queue and runs no retry, because a runtime that delivered reliably
+// would be a service, and this package is not one.
 //
 // An observer that panics propagates to the caller *after* the commit is
 // durable: the act stands, and the panic is the host's bug to hear about.
@@ -335,16 +293,15 @@ type OnCommitFunc func(ctx context.Context, at CaseContext, com Commit)
 
 // RegisterOnCommit appends one observer to the runtime's list; they are called
 // in registration order, once per durable commit, by every operation that
-// commits (RUNTIME §6 — an `Update` never commits, and a `Submit` whose form
+// commits (an `Update` never commits, and a `Submit` whose form
 // already held the content commits nothing and notifies nobody). A nil function
 // is not added: an observer that observes nothing has no place in a list whose
 // order is a host's own.
 //
-// It is a list and not a key, and the reason is §6's closing rule: the image
+// It is a list and not a key, and the reason is the closing rule: the image
 // records bindings only for the hooks a definition declares, and no declaration
 // names an observer. An observer dispatches on `at.Definition()` if it cares
-// which case moved — the same text §3.8 interned, and no new key the runtime
-// could get wrong.
+// which case moved.
 func (r *Runtime) RegisterOnCommit(fn OnCommitFunc) {
 	r.w.hooks.bindCommit(fn)
 }

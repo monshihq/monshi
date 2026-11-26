@@ -1,7 +1,7 @@
 package schema
 
-// buildForms creates the form trees: node index, member names (N2/N3),
-// type resolution (N4/T1–T3), attributes (§4/F2) and defaults (F5).
+// buildForms creates the form trees: node index, member names,
+// type resolution, attributes and defaults.
 // Conditions are recorded as sites and checked after the trees exist.
 func (a *analyzer) buildForms(def *astDef) {
 	for _, fb := range def.forms {
@@ -57,7 +57,7 @@ func (a *analyzer) buildMembers(container *Node, ms []astNode) {
 			a.nodes[n.Path] = n
 			a.processAttrs(n, d.attrs)
 			if len(d.members) == 0 {
-				a.errf(p, CodeEmptyGroup, n.Path) // F1
+				a.errf(p, CodeEmptyGroup, n.Path)
 			}
 			a.buildMembers(n, d.members)
 		}
@@ -75,7 +75,7 @@ func (a *analyzer) memberName(container *Node, name string, p pos, scoped map[st
 	return true
 }
 
-// resolveType maps a value_type to a resolved *Type or role (N4).
+// resolveType maps a value_type to a resolved *Type or role.
 func (a *analyzer) resolveType(n *Node, te *astTypeExpr) {
 	if te == nil {
 		return
@@ -131,14 +131,14 @@ func (a *analyzer) resolveType(n *Node, te *astTypeExpr) {
 	n.resolved = true
 }
 
-// processAttrs enforces the §4 validity matrix, attribute uniqueness,
-// signature-field restrictions and F5 defaults.
+// processAttrs checks attribute placement and uniqueness, including default
+// values and restrictions on signature fields.
 func (a *analyzer) processAttrs(n *Node, attrs []*astAttr) {
 	seen := map[string]bool{}
 	isSig := n.Kind == "field" && n.Type != nil && n.Type.Base == "signature"
 	for _, at := range attrs {
 		p := pos{at.line, at.col}
-		slot := at.kind // required and required[cond] share one slot (§4)
+		slot := at.kind // required and required[cond] share one slot
 		if slot == "requiredCond" {
 			slot = "required"
 		}
@@ -150,7 +150,7 @@ func (a *analyzer) processAttrs(n *Node, attrs []*astAttr) {
 			}
 			seen[slot] = true
 			if a.verifiableAncestor(n) {
-				a.warnf(p, CodeRedundantVerifiable, n.Path) // F3
+				a.warnf(p, CodeRedundantVerifiable, n.Path)
 			}
 			n.Verifiable = true
 		case "required", "requiredCond", "present", "multiple":
@@ -207,9 +207,9 @@ func (a *analyzer) verifiableAncestor(n *Node) bool {
 	return false
 }
 
-// resolveSignatures implements S1–S3 reference resolution: role form
-// (signature(Role)) xor assigned form (signature(path) → role-typed
-// field of the containing form).
+// resolveSignatures resolves either a role name or a role-typed field in the
+// same form. The latter assigns signing authority to the field's committed
+// user.
 func (a *analyzer) resolveSignatures() {
 	for _, n := range a.sigs {
 		o := a.sigRef[n]

@@ -11,107 +11,63 @@ import (
 // describe the snapshot it was taken from, and every node in `Roots` is part
 // of it.
 type ViewResult struct {
-	// Revision is the case's committed revision as this call read it. It is
-	// the number a `Transition` wants as `observed`, so a host can act on
-	// what it displayed — but holding it is no lease (§7's rule that a
-	// snapshot is not a lease applies to a view like any other read), and a
-	// commit between this call and that one is answered by STALE_REVISION.
+	// Revision identifies the committed snapshot used for this view. Pass it as
+	// observed to Transition; an intervening commit makes it stale.
 	Revision uint64
 
-	// Stage is the stage the case sits at, and the stage every node's
-	// permission was answered at. §3.5's masks are a function of roles and
-	// stage, so a view without its stage cannot explain why a field is on
-	// screen or off it. Submit and Transition report the same string.
+	// Stage is the committed stage used to resolve every node's permissions.
 	Stage string
 
-	// Working is the revision of the draft these values came from, and so the
-	// number to pass `Update` as `base`. Zero means the actor has no working
-	// copy and these are committed values, which is what §6.2 says to send
-	// for a copy not yet made. It is reported beside `Revision` because a
-	// draft view is the one place a client needs both: the one it may
-	// overwrite, and the one it would have to rebase against.
+	// Working is the draft revision to pass as base to Update. It is distinct
+	// from the committed Revision and is zero when no draft exists.
 	Working uint64
 
-	// Roots holds one node per selection, in the order the caller listed the
-	// paths, each with its whole subtree beneath it. Overlapping selections
-	// are merged (§6.1): a path inside another selected path is dropped,
-	// because the ancestor already renders it, and naming one path twice
-	// selects it once. With no paths the result is every top-level form the
-	// actor may see, in declaration order — the entire permission-filtered
-	// view, which is what "no paths" means in §6.1 rather than an error: the
-	// case root is what `all` denotes (§3.6), so there is an unambiguous
-	// thing to return. §6.2 refuses an empty batch because it would change
-	// nothing and say nothing; an empty list here says "everything".
+	// Roots contains the selected subtrees in caller order. Duplicate or nested
+	// selections appear once. With no selections, return all visible top-level
+	// forms in declaration order.
 	//
-	// A selection is missing from this list in two cases and both are a fact
-	// about §5.2 rather than a refusal: the node's own guard or an ancestor's
-	// answered false, or the actor may see neither it nor anything under it.
+	// Omit a selection if its guard or an ancestor's guard is false, or if
+	// neither it nor its descendants are visible to the actor.
 	Roots []*ViewNode
 }
 
 // ViewNode is one node of a view: a declaration this actor may see, at the
-// address where its value — or its instances — live. The fields are the
-// metadata §6.1 requires and nothing else, on the theory that a client which
-// needs a copy of the DSL to render a view has not been given a view.
+// address where its value — or its instances — live.
 type ViewNode struct {
-	// Path is the node's absolute address, and it is spelled to be sent
-	// back: it resolves through §3.9's walk, so `Update` accepts it and
-	// `View` accepts it again. Members of an instance are addressed by that
-	// instance's stable ID (§5.1) — "application.holders.42.who" — which is
-	// what makes a diff of two views by path meaningful.
+	// Path is an absolute address accepted by View and Update. Instance paths
+	// contain stable row IDs, as in application.holders.42.who.
 	Path string
 
-	// Kind is the *declaration's* vocabulary: "form", "group", "role", or
-	// the value class the definition spelled ("string", "decimal", "options",
-	// "enum", "signature", …). It is deliberately not `Value.Kind`, which
-	// names the class of the data: an options field's Kind is "options" while
-	// its value reads as KindText, because §3.3 says an options value *is* the
-	// chosen option's text and the list of choices is not data the row holds.
-	// The two vocabularies differ at exactly that one point.
+	// Kind describes the declaration, not the stored value. For example, an
+	// options field has Kind "options" while its selected value has KindText.
 	Kind string
 
-	// Multiple reports the declaration said `multiple`, so the node's
-	// children are instances, each addressed by its ID, and `Add` can give it
-	// another (§5.1). A group without it has the same children always. It is
-	// part of the node because a client that cannot tell an empty collection
-	// from an empty optional group cannot offer to add the first row, and
-	// §6.1 says the client should not have to read the DSL to find out.
+	// Multiple distinguishes a collection from a group, even when the
+	// collection has no rows. Its children represent instances and carry stable
+	// row addresses.
 	Multiple bool
 
 	// Value is what this actor's draft holds here. The test for "has a value"
 	// is `Value.Kind() == KindNone`, not a separate flag: `Empty` clears a
-	// cell and keeps the field (§5.1), so "no value" is a fact the value
+	// cell and keeps the field, so "no value" is a fact the value
 	// itself carries, in the same terms `Set` and `Empty` are stated. For a
 	// form, a group or a collection as declared there is no value at all —
 	// those are structure — and only an instance node of a repeated *field*
 	// carries one.
 	Value Value
 
-	// Required reports whether the definition asks for something here, which
-	// is `required` or a `required[cond]` whose condition holds (§5.2). It is
-	// asked of the draft, because it is the draft the client is completing.
-	// For a collection it means "at least one instance" (SYNTAX §4), so a
-	// required empty collection is Required with no Children — the whole of
-	// what §5.4's report says about it, in the shape a form can render.
+	// Required reports whether the declaration's requirement holds in this
+	// draft. For a collection, the requirement is for at least one row.
 	Required bool
 
-	// CanEdit is the answer `Update` will give an edit that names this node:
-	// the same mask, the same roles, the same stage (§4.3). It is the mask at
-	// this node, which is what §3.5's fold down the scope chain put there — so a
-	// grant written on the form is true here and beneath it — and on a container
-	// it reports what the definition granted rather than promising that the
-	// container holds a value to write. §5.1 says it does not.
+	// CanEdit reports the effective edit permission at this node. A container
+	// can grant edit to its subtree without itself holding a writable value.
 	CanEdit bool
 
 	// CanSubmit is the answer `Submit` will give for the form this node lives
 	// in. It is read from this node's own mask rather than from a walk up to
-	// the form, and that is a rule rather than a shortcut: SYNTAX P3 makes a
-	// `submit` grant's target a top-level form and nothing else — no field, no
-	// group, and no `deny` at one either — so the only submit bits in the
-	// table arrive through §3.5's fold, which is total, and a member's mask
-	// therefore carries its form's bit and no bit of its own.
-	// `TestSubmitMaskIsTheFormsMaskEverywhere` holds that equivalence open,
-	// because the cheap reading of P3 depends on it.
+	// the form. `TestSubmitMaskIsTheFormsMaskEverywhere` holds that equivalence
+	// open.
 	//
 	// Every node of one form thus carries the same value, and the reason it is
 	// on every node rather than only the root is that the node a client holds
@@ -119,97 +75,67 @@ type ViewNode struct {
 	CanSubmit bool
 
 	// Reviewable is the answer `Review` will give for the node this one's
-	// decision would be made at: the same mask, the same roles, the same stage
-	// (§4.3). It is read at this node rather than at the governing unit, which
-	// is what makes it a promise and not a hint — the path a host holds is the
-	// path a host sends, and RUNTIME §5.9 resolves the permission question at
-	// exactly that slot. A node nobody may review has the same value as the
-	// form it sits in when the grant was written above it, because §3.5's fold
-	// is what put the bit there.
+	// decision would be made at: the same mask, the same roles, the same stage.
+	// It is read at this node rather than at the governing unit. A node nobody
+	// may review has the same value as the form it sits in when the grant was
+	// written above it, because the fold is what put the bit there.
 	Reviewable bool
 
-	// Review is what the case has decided about the `verifiable` declaration
-	// that governs this node, and it is read from the *committed* snapshot
-	// while `Value` above is read from this actor's draft (RUNTIME §5.7's
-	// split, and §4.2's rule that a decision is about committed content). The
-	// two can disagree in the one way that is true rather than misleading: an
-	// APPROVED mark beside values this actor has not submitted says the case
-	// was approved as it stands, and this draft is a proposal about it.
-	// `ReviewInfo.At` is the number to quote when the host decides which of
-	// the two to show.
+	// Review reports the verdict on the committed content of the governing
+	// unit. Value can include draft edits the reviewer has never seen.
 	//
 	// A zero value means no `verifiable` declaration governs this node — an
 	// empty `Unit` says so, and no field of a plain form has a verdict to
-	// report. What a node never reports is a *stale* verdict, because §4.2
-	// clears a unit back to PENDING when its content commits: a moved case
-	// shows the absence of a decision, and §5.9 gives the reason that is the
-	// honest rendering.
+	// report. What a node never reports is a *stale* verdict.
 	Review ReviewInfo
 
-	// Signable is the answer `Sign` will give for this node: the mask, the
-	// roles and the stage §5.10 asks, at the slot a host would send. Only a
-	// signature field can carry it, because only one can be signed — and
-	// unlike `Reviewable`, it says nothing about whether the field's own
-	// authority conjunct holds: S3's second half is about *who* the definition
-	// opened the field to, which a view cannot answer for an actor who is not
-	// the one asking.
+	// Signable is the answer `Sign` will give for this node. Only a signature
+	// field can carry it, because only one can be signed — and unlike
+	// `Reviewable`, it says nothing about whether the field's own authority
+	// conjunct holds: the second half is about *who* the definition opened the
+	// field to, which a view cannot answer for an actor who is not the one
+	// asking.
 	Signable bool
 
 	// Signature is the attestation the case holds for this signature field,
-	// read from the committed snapshot for §4.2's reason: a hand attests to the
+	// read from the committed snapshot for the reason: a hand attests to the
 	// content that is committed, and a signature beside a draft would be a
-	// statement about content nobody has published. A zero value means the field
-	// holds none, which covers the field never having been signed and the
-	// signature a content commit invalidated in one answer; §5.10 says why the
-	// two are the same fact rather than two facts with one rendering, and why
-	// the difference is history's to state.
+	// statement about content nobody has published. A zero value means the
+	// field holds none.
 	Signature SignatureInfo
 
-	// Options is the choice list this field's `Options` hook supplied, in the
-	// order the host returned it. Non-nil only for a declared `options`
-	// field: an enum's choices are declared data and arrive as `Kind`
-	// "enum", and a string has none. The same list is shown by every instance
-	// of a repeated field, and that is the rule rather than a limitation: a
-	// provider is bound to a *declaration*, so its answer is the field's, and
-	// §5.7 pays one fetch per binding per walk instead of one per row. A
-	// `CaseContext` is a case's snapshot and not a row's — a normalizer can
-	// read one instance's cell by naming its address, but a provider is never
-	// told which instance is being rendered, which is the same side of
-	// SYNTAX §7's rule 11 a uniform condition stands on.
+	// Options holds the choices returned by the options provider, in provider
+	// order. A binding belongs to the declaration: fetch it once per view and
+	// share the result across repeated rows.
 	Options []string
 
-	// Problems holds the `Validate` refusals about the value at this node,
-	// with the node's own path on each entry. §6.1 wants them beside the
-	// values, and they are the same `FieldProblem` a submit reports: a view
-	// that invented its own shape for a hook's sentence would be a second
-	// vocabulary for one fact.
+	// Problems holds validation refusals for this node's value. Each problem
+	// names the node's own path.
 	//
-	// Note what they are not: §5.4's completeness, which is what `Required`
-	// and an unset `Value` say here, and which `Submit` reports as `Missing`.
-	// A blank required field is one heading in the view and one in the commit
-	// refusal, and both are the engine's §5.2 answer rather than a hook's.
-	// A cell the actor may not see has no entry, and not because one was
-	// thrown away: the walk that gathers these is filtered by the same array
-	// that decides which nodes exist, so a hook's sentence about a withheld
-	// value is never computed.
+	// Note what they are not: the completeness, which is what `Required` and an
+	// unset `Value` say here, and which `Submit` reports as `Missing`. A blank
+	// required field is one heading in the view and one in the commit refusal.
+	// A cell the actor may not see has no entry, and not because one was thrown
+	// away: the walk that gathers these is filtered by the same array that
+	// decides which nodes exist, so a hook's sentence about a withheld value is
+	// never computed.
 	Problems []FieldProblem
 
 	// Children are the nodes below this one, in declaration order, after
-	// §5.2's pruning and this actor's permissions. For a collection it is the
+	// the pruning and this actor's permissions. For a collection it is the
 	// instances, in row order, and each instance node's own Children are its
 	// members; a collection with no rows has none and `Required` says whether
 	// that is a gap.
 	Children []*ViewNode
 }
 
-// View reads the case as one actor sees it (DESIGN §6.1).
+// View reads the case as one actor sees it.
 //
 // Each path selects a subtree, including its descendants, and the selections
 // are merged and returned in the order they were given. What the actor may not
-// see is not in the answer, and is not said to be missing: invariant 7 is about
-// disclosure, and "you cannot see that" already tells you there is a that.
+// see is not in the answer.
 //
-// Checks run in this order, and the order is the one §7's invariant asks for:
+// Checks run in this order, and the order is the one the invariant asks for:
 //
 //   - the case loads, and an unknown case is NOT_FOUND, as every operation
 //     says it, from the store;
@@ -228,7 +154,7 @@ type ViewNode struct {
 // breaks — a missing `Options` provider, or a `Validate` hook that returns
 // something its type cannot hold or that rewrites a stored value. Those are
 // `HOOK_FAILURE`, and they refuse rather than render a form whose choices are
-// absent or whose errors are unknown, because DESIGN §7 says an execution
+// absent or whose errors are unknown, because an execution
 // failure is an error and not silent success.
 func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 	refuse := c.refusing("view")
@@ -242,9 +168,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 		Stage:    img.StageName(rec.commit.stage),
 	}
 
-	// One draft, read under one lock, for every node of the answer. This is
-	// the snapshot §6.1 promises, and `viewed` is the half of it that keeps a
-	// read from being a write.
+	// One draft, read under one lock, for every node of the answer.
 	draft, working, err := c.w.cases.viewed(ctx, refuse, c.actor.User, img)
 	if err != nil {
 		return ViewResult{}, err
@@ -277,7 +201,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 			if err := v.check(0); err != nil {
 				return ViewResult{}, err
 			}
-			// One root per top-level form, in declaration order (§5.4's list
+			// One root per top-level form, in declaration order (the list
 			// order, for the same reason: a client that diffs two views by
 			// path needs the two to agree about what comes first). `node`
 			// applies both prune rules, which is why a form nobody granted is
@@ -306,7 +230,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 		r, ok := v.s.resolve(p)
 		if !ok || !v.vis[r.slot] {
 			// Two refusals, told apart by whether case data was consulted
-			// (§3.9's walk fails at a name or at a row), and the one that
+			// (the walk fails at a name or at a row), and the one that
 			// would have to read a row the caller cannot see is the one that
 			// says nothing about it.
 			if !ok && v.vis[r.slot] {
@@ -327,7 +251,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 		// The scope's validation report is asked for before the first node of
 		// it is built, so a hook that cannot answer does not leave a half
 		// render on the screen. Both prune rules are asked once, in `node`:
-		// this walk needs no copy of them, because §5.2's absent subtree is
+		// this walk needs no copy of them, because the absent subtree is
 		// already skipped by the span jump inside `validate`, and an
 		// ungranted selection was refused on the way in.
 		if err := v.check(sel.slot); err != nil {
@@ -346,11 +270,10 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 
 // check asks the scope's `Validate` hooks once and indexes their answers by
 // address, so the walk that builds the nodes can hand each one the sentences
-// about its own value (§6.1's "validation errors" line, and §6's chain run
-// against the draft rather than against the commit). The filter it passes is
-// this actor's visibility, which is what makes that line per actor: a rule the
-// host wrote is not asked about a field the caller may not see, so neither its
-// problems nor its failures can name a path that would disclose one.
+// about its own value. The filter it passes is this actor's visibility, which
+// is what makes that line per actor: a rule the host wrote is not asked about a
+// field the caller may not see, so neither its problems nor its failures can
+// name a path that would disclose one.
 //
 // Two consequences of reusing Submit's walk rather than writing a second one
 // are worth naming. A selection addressed to one instance asks the hook about
@@ -360,7 +283,7 @@ func (c Case) View(ctx context.Context, paths ...string) (ViewResult, error) {
 // costs one hook call per stored value, not one per node rendered beside it.
 //
 // A hook that misbehaves is an error and not a report, exactly as it is at
-// commit: §6's fixed-point rule refuses the whole operation, and a view that
+// commit: the fixed-point rule refuses the whole operation, and a view that
 // rendered a form while pretending not to know its hook is broken would be a
 // quieter version of the bug the rule exists to catch.
 func (v *viewWalk) check(root program.NodeID) error {
@@ -418,7 +341,7 @@ func contained(outer, inner string) bool {
 
 // viewWalk carries what every node of one call needs to answer, so that the
 // fold over roles and the permission array are computed once rather than per
-// node — §8's point about a walk that re-derives its own preconditions.
+// node — the point about a walk that re-derives its own preconditions.
 type viewWalk struct {
 	ctx    context.Context
 	refuse refuser
@@ -431,17 +354,17 @@ type viewWalk struct {
 
 	// reviews and sigs are the committed verdict tables, and the two fields
 	// here that are not read from `s`: a decision and an attestation are facts
-	// about the case and not about this actor's draft (§4.2, §5.9, §5.10). Each
+	// about the case and not about this actor's draft. Each
 	// is nil when nothing of its kind has ever been recorded, which `reviewAt`
 	// reads as "everything pending" and `sigAt` as "nothing signed".
 	reviews []reviewState
 	sigs    []sigState
 
-	// hook is the snapshot handed to every host function this walk calls
-	// (§6.1, DESIGN §7). One for the walk rather than one per call: its state,
-	// mask and tables are fixed before its first node is built, so a choice
-	// list and a validation report are read from one answer, which is the same
-	// soundness `opts` buys for the fetch count.
+	// hook is the snapshot handed to every host function this walk calls. One
+	// for the walk rather than one per call: its state, mask and tables are
+	// fixed before its first node is built, so a choice list and a validation
+	// report are read from one answer, which is the same soundness `opts` buys
+	// for the fetch count.
 	hook CaseContext
 
 	problems map[string][]FieldProblem
@@ -450,21 +373,17 @@ type viewWalk struct {
 
 // visible fills one flag per slot: this actor may see something at this node
 // or below it. It is computed by walking the preorder range backwards, which
-// works because a node's children always have higher ordinals than it (§3.2),
+// works because a node's children always have higher ordinals than it,
 // so the answer beneath a node is ready before the node is asked and the whole
 // pass costs one scan of the slots plus one pass over the child edges.
 //
 // The descendant half is not decoration, and it is the reason a view is not a
 // per-node permission lookup. `view` on a group's members has to be reachable
-// through the group, and the alternative — a container nobody may view
-// carrying content somebody may — is a node that cannot explain where its own
-// child came from. What invariant 7 forbids is disclosing content without a
-// grant, and a container that grants nothing discloses nothing but its name,
-// which the caller's definition already has. This is the same reading §4.3
-// gives an ancestor's deny: the mask is asked at the node, never at its
-// parent.
+// through the group, and the alternative — a container nobody may view carrying
+// content somebody may — is a node that cannot explain where its own child came
+// from.
 //
-// `Rebase` folds the same array (§5.8) because a conflict report is a
+// `Rebase` folds the same array because a conflict report is a
 // disclosure of the same kind as a rendered node: the two operations are
 // required to answer "may this actor see this slot" identically, and one
 // function is what makes that true rather than two walkers agreeing by
@@ -487,20 +406,14 @@ func viewable(img *program.Program, roles []program.RoleID, stage program.StageI
 	return vis
 }
 
-// node builds one node and everything below it, or returns nil when §5.2 or
-// this actor's permissions take it out of the view. `prefix` addresses the
-// instance the node lives in, empty for content outside every collection, and
-// it is the caller's path plus one step per collection the walk entered — so
-// the same declaration is built once per row it has data in, at the address
-// that row's ID gives it.
+// node renders the subtree at n. The prefix carries one stable row ID per
+// enclosing collection, so instances of the same declaration retain distinct
+// addresses.
 func (v *viewWalk) node(n program.NodeID, prefix instPath) (*ViewNode, error) {
 	img := v.img
-	// Both prune rules, asked before anything is read or fetched: §5.2 takes an
-	// absent subtree out of the effective state, and invariant 7 takes an
-	// ungranted one out of this actor's view. An options provider is not called
-	// for either, and a node is never built in order to be thrown away, which
-	// is why the tests are here rather than only in the caller that walks the
-	// children — the root of a selection arrives through a different door.
+	// Prune before reading fields or calling providers. This applies to a
+	// directly selected root just as it does to a child reached during
+	// traversal.
 	if !v.vis[n] || !v.s.reached(n) {
 		return nil, nil
 	}
@@ -512,26 +425,18 @@ func (v *viewWalk) node(n program.NodeID, prefix instPath) (*ViewNode, error) {
 		Required:  v.s.asked(n),
 		CanEdit:   img.MayEdit(v.roles, v.stage, n),
 		CanSubmit: img.MaySubmit(v.roles, v.stage, n),
-		// The unit test is `verif == n` and not `verif != 0`: F3 makes only
-		// the outermost `verifiable` declaration govern, so a nested one is
-		// not decidable either, and §4.3's promise that this flag answers the
-		// operation would be false if a member or a governed group could say
-		// it. `Review` refuses both (RUNTIME §5.9). A *row* of the unit is the
-		// same slot at a different address, and the operation refuses that
-		// address too — F4 reviews a collection as a whole — so the flag is the
-		// declaration's node's and never an instance's.
+		// The unit test is `verif == n` and not `verif != 0`. `Review` refuses
+		// both. A *row* of the unit is the same slot at a different address.
 		Reviewable: sl.Verif == n && !endsAt(prefix, n) &&
 			img.MayReview(v.roles, v.stage, n),
 		Review: reviewInfoOf(img, v.reviews, n),
 		// Two of `Reviewable`'s three tests are not asked here, and both are
-		// S1's doing: a signature field is a form's direct member, so this
+		// the doing: a signature field is a form's direct member, so this
 		// node's slot *is* the declaration (no governing unit to settle) and no
-		// address of it is ever an instance's (no row to decline). What is left
-		// is the two facts §4.3 promises the flag answers: the mask at this
-		// slot, asked the way §5.10 asks it, and the test for being a signature
-		// field at all. That test is load-bearing rather than tidy: `allow sign
-		// all` is legal, its bit reaches every slot by inheritance, and without
-		// it a definition would report half its fields as signable.
+		// address of it is ever an instance's (no row to decline). That test is
+		// load-bearing rather than tidy: `allow sign all` is legal, its bit
+		// reaches every slot by inheritance, and without it a definition would
+		// report half its fields as signable.
 		Signable:  sl.Sig != 0 && img.MaySign(v.roles, v.stage, n),
 		Signature: signatureInfoOf(img, v.sigs, n),
 	}
@@ -574,10 +479,8 @@ func (v *viewWalk) children(n program.NodeID, prefix instPath) ([]*ViewNode, err
 			return nil, nil // no address, or nobody has added a row
 		}
 		for _, row := range set.rows {
-			// A row is data, so it is in the view: §5.1's `Remove` takes rows
-			// away and `Empty` clears a value but keeps the element, and an
-			// instance that was not rendered would make the first invisible
-			// and the second indistinguishable from it.
+			// Empty clears the value but keeps the row visible. Only Remove
+			// drops its address from the view.
 			child, err := v.node(n, withStep(prefix,
 				instStep{coll: n, id: row.id}))
 			if err != nil {
@@ -610,18 +513,17 @@ func (v *viewWalk) children(n program.NodeID, prefix instPath) ([]*ViewNode, err
 // The cache is what keeps a collection honest: a field with two hundred rows
 // is one hook call and two hundred renderings of the same list, because the
 // binding is by field path and the provider was never offered a row. When
-// `CaseContext` arrives (DESIGN §7) the key gains the instance and this
+// `CaseContext` arrives the key gains the instance and this
 // sentence moves into the hook's doc; until then a per-row fetch would be
 // asking one question two hundred times and pretending the answers were
 // independent.
 //
 // The missing case is a refusal and not an empty list, which is the one place
-// §6's two bindings disagree on purpose: `Validate` absent means identity,
+// the two bindings disagree on purpose: `Validate` absent means identity,
 // because the job it was hired for was to change the value and the unchanged
 // value is what the type checker accepted; an `Options` provider absent means
 // there is no list, because the job it was hired for was to answer and
-// inventing silence is how a dropdown ends up empty in production. DESIGN §7
-// states the rule; this is the only call site that can enforce it.
+// inventing silence is how a dropdown ends up empty in production.
 func (v *viewWalk) optionsFor(n program.NodeID) ([]string, error) {
 	hook := v.img.Slot(n).Hook
 	if hook == 0 {
@@ -645,9 +547,7 @@ func (v *viewWalk) optionsFor(n program.NodeID) ([]string, error) {
 	return list, nil
 }
 
-// kindOf names the declaration in the client's vocabulary. The order is the
-// one §3.3 states the facts in: a role-typed field has no value class at all,
-// so it is asked about first, and only a field has a class to report.
+// kindOf names the declaration in the client's vocabulary.
 func (v *viewWalk) kindOf(n program.NodeID) string {
 	sl := v.img.Slot(n)
 	switch {
@@ -664,7 +564,7 @@ func (v *viewWalk) kindOf(n program.NodeID) string {
 // withStep returns prefix plus one addressed instance. It copies rather than
 // appending: a shared array would be correct only while every caller finishes
 // with its index before a sibling writes it, and the whole point of an address
-// in a view is that a host may keep it. The array is at most §3.9's depth
+// in a view is that a host may keep it. The array is at most the depth
 // bound, so the copy is bounded by a constant the definition cannot exceed.
 func withStep(prefix instPath, st instStep) instPath {
 	out := make(instPath, len(prefix)+1)
@@ -675,7 +575,7 @@ func withStep(prefix instPath, st instStep) instPath {
 
 // endsAt reports whether prefix already addresses an instance of coll, which
 // is what tells a collection node that it is being built as one row rather
-// than as the declaration. The last step is the only candidate: §3.9's walk
+// than as the declaration. The last step is the only candidate: the walk
 // puts the innermost enclosing collection there, and a collection cannot
 // address itself twice.
 func endsAt(prefix instPath, coll program.NodeID) bool {

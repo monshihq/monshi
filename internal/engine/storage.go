@@ -8,7 +8,7 @@ import (
 
 // CaseRecord is one case as a store holds it: the ID the store allocated,
 // the definition the case was created under (the whole of the engine's
-// migration surface — §3's reload rule needs a name, not a version), the
+// migration surface — the reload rule needs a name, not a version), the
 // committed revision, and the encoded snapshot. `State` bytes are
 // produced and read only by this package; a host stores, compares and
 // returns them without interpreting them.
@@ -20,8 +20,8 @@ type CaseRecord struct {
 }
 
 // WorkingRecord is one actor's uncommitted copy as a store holds it: the
-// committed revision the draft descends from (§6.5's merge input), the
-// draft's own revision (the number §6.2's guard presents and the store
+// committed revision the draft descends from (the merge input), the
+// draft's own revision (the number the guard presents and the store
 // advances), and the encoded candidate.
 type WorkingRecord struct {
 	Base     uint64
@@ -31,7 +31,7 @@ type WorkingRecord struct {
 
 // HistoryEntry is one encoded commit record. Entries are dense by
 // revision — index 0 produced revision 1, and a case at revision N holds
-// N entries — which is the contract §5.11's cursor arithmetic reads:
+// N entries — which is the contract the cursor arithmetic reads:
 // a `History` page is a slice of the trail, and a continuation token is
 // an integer, because a revision *is* the count of commits.
 type HistoryEntry []byte
@@ -80,12 +80,7 @@ type Storage interface {
 		limit int) ([]HistoryEntry, error)
 }
 
-// The refusals a backend answers with. They arrive as data rather than
-// prose because the engine's §9 categories carry an operation name and a
-// case ID a host cannot know from the outside: the adapter translates
-// each sentinel into the same sentence the in-memory store refuses with,
-// so which backend ran an operation is not something its caller can
-// observe in an error.
+// The refusals a backend answers with.
 var (
 	// ErrNoSuchCase says the ID was never issued (or is gone).
 	ErrNoSuchCase = errors.New("monshi: no such case")

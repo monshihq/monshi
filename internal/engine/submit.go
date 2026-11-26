@@ -12,26 +12,23 @@ import (
 // that say why.
 //
 // `Revision` and `Stage` are filled on every path that returns, refusal
-// included, because both are facts the caller did not have to ask about: a
-// host that submitted at a stale revision learns from the same value what
-// number to reload at. `Missing` and `Invalid` are the field-level list
-// DESIGN §9 keeps out of the error categories: an incomplete or invalid form
-// is refused with INVALID_OPERATION *and* answers with the paths, so a host
-// renders the message without parsing one. On a successful submit both are
-// empty, and on a no-op submit so is the commit.
+// included, because both are facts the caller did not have to ask about: a host
+// that submitted at a stale revision learns from the same value what number to
+// reload at. On a successful submit both are empty, and on a no-op submit so is
+// the commit.
 type CommitResult struct {
 	// Revision is the case's committed revision after this call: advanced by
-	// one by a commit that wrote something, and unchanged otherwise (§5.1's
-	// rule that a revision is the count of commits).
+	// one by a commit that wrote something, and unchanged otherwise (the rule
+	// that a revision is the count of commits).
 	Revision uint64
 
-	// Stage is the stage the case sits at. Submit never moves it (§4.4: only
+	// Stage is the stage the case sits at. Submit never moves it (only
 	// `accept` and `reject` change state), so the value is the one the case
-	// was at — reported because §6.1's view carries it and a host refreshes a
+	// was at — reported because the view carries it and a host refreshes a
 	// form header from here.
 	Stage string
 
-	// Missing holds the paths §5.4's completeness walk found with no value, in
+	// Missing holds the paths the completeness walk found with no value, in
 	// declaration order, one entry per thing the form is short of: a field, an
 	// instance's member at that instance's address, or a collection with no
 	// rows. They are editable paths — each names its instances by their stable
@@ -43,8 +40,8 @@ type CommitResult struct {
 	// committed.
 	Invalid []FieldProblem
 
-	// Affected is §5.3's walk over what this commit moved: the submitted
-	// entries, the decisions and attestations §5.6's effects erased beside
+	// Affected is the walk over what this commit moved: the submitted
+	// entries, the decisions and attestations the effects erased beside
 	// them — the facts the diff does not record and history will not show as
 	// removals — and, when the commit conferred or withdrew one of the
 	// submitter's own roles, the subtrees whose *visibility* moved with it.
@@ -53,38 +50,28 @@ type CommitResult struct {
 	// commit and asks nothing else why. Nil on a submit that committed
 	// nothing and on every refusal. What the list cannot answer is which
 	// *other* actors a role commit just changed the view of; that question is
-	// per reader, and it belongs to the observer seam (§6, §9).
+	// per reader, and it belongs to the observer seam.
 	Affected []string
 }
 
-// Submit commits one form of this actor's working copy (DESIGN §6.3).
+// Submit commits one form of this actor's working copy.
 //
 // `form` names a top-level form, and `working` is the revision of the copy
 // the form lives in — one per `(case, user)`, and distinct from the case's
 // committed revision, which is the number this call reads from the store
 // rather than the one it is told. A copy that has moved is refused rather
 // than merged, and so is a copy that descends from a revision the case no
-// longer has: the second is §6.3's guard against applying a stale prepared
+// longer has: the second is the guard against applying a stale prepared
 // diff, and it is what makes a concurrent commit by somebody else a refusal
 // instead of a silent overwrite.
 //
-// Checks run in this order, and the order is a decision rather than an
-// accident: permission comes before either revision, so an actor who cannot
-// commit this form learns that and nothing about the copy's numbers. The
-// alternative reveals the case's revision traffic to a caller the definition
-// refuses, and a host cannot un-learn what it was told. RUNTIME §7 does not
-// say this — its six items are about containment and bounds, and the one
-// written disclosure rule is DESIGN's invariant 7, about `View` — so the
-// ordering is this engine's own hardening, held to the same shape in
-// transition.go. The remaining order is DESIGN §6.3's own: the copy's
-// revision, then the base, then the content —
-// a cheap freshness test before an expensive walk, and completeness before
-// validation because a value nobody filled in has no hook worth calling.
+// Check permission first so an unauthorized caller cannot discover the working
+// revision. Then check the draft revision and base before running validation on
+// its content.
 //
-// Nothing is written until the whole list passes, and the write is one call:
-// a refused submit leaves the working copy exactly where it was, at the
-// revision the caller already held (§9's "either the allowed atomic state
-// transition or no persistent effect").
+// Nothing is written until the whole list passes, and the write is one call: a
+// refused submit leaves the working copy exactly where it was, at the revision
+// the caller already held.
 func (c Case) Submit(ctx context.Context, form string,
 	working uint64) (CommitResult, error) {
 	refuse := c.refusing("submit")
@@ -98,11 +85,10 @@ func (c Case) Submit(ctx context.Context, form string,
 		return CommitResult{}, err
 	}
 
-	// Roles from the committed snapshot, as §4.3 requires and as update.go
-	// states the reason for. A submit is the operation where getting this
-	// wrong would matter most: the draft is exactly the content that assigns
-	// a role field, and a submit that read roles from it would let an actor
-	// grant themselves the right to publish the grant.
+	// Roles from the committed snapshot. A submit is the operation where
+	// getting this wrong would matter most: the draft is exactly the content
+	// that assigns a role field, and a submit that read roles from it would let
+	// an actor grant themselves the right to publish the grant.
 	roles := rolesHeld(img, c.actor, rec.commit.s)
 	if !img.MaySubmit(roles, rec.commit.stage, n) {
 		return CommitResult{}, refuse.now(AccessDenied,
@@ -124,17 +110,17 @@ func (c Case) Submit(ctx context.Context, form string,
 	}
 
 	// The snapshot the re-ask is handed. It is the *candidate* rather than the
-	// committed state, which is the same frame §5.4's requiredness walk reads,
+	// committed state, which is the same frame the requiredness walk reads,
 	// and it carries no visibility fold: a submit reports every problem in the
 	// subtree it publishes, not the subset of them the actor could render.
 	at := c.pinned(img, rec, &w.s, roles, w.rev, nil)
 
-	// §5.4's content checks, both over the submitted subtree alone. They run
-	// against the *candidate*, which is what §6.2's evaluation frame is:
-	// a requiredness or a hook asked of the committed state would report a
-	// form the caller never presented, and the two states agree inside this
-	// subtree by the time the commit grafts it (below), so nothing that
-	// reaches history is checked anywhere else.
+	// The content checks, both over the submitted subtree alone. They run
+	// against the *candidate*, which is what the evaluation frame is: a
+	// requiredness or a hook asked of the committed state would report a form
+	// the caller never presented, and the two states agree inside this subtree
+	// by the time the commit grafts it (below), so nothing that reaches history
+	// is checked anywhere else.
 	res := CommitResult{Revision: rec.revision, Stage: rec.commit.stageName()}
 	gaps := w.s.incomplete(n)
 	if len(gaps) > 0 {
@@ -142,10 +128,8 @@ func (c Case) Submit(ctx context.Context, form string,
 	}
 	problems, err := c.w.validate(ctx, refuse, at, n)
 	if err != nil {
-		// A hook that misbehaved rather than refused: HOOK_FAILURE, and no
-		// list to render, because the defect is in host code and not in any
-		// field the actor can fix. §6's rule, stated for hooks as §9's is for
-		// categories.
+		// A broken hook is not a field validation error. Return HOOK_FAILURE
+		// without attributing the failure to a value the actor entered.
 		return CommitResult{}, err
 	}
 	res.Invalid = problems
@@ -158,11 +142,11 @@ func (c Case) Submit(ctx context.Context, form string,
 	// subtree replaced by the candidate's. Cloning first is what keeps
 	// store.go's replace-never-mutate rule true of the snapshot a reader may
 	// be holding, and grafting rather than swapping is what keeps another
-	// form's draft out of it (§6.3).
+	// form's draft out of it.
 	lo, hi := img.Subtree(n)
 	next := rec.commit.s.clone()
 	next.graft(&w.s, lo, hi)
-	// Instance IDs are never reused within a case (§5.1), so the sequence
+	// Instance IDs are never reused within a case, so the sequence
 	// advances with the content the candidate brought. Taking the larger of
 	// the two rather than the candidate's alone is the honest form of the
 	// rule: the guard above makes the candidate descend from this snapshot,
@@ -175,11 +159,8 @@ func (c Case) Submit(ctx context.Context, form string,
 
 	changes := diffForm(&rec.commit.s, &next, n)
 	if len(changes) == 0 {
-		// §6.3's no meaningless commit, and §5.1's consequence: a revision is
-		// the count of commits, so a submit that changed nothing leaves the
-		// number, the history and every other actor's staleness exactly as
-		// they were. Success rather than a refusal, because the caller's
-		// request — "this form is committed" — is now true.
+		// An unchanged form needs no commit. Return the current revision and
+		// leave history untouched.
 		return res, nil
 	}
 
@@ -190,10 +171,9 @@ func (c Case) Submit(ctx context.Context, form string,
 		committedBy{by: c.actor.User, op: opSubmit, changes: changes})
 	if err != nil {
 		// Reachable only through a concurrent commit between the guard above
-		// and this one, which is the case §6.3's "reject rather than apply a
-		// stale prepared diff" is written for. It is reported unchanged, in
-		// the store's voice: an operation that retried the check would be
-		// claiming a consistency it does not hold the lock for.
+		// and this one. It is reported unchanged, in the store's voice: an
+		// operation that retried the check would be claiming a consistency it
+		// does not hold the lock for.
 		return CommitResult{}, err
 	}
 	res.Revision = out.rec.revision
@@ -202,7 +182,7 @@ func (c Case) Submit(ctx context.Context, form string,
 	// after the store's yes for the reason update.go gives its own walk: a
 	// closure is news about a commit, and a refused one has none to carry.
 	// The role term is the one a batch never had — committing a role-typed
-	// field moves §3.5's function for the actor who committed it, and this
+	// field moves the function for the actor who committed it, and this
 	// is the only operation whose own data can do that.
 	fan := newFanout(img)
 	seedCommit(fan, out.rec.changes, out.erased)
@@ -220,12 +200,8 @@ func (c Case) Submit(ctx context.Context, form string,
 // form it names, refusing anything else with the category that says which
 // kind of mistake it was.
 //
-// SYNTAX P3 confines a `submit` grant to a top-level form, so this is a
-// lookup in the definition's form list and not a path walk: a name containing
-// a dot is a *path*, which is what §6.2's edits take, and the two are the
-// commonest confusion in an API that has both. Telling them apart is worth a
-// branch, because the host's fix differs — one is a typo, the other is the
-// wrong operation.
+// Submit accepts a form name. A dotted path is an address for an edit, not a
+// misspelled top-level form.
 func topForm(img *program.Program, refuse refuser, name string) (program.NodeID, error) {
 	if strings.Contains(name, ".") {
 		return 0, refuse.now(InvalidOp,

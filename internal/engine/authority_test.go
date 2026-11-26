@@ -1,11 +1,10 @@
 package engine
 
-// In-package tests for the role sources and the store seam (DESIGN §4.1,
-// §4.3, §5; RUNTIME §5.1). What a host observes — that a case opens, that a
-// reload is accepted or refused — is asserted externally in runtime_test.go.
-// This file asserts the parts a host cannot reach: which ordinals a role
-// set contains, what the store's revision guards refuse, and which
-// definition changes count as structural.
+// In-package tests for the role sources and the store seam. What a host
+// observes — that a case opens, that a reload is accepted or refused — is
+// asserted externally in runtime_test.go. This file asserts the parts a host
+// cannot reach: which ordinals a role set contains, what the store's revision
+// guards refuse, and which definition changes count as structural.
 
 import (
 	"context"
@@ -19,7 +18,7 @@ import (
 )
 
 // mustLowerSource compiles a small definition for the store and role tests.
-// The §7 example covers the permission shape; these sources exist to make a
+// The registration example covers the permission shape; these sources exist to make a
 // *change* to a definition legible in three lines.
 func mustLowerSource(tb testing.TB, src string) *program.Program {
 	tb.Helper()
@@ -37,7 +36,7 @@ func mustLowerSource(tb testing.TB, src string) *program.Program {
 	return img
 }
 
-// put writes one base-row value the way an edit primitive will (§5.3).
+// put writes one base-row value the way an edit primitive will.
 // Tests use it to give a role-typed field a holder before there is an
 // editor to do it.
 func put(t *testing.T, img *program.Program, s *state, path string, v program.Cell) {
@@ -58,18 +57,18 @@ func TestRolesHeldCombinesPrimaryAndCommittedField(t *testing.T) {
 	img := lowerExample(t)
 	manager, ok := img.RoleByName("Manager")
 	if !ok {
-		t.Fatal("the §7 example declares no Manager role")
+		t.Fatal("the registration example declares no Manager role")
 	}
 	applicant, ok := img.RoleByName("Applicant")
 	if !ok {
-		t.Fatal("the §7 example declares no Applicant role")
+		t.Fatal("the registration example declares no Applicant role")
 	}
 
 	s := newState(img)
 	s.applyDefaults()
 
 	// Nothing assigned: the primary role is the only source, and an
-	// unresolvable name confers nothing rather than failing (P1).
+	// unresolvable name confers nothing rather than failing.
 	if got := rolesHeld(img, Actor{User: "dana"}, s); len(got) != 0 {
 		t.Errorf("with no value and no primary role, rolesHeld = %v, want none", got)
 	}
@@ -79,7 +78,7 @@ func TestRolesHeldCombinesPrimaryAndCommittedField(t *testing.T) {
 	}
 
 	// The committed value of the role-typed field names dana, who is
-	// therefore a Manager (T4) with no primary role asserted.
+	// therefore a Manager with no primary role asserted.
 	put(t, img, &s, "application.reviewer", program.Cell{Set: true, Text: "dana"})
 	dana := Actor{User: "dana"}
 	if got := rolesHeld(img, dana, s); len(got) != 1 || got[0] != manager {
@@ -93,7 +92,7 @@ func TestRolesHeldCombinesPrimaryAndCommittedField(t *testing.T) {
 	}
 
 	// Both sources, and a role held twice is one role: the mask fold would
-	// not mind a duplicate, but this list is what §8's permission resolve
+	// not mind a duplicate, but this list is what the permission resolve
 	// walks, so it must not grow per request.
 	both := rolesHeld(img, Actor{User: "dana", PrimaryRole: "Applicant"}, s)
 	if len(both) != 2 || both[0] != applicant || both[1] != manager {
@@ -113,7 +112,7 @@ func TestRolesHeldCombinesPrimaryAndCommittedField(t *testing.T) {
 
 	// A role-typed field inside a collection confers nothing: it has no
 	// single value to compare, and guessing "any instance" would make
-	// authority depend on a row the actor never named (§5.1, E2).
+	// authority depend on a row the actor never named.
 	nested := mustLowerSource(t, `
 roles {
     Applicant { allow view application; }
@@ -135,7 +134,7 @@ stages { start { accept finish; } finish { } }
 		t.Errorf("the base-row owner field confers %v before anything is set", got)
 	}
 	// The member field is unreachable as a cell, which is the property the
-	// roles loop relies on; §5.1's addressing test says the same thing about
+	// roles loop relies on; the addressing test says the same thing about
 	// rows, so this only has to hold here.
 	if _, ok := ns.cellOf(held(t, nested, "application.team.member")); ok {
 		t.Error("a collection member has a base-row cell, so the role scan would " +
@@ -143,17 +142,15 @@ stages { start { accept finish; } finish { } }
 	}
 }
 
-// TestCanEditFollowsTheCommittedRoleAssignment re-derives Appendix A's
-// permission case through the path the operations will use: Manager may edit
-// `application.internal`, Applicant may not, and an actor holding both roles
-// is denied — "deny overrides allow across all effective roles".
+// The committed assignment grants Manager permissions even when Manager is not
+// the actor's primary role.
 func TestCanEditFollowsTheCommittedRoleAssignment(t *testing.T) {
 	img := lowerExample(t)
 	risk := held(t, img, "application.internal.risk_score")
 	note := held(t, img, "application.note")
 	draft, ok := img.StageByName("draft")
 	if !ok {
-		t.Fatal("the §7 example declares no draft stage")
+		t.Fatal("the registration example declares no draft stage")
 	}
 
 	s := newState(img)
@@ -161,13 +158,12 @@ func TestCanEditFollowsTheCommittedRoleAssignment(t *testing.T) {
 	dana := Actor{User: "dana"}
 	applicant := Actor{User: "dana", PrimaryRole: "Applicant"}
 
-	// A plain applicant may edit a note and may not reach the internal
-	// subtree: the §5.6-P5 override, from the precomputed masks.
+	// A plain applicant may edit a note and may not reach the internal subtree.
 	if !canEdit(img, applicant, s, draft, note) {
-		t.Error("Applicant cannot edit application.note, which §7 allows")
+		t.Error("Applicant cannot edit application.note, despite its grant")
 	}
 	if canEdit(img, applicant, s, draft, risk) {
-		t.Error("Applicant edits application.internal.risk_score, which §7 denies")
+		t.Error("Applicant edits application.internal.risk_score, despite its denial")
 	}
 
 	// A Manager holds the same allow with no deny, so the identical slot is
@@ -184,12 +180,9 @@ func TestCanEditFollowsTheCommittedRoleAssignment(t *testing.T) {
 	}
 }
 
-// The working copy is a candidate: §6.2's evaluation reads it, and
-// invariant 6 says access control derives from committed assignments. The
-// two states are the same shape, so the only thing keeping a draft from
-// granting authority is *which state the operation hands this function*.
-// That is the line milestone 2's edits must not cross, so it is asserted as
-// a property of the pair rather than left to a comment in authority.go.
+// The working copy is a candidate. The two states are the same shape, so the
+// only thing keeping a draft from granting authority is *which state the
+// operation hands this function*.
 func TestDraftValueDoesNotReachUntilCommitted(t *testing.T) {
 	img := lowerExample(t)
 	risk := held(t, img, "application.internal.risk_score")
@@ -224,7 +217,7 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 	note := held(t, img, "application.note")
 
 	// First access creates the copy from the committed state, at the case's
-	// current revision (DESIGN §5: a working state is created when the user
+	// current revision (a working state is created when the user
 	// opens the case).
 	first, err := st.working(ctx(), newRefuser(open_, id), "dana", img)
 	if err != nil {
@@ -234,10 +227,9 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 		t.Errorf("new copy: base %d rev %d, want 0 and 0", first.base, first.rev)
 	}
 
-	// An edit that was never saved is nobody's business but the caller's:
-	// what `working` handed out is a candidate, so the second session still
-	// sees the field empty. This is invariant 1's sibling — nothing an
-	// operation discarded becomes visible to another one.
+	// An edit that was never saved is nobody's business but the caller's: what
+	// `working` handed out is a candidate, so the second session still sees the
+	// field empty.
 	c, ok := first.s.cellOf(note)
 	if !ok {
 		t.Fatal("application.note has no cell")
@@ -251,8 +243,7 @@ func TestWorkingCopyIsPerActorAndSharedBySessions(t *testing.T) {
 		t.Error("an edit that was never saved is visible to another session")
 	}
 
-	// Saving under the guard publishes it, and every later session of that
-	// actor gets the same copy: invariant 4 expressed as one stored value.
+	// Saving under the guard publishes it.
 	_, err = st.saveWorking(ctx(), newRefuser(update, id), "dana", 0, first, 0)
 	if err != nil {
 		t.Fatalf("saveWorking: %v", err)
@@ -311,7 +302,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 	}
 	// The copy arrives at revision 0 and the store is what moves it: a save
 	// reports the number the copy now carries, and the fields the caller
-	// holds on the state it was handed are not authority (§3.1's division,
+	// holds on the state it was handed are not authority (the division,
 	// drawn about a working revision rather than a case ID).
 	w.rev = 41
 	w.base = 41
@@ -327,8 +318,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 		t.Errorf("stored copy is rev %d base %d, want 1 and 0 (said %v)",
 			back.rev, back.base, err)
 	}
-	// Presenting the revision the copy was read at, after it moved, is what
-	// §6.2 refuses rather than resolving.
+	// Saving against the old revision must not overwrite the newer copy.
 	_, err = st.saveWorking(ctx(), newRefuser(update, id), "dana", 0, w, 0)
 	if !Failed(err, StaleRevision) {
 		t.Fatalf("stale working save = %v, want STALE_REVISION", err)
@@ -354,7 +344,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 
 	// The committed snapshot moves under the same kind of guard, and a
 	// successful commit is the one thing that advances the revision
-	// (invariant 2: a new case is at 0, so the first commit is revision 1).
+	// (a new case is at 0, so the first commit is revision 1).
 	rec, err := st.load(ctx(), newRefuser(open_, id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -387,10 +377,8 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 		t.Errorf("committed revision = %d, want 1", next.rec.revision)
 	}
 
-	// The other two writes §6.3 requires to be consistent with the snapshot
-	// swap: the entry that says what landed, and the submitter's copy rebased
-	// onto it. The entry carries the caller's own diff and identity — the
-	// store numbers it, it does not invent it.
+	// The entry carries the caller's own diff and identity — the store numbers
+	// it, it does not invent it.
 	h, err = st.history(ctx(), newRefuser(open_, id), 1, 0)
 	if err != nil {
 		t.Fatalf("history: %v", err)
@@ -399,9 +387,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 		h[0].op != opSubmit || len(h[0].changes) != 1 {
 		t.Errorf("history = %+v, want one entry at revision 1 by dana", h)
 	}
-	// The submitter's content is not rewritten by its own commit — §6.3 is
-	// explicit that a submit of one form leaves other drafts alone — so only
-	// `base` moves, and `rev` stays where the client left it.
+	// The submitter's content is not rewritten by its own commit.
 	back, err = st.working(ctx(), newRefuser(open_, id), "dana", img)
 	if err != nil || back.base != 1 || back.rev != 1 {
 		t.Errorf("submitter's copy is base %d rev %d, want 1 and 1 (said %v)",
@@ -419,8 +405,7 @@ func TestWorkingAndCommitGuardsRefuseStaleWrites(t *testing.T) {
 
 	// A snapshot an operation already read never changed underneath it: the
 	// commit replaced the stored field, and the copy the reader holds still
-	// reports what it was given (invariant 3's rule, stated about the
-	// present).
+	// reports what it was given.
 	if rec.revision != 0 {
 		t.Errorf("the earlier read now reports revision %d, want 0", rec.revision)
 	}
@@ -499,12 +484,10 @@ func TestCaseLookupSaysNotFoundOnce(t *testing.T) {
 	}
 }
 
-// A case whose record names a definition nobody registered is
-// SCHEMA_MISMATCH rather than NOT_FOUND: the case exists, and what is
-// missing is the schema that says what its bytes mean (DESIGN §3). Building
-// the state directly is how a host reaches this today — a persisted record
-// read before its definition is loaded, which is milestone 4's restart — and
-// the refusal is the same either way.
+// A case whose record names a definition nobody registered is SCHEMA_MISMATCH
+// rather than NOT_FOUND: the case exists, and what is missing is the schema
+// that says what its bytes mean. Building the state directly is how a host
+// reaches this today — a persisted record read before its definition is loaded.
 func TestLookRefusesACaseWhoseDefinitionIsMissing(t *testing.T) {
 	rt := NewRuntime()
 	d := &Definition{img: mustLowerSource(t, `
@@ -572,7 +555,7 @@ stages {
 }
 `
 	// A rename changes which path names a stored ordinal, and committed
-	// diffs are keyed by path (§5.1), so it is a structural change.
+	// diffs are keyed by path, so it is a structural change.
 	renamed := strings.Replace(base, "name  : string;", "label : string;", 1)
 
 	// Adding a field renumbers every ordinal after it.
@@ -607,13 +590,13 @@ stages {
 }
 `
 	// A permission change alters what the engine answers, not what the data
-	// is, so it is compatible by §3's definition.
+	// is, so it is compatible by the definition.
 	repermitted := strings.Replace(base,
 		"Applicant { allow view, edit application; }",
 		"Applicant { allow view application; }", 1)
 
-	// So is a default, and so is a decimal whose scale moved within the same
-	// value class: §3's "incomplete, not incompatible" is this case.
+	// Changing defaults or decimal constraints can invalidate content without
+	// changing its storage layout.
 	redefaulted := strings.Replace(base, "score : integer default 3;",
 		"score : integer default 5;", 1)
 	rescaled := strings.Replace(base, "money : decimal(14, 2);",
@@ -625,7 +608,7 @@ stages {
 
 	// One more stage, reachable and referenced, so the source is legal and
 	// only the count of declarations moved. The stored ordinals still name
-	// the same stages, and §3's answer is that a definition which changes
+	// the same stages, and the answer is that a definition which changes
 	// how many there are cannot be trusted to mean the same number.
 	extendedStages := strings.Replace(base,
 		"    done  { }\n",
@@ -658,7 +641,7 @@ stages {
 			// The verdict alone is not useful to a host: a refusal has to
 			// say which part of the definition moved, which is the whole
 			// difference between SCHEMA_MISMATCH here and a wrong answer
-			// from §5.1's addressing.
+			// from the addressing.
 			if !tc.wantOK && !strings.Contains(detail, tc.wantSay) {
 				t.Errorf("drift detail = %q, want it to mention %q", detail, tc.wantSay)
 			}
@@ -669,7 +652,7 @@ stages {
 	}
 
 	// The comparison is worth its cost only because the common case is never
-	// compared: one image against itself agrees, and §7.4's immutability is
+	// compared: one image against itself agrees, and the immutability is
 	// what lets a pointer answer "same schema?" before this runs at all.
 	same := mustLowerSource(t, base)
 	if _, ok := program.DataDrift(same, same); !ok {
@@ -686,12 +669,12 @@ func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	// DESIGN §5.2's determinism rule in one field: a replay cannot ask what
-	// the clock said at the time, so the stamp belongs to the entry and is
-	// never recomputed from it. Making the clock a seam the store owns is also
-	// what lets a test say *when* a commit happened, which a `time.Now` call
-	// inside the store could only be asserted about by waiting for it to
-	// disagree with itself.
+	// The determinism rule in one field: a replay cannot ask what the clock
+	// said at the time, so the stamp belongs to the entry and is never
+	// recomputed from it. Making the clock a seam the store owns is also what
+	// lets a test say *when* a commit happened, which a `time.Now` call inside
+	// the store could only be asserted about by waiting for it to disagree with
+	// itself.
 	first := time.Date(2026, time.November, 23, 9, 0, 0, 0, time.UTC)
 	st.now = func() time.Time { return first }
 	rec, err := st.load(ctx(), newRefuser(open_, id))
@@ -707,7 +690,7 @@ func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 	// The entry carries the moment, the revision and the stage the caller
 	// committed *at*, because a history a replay cannot locate in a stage is a
 	// list of changes to the wrong rules. It carries no changes, and that is
-	// the store's half of the division: §5.4's operation decides what a commit
+	// the store's half of the division: the operation decides what a commit
 	// means and hands the diff over, and the store records what it is given
 	// rather than re-deriving any of it.
 	h, err := st.history(ctx(), newRefuser(open_, id), 1, 0)
@@ -728,7 +711,7 @@ func TestACommitRecordsTheMomentItHappened(t *testing.T) {
 	// entry keeps the one it was given: the history is a record and not a view
 	// recomputed at read time. The numbering is dense — index 0 is revision 1,
 	// index 1 is revision 2 — which is what makes "everything between 4 and 7"
-	// a slice rather than a search, and what §5.1's rule that a revision is
+	// a slice rather than a search, and what the rule that a revision is
 	// the *count* of commits buys.
 	later := first.Add(time.Hour)
 	st.now = func() time.Time { return later }

@@ -1,56 +1,17 @@
 package engine
 
-// The store's wire format (DESIGN §5, §8; RUNTIME §10's milestone 4). A
-// storage implementation persists *bytes*: the committed snapshot, each
-// actor's draft and each history entry are opaque to the host, and
-// DESIGN §5 says so out loud — "the exact Go representation remains an
-// implementation detail". This file is that detail made a fact: the
-// shapes in store.go become sequences of bytes and come back unchanged,
-// so durability stops being an accident of Go struct layout and becomes
-// a format with a version number.
+// Storage backends persist opaque records: the committed snapshot, each actor's
+// draft and individual history entries. Only the engine interprets their bytes.
 //
-// Four rules hold the format to the shape of the semantics rather than
-// the shape of the structs.
+// Encode only set cells and nonzero verdicts. Store each cell's slot and value
+// class so the decoder can check it against the compiled layout. Persist row
+// IDs and the allocator together: reusing an ID would change the meaning of
+// existing paths.
 //
-//   - Cells travel sparsely. A row is emitted as the (slot, value)
-//     pairs that are *set*, and the verdict tables as the (slot,
-//     record) pairs that are not the zero value — absence is what the
-//     engine models, so a cleared field and an untouched one encode the
-//     same nothing, and the bytes never grow with the width of a
-//     definition.
-//   - A cell's payload is chosen by the image, not by the Go shape of
-//     the struct. Each cell names its slot and its class, and the class
-//     selects which field of `slotValue` the payload fills: §5.1's
-//     "the class is fixed per slot" read the other way, so a row's
-//     unused Go fields never reach the wire and a `Text("")` cannot be
-//     mistaken for an `Int(0)`. The decoder *checks* the written class
-//     against the live image's type for that slot and refuses bytes
-//     that contradict it — this is the only place outside §3.9 where a
-//     foreign definition can be caught, and the reason bytes must be
-//     decoded under the definition that wrote them.
-//   - Instances are addressed by what §5.1 makes permanent: stable
-//     instance IDs and the per-collection nesting they live in, never
-//     by row numbers, so a store that reorders nothing must be able to
-//     say so from the bytes alone. The ID counter travels with the
-//     state because renumbering rows would silently invalidate every
-//     `path` in the history the same store holds.
-//   - Decode rebuilds through a live image and refuses before it
-//     allocates: a foreign version byte, a length larger than the
-//     residue can hold, or a trailing byte nobody claimed are the same
-//     refusal — corrupt bytes must fail closed rather than half-parse
-//     into a state whose conditions then run against invented slots.
-//
-// Integers are varints, zigzagged where a value can be negative;
-// strings and byte runs are length-prefixed. A `decimal` travels as its
-// shortest exact text and returns by parse — shopspring's representation
-// keeps written scale, and `same` compares decimals by value, so text is
-// the faithful lossless form. A `time.Time` travels as seconds,
-// nanoseconds and the zone it displayed in: the instant and its printed
-// offset survive; the *location* does not, because a monotonic reading
-// belongs to the process that took it and the engine reads stored times
-// only as instants (§5.1's equality). A nil table and an empty one, a
-// nil binary handle and an empty slice encode alike and decode to nil:
-// every reader of these fields asks length, never identity.
+// Integers use varints. Strings and byte slices carry their length; decimals
+// use exact decimal text. Times preserve the instant, zone name and offset, not
+// the original location or monotonic clock. Nil and empty binary references
+// encode identically.
 
 import (
 	"encoding/binary"
@@ -243,9 +204,9 @@ func decodeCommitted(img *program.Program, buf []byte) (committedState, error) {
 	return cs, nil
 }
 
-// encodeWorking renders one actor's uncommitted copy. The two numbers
-// are the guards themselves — §5.8's edit check reads `rev`, §5.8's
-// rebase compares `base` — so they travel before the data they protect.
+// encodeWorking renders one actor's uncommitted copy. The two numbers are the
+// guards themselves — the edit check reads `rev`, the rebase compares `base` —
+// so they travel before the data they protect.
 func encodeWorking(w workingState) []byte {
 	e := encoder{img: w.s.img}
 	e.header(wireDraft)
@@ -277,7 +238,7 @@ func decodeWorking(img *program.Program, buf []byte) (workingState, error) {
 
 // encodeRecord renders one history entry, and decodeRecord rebuilds
 // it. Entries are what a store must serve back with nothing lost:
-// §5.11's read hands the same facts to a caller, and its fold replays
+// the read hands the same facts to a caller, and its fold replays
 // them, so every field of commitRecord travels — including the
 // per-entry stage that makes "revision 7 was at review" knowable from
 // the entry alone, and the `ids` that make a rows entry a fact about
@@ -488,7 +449,7 @@ func (d *decoder) ids() ([]instanceID, bool) {
 	return ids, true
 }
 
-// state renders §5.1's three pieces of data — the base row, the
+// state renders the three pieces of data — the base row, the
 // instance sets, and the ID counter that keeps them addressable into
 // the future.
 func (e *encoder) state(s state) {
@@ -532,12 +493,10 @@ func (d *decoder) state(img *program.Program) (state, bool) {
 	return s, true
 }
 
-// instances renders one collection's rows in the order they were
-// created, which is the order §5.7 renders them and the order a
-// rebase's row-list merge preserves. A set nobody opened encodes as the
-// empty marker and decodes to nil: `count` and `find` read nil and an
-// empty set alike, and `add` builds a fresh one, so the two states are
-// not distinguishable anywhere the format could be observed.
+// instances renders one collection's rows in the order they were created. A set
+// nobody opened encodes as the empty marker and decodes to nil: `count` and
+// `find` read nil and an empty set alike, and `add` builds a fresh one, so the
+// two states are not distinguishable anywhere the format could be observed.
 //
 // The collection's own slot travels beside it as slot+1 — a nodeID is
 // never 0, so the same byte says "no set" and never lies about which
@@ -615,7 +574,7 @@ func (d *decoder) instances(img *program.Program, parent program.NodeID, level i
 
 // cells renders the set values of one row at the slots the row's own
 // address base names: the base row sits at the image's ordinals, a
-// collection row at rowLo plus offset — §5.1's addressing restated for
+// collection row at rowLo plus offset — the addressing restated for
 // the wire so slot numbers mean the same thing in bytes and in frames.
 func (e *encoder) cells(base program.NodeID, row program.Row) {
 	var n int
@@ -664,10 +623,10 @@ func (d *decoder) cells(img *program.Program, owner, base program.NodeID, row pr
 // `baseOf` for a typed field, `classUser` for a role field — the only
 // stored value that is not some type's instance — and `classPseudo`
 // for the pair a classless or signature slot holds, which is what
-// §5.1's rule that "every reader of a diff asks the kind rather than
+// the rule that "every reader of a diff asks the kind rather than
 // the shape" costs on the wire: one tag, two payloads, no schema per
 // kind. The class written for `options` is its storage class: the
-// payload is text either way (§3.3), and the decoder accepts both
+// payload is text either way, and the decoder accepts both
 // spellings so a future split of the two cannot silently change what
 // old bytes mean.
 func (e *encoder) cell(n program.NodeID, v program.Cell) {
@@ -741,7 +700,7 @@ func (d *decoder) cell(img *program.Program, n program.NodeID) (program.Cell, bo
 		}
 		return program.Cell{Set: true, Int: x, Text: s}, true
 	}
-	// Options are stored and read as text (§3.3), so the wire does not
+	// Options are stored and read as text, so the wire does not
 	// distinguish them and the check allows either spelling.
 	if uint8(cls) == 0 || uint8(cls) != want &&
 		!(want == program.BaseOptions && uint8(cls) == program.BaseString) {
@@ -784,7 +743,7 @@ func (d *decoder) cell(img *program.Program, n program.NodeID) (program.Cell, bo
 		}
 		v.Binary = program.BinaryRef(b)
 	case program.BaseEnum:
-		// The stored payload is §3.3's tagID — a global ordinal — so
+		// The stored payload is the tagID — a global ordinal — so
 		// the check is `store`'s own: the ID must name a tag of this
 		// slot's type, which bounds it without guessing the range.
 		tag, ok := d.uvar()

@@ -79,9 +79,9 @@ func DataDrift(old, next *Program) (string, bool) {
 		switch {
 		case old.BaseOf(NodeID(n)) != next.BaseOf(NodeID(n)):
 			// Across value classes the payload lives in a different field
-			// of the row (§3.3), so the stored bytes stop meaning anything.
+			// of the row, so the stored bytes stop meaning anything.
 			// Within one class — decimal(14,2) to decimal(14,4) — this test
-			// passes, and §3's answer is that old content becomes invalid,
+			// passes, and the answer is that old content becomes invalid,
 			// not incompatible: the next Submit's validation is the
 			// operation entitled to refuse it.
 			return quote(by) + " changed its value class", false
@@ -93,7 +93,7 @@ func DataDrift(old, next *Program) (string, bool) {
 	// row bounds: `coll`, `span` and `kind` per ordinal determine them —
 	// rowLo is the collection's own slot when it is a repeated field and its
 	// next ordinal otherwise, and rowLen runs from there to the subtree end
-	// (§5.1) — so re-checking them here would compare the same four words
+	// — so re-checking them here would compare the same four words
 	// twice and imply they could disagree.
 	//
 	// A stored stage is an ordinal into the stage table, and a stage's name

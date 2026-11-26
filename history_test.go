@@ -1,27 +1,18 @@
 package monshi_test
 
-// History seen from outside the module (RUNTIME §5.11; DESIGN §5's trail, §6's
-// `History`): what a host reads back of what the case committed — the records and
-// their order, which page a cursor selects, what an actor's mask does to a trail,
-// and what a row set, a decision and an attestation look like once the row they
-// named is gone.
+// History seen from outside the module: what a host reads back of what the case
+// committed — the records and their order, which page a cursor selects, what an
+// actor's mask does to a trail, and what a row set, a decision and an
+// attestation look like once the row they named is gone.
 //
 // What a host cannot observe is in the in-package file: that the entries replay to
 // the snapshot the store kept at every revision, that a reset derives without
 // recording one, and that the page is cut out of the trail rather than built from
 // the case behind it.
 //
-// The fixture is one case with a long past and three hands: an applicant who types
-// and attests, a registrar who decides and moves the case along an edge, and an
-// auditor whose whole grant is one closed subtree — the last exists so that a trail
-// can be *partly* unreadable, which is §7's property 7 stated about the past as
-// much as about the present. The script commits content, a decision, an
-// attestation, an edge and a removal, so the trail holds all four `CommitOp` words
-// and both verdict kinds: a history that said only "the data moved" would not be
-// the audit DESIGN §5 says it is. The masking test brings a second, smaller
-// fixture with it, because the two rules it prices — a grant on one member of a
-// row, and a grant a stage hands out and takes back — are shapes `trailSrc` has
-// no way to state.
+// The applicant edits and signs, the registrar reviews and transitions, and the
+// auditor can read just one subtree. All three read the same commits with
+// different visibility.
 
 import (
 	"strings"
@@ -101,9 +92,7 @@ func trailPast(t *testing.T) (
 	if _, err := dana.Submit(ctx(), "application", res.Working); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	// 2: two rows and their values. The Add and the fill share a draft because
-	// §5.1's `Add` takes no value and §5.2 keeps an instance nobody filled out
-	// out of the effective state: a trail of empty rows would be noise.
+	// 2: two rows and their values.
 	res = mustTrailUpdate(t, dana, trailWorking(t, dana),
 		monshi.Add("application.notes"), monshi.Add("application.notes"))
 	rows := res.Created
@@ -159,8 +148,7 @@ func trailHead(t *testing.T, c monshi.Case) uint64 {
 	return rev
 }
 
-// trailWorking is the copy's own number, read the way a host reads it: after the
-// sync §6.5 says a caller owes before writing.
+// trailWorking is the copy's own number, read the way a host reads it.
 func trailWorking(t *testing.T, c monshi.Case) uint64 {
 	t.Helper()
 	if _, err := c.Rebase(ctx()); err != nil {
@@ -197,10 +185,8 @@ func mustTrailUpdate(t *testing.T, c monshi.Case, base uint64,
 	return res
 }
 
-// TestTheTrailIsTheCaseInOrder is §5's claim about the store read from the other
-// side: that the commits are ordered, that a revision is the count of them, and
-// that each record says what it was — the distinction DESIGN §5 gives `History`
-// for, since a diff of the current state cannot make it.
+// TestTheTrailIsTheCaseInOrder is the claim about the store read from the other
+// side.
 func TestTheTrailIsTheCaseInOrder(t *testing.T) {
 	_, dana, registrar, _, _ := trailPast(t)
 	res, err := dana.History(ctx(), 0, 0)
@@ -260,10 +246,8 @@ func TestTheTrailIsTheCaseInOrder(t *testing.T) {
 				"not all read back", op)
 		}
 	}
-	// The transition is a commit that changed no data. A reader who could not see
-	// it would reconstruct a case that was never at `draft` at revision 5, and §5
-	// says replay lands a case where it stood — which a record with no content is
-	// the only place that fact survives.
+	// The transition is a commit that changed no data. A reader who could not
+	// see it would reconstruct a case that was never at `draft` at revision 5.
 	if got := res.Commits[4].Changes; len(got) != 0 {
 		t.Errorf("the transition commit holds %d entries, want none: %+v",
 			len(got), got)
@@ -290,10 +274,10 @@ func TestTheTrailIsTheCaseInOrder(t *testing.T) {
 	}
 }
 
-// TestAChangeNamesAnAddressItCanWriteBack is DESIGN §5.1's rule that an instance is
+// TestAChangeNamesAnAddressItCanWriteBack is the rule that an instance is
 // addressed by its stable ID, checked where it is hardest: in a trail, whose rows
 // may be gone. The entries are keyed by slot ordinal internally, so this is also
-// the read that turns §3.2's numbering back into the text a host holds.
+// the read that turns the numbering back into the text a host holds.
 func TestAChangeNamesAnAddressItCanWriteBack(t *testing.T) {
 	_, dana, _, _, rows := trailPast(t)
 	res, err := dana.History(ctx(), 0, 0)
@@ -319,7 +303,7 @@ func TestAChangeNamesAnAddressItCanWriteBack(t *testing.T) {
 		}
 	}
 	// The values the same commit wrote are addressed *through* their instances: one
-	// path per cell, at the depth §3.9's walk parses back.
+	// path per cell, at the depth the walk parses back.
 	var dated string
 	for _, ch := range changes(t, res, 2, monshi.ChangeValue) {
 		if ch.Value.Kind() == monshi.KindNone {
@@ -353,7 +337,7 @@ func TestAChangeNamesAnAddressItCanWriteBack(t *testing.T) {
 	}
 }
 
-// TestTheTrailSpellsWhatMovedAndNotWhatDidNot is §5.1's rule that history records
+// TestTheTrailSpellsWhatMovedAndNotWhatDidNot is the rule that history records
 // new values and never old ones, read from the host's side: a removal arrives as a
 // commit holding no value, and a row that left the set is named by the list that no
 // longer holds it.
@@ -372,9 +356,8 @@ func TestTheTrailSpellsWhatMovedAndNotWhatDidNot(t *testing.T) {
 		t.Errorf("the set entry holds %v, want the one row left %v", set.Rows,
 			rows[:1])
 	}
-	// The erased cells are reported as absent and not as the text they used to be,
-	// and not as the empty string: §5.1 counts a committed `Empty` as a change, and
-	// this is the difference between a field cleared and a field never typed.
+	// The erased cells are reported as absent and not as the text they used to
+	// be.
 	var erased []string
 	for _, ch := range head.Changes {
 		if ch.Kind == monshi.ChangeValue && ch.Value.Kind() == monshi.KindNone {
@@ -391,7 +374,7 @@ func TestTheTrailSpellsWhatMovedAndNotWhatDidNot(t *testing.T) {
 		}
 	}
 	// The removed row's address survives in the trail — that is the point of the
-	// list being IDs and not a count — and stops resolving: §5.9's rule about a
+	// list being IDs and not a count — and stops resolving: the rule about a
 	// decision whose unit is gone, reached for a row. The trail records the act and
 	// does not promise the object.
 	older := changes(t, res, 2, monshi.ChangeRows)[0]
@@ -438,9 +421,8 @@ func TestTheTrailSpellsWhatMovedAndNotWhatDidNot(t *testing.T) {
 	}
 }
 
-// TestHistoryPagesAndACursorThatRanOut is the contract §6's `History` has to be
-// writable against: a cursor is a revision, `Next` continues, an empty page ends
-// the walk rather than refusing, and every page is a prefix of the whole trail.
+// History cursors are revision numbers. Next continues the page; an empty page
+// ends the traversal.
 func TestHistoryPagesAndACursorThatRanOut(t *testing.T) {
 	_, dana, _, _, _ := trailPast(t)
 	whole, err := dana.History(ctx(), 0, 0)
@@ -511,8 +493,7 @@ func TestHistoryPagesAndACursorThatRanOut(t *testing.T) {
 	if len(page.Commits) != 0 || page.Next != 0 || page.Revision != 6 {
 		t.Errorf("a cursor past the head is %+v", page)
 	}
-	// A `limit` of 0 means everything, as §6 says of `View`'s path list, and a
-	// negative one means the caller did not know what to ask for.
+	// A `limit` of 0 means everything.
 	if all, err := dana.History(ctx(), 1, 0); err != nil ||
 		len(all.Commits) != len(whole.Commits) {
 		t.Errorf("History(1, 0) is %d commits, err %v", len(all.Commits), err)
@@ -522,7 +503,7 @@ func TestHistoryPagesAndACursorThatRanOut(t *testing.T) {
 		t.Errorf("a negative page fails %v, want INVALID_OPERATION", err)
 	}
 	// A cursor of 0 and a cursor of 1 ask the same question, because revision 0 has
-	// no entry to start at: creating a case commits nothing (§5.6).
+	// no entry to start at: creating a case commits nothing.
 	if also, err := dana.History(ctx(), 1, 6); err != nil ||
 		len(also.Commits) != len(whole.Commits) {
 		t.Errorf("History(1, 6) is %d commits, err %v", len(also.Commits), err)
@@ -584,11 +565,8 @@ func underGrant(path string) bool {
 		strings.HasPrefix(path, "application.notes.")
 }
 
-// TestHistoryKeepsTheRecordAndDropsTheContent is §7's property 7 read against the
-// past: an actor whose grant does not reach a field does not read that field's
-// values in the trail, and does read that a commit happened — the count §5.9's
-// reasoning about an unreadable rejection says a caller is owed, and not the
-// disclosure.
+// History exposes commit envelopes to this actor, but omits changes to fields
+// outside the actor's view.
 func TestHistoryKeepsTheRecordAndDropsTheContent(t *testing.T) {
 	_, dana, _, auditor, rows := trailPast(t)
 	whole, err := dana.History(ctx(), 0, 0)
@@ -628,7 +606,7 @@ func TestHistoryKeepsTheRecordAndDropsTheContent(t *testing.T) {
 	// The records survive with no content at all: the commits the auditor may not
 	// see a byte of are each still a revision with a hand, an operation and a time
 	// beside it. That is what an audit of a case one cannot read consists of, and
-	// §5.9's argument about a wall that is not a refusal applies here — so does the
+	// the argument about a wall that is not a refusal applies here — so does the
 	// fact that a `Transition` record always has no visible changes, which a read
 	// that dropped empty records would delete along with the case's stage history.
 	var silent int
@@ -652,7 +630,7 @@ func TestHistoryKeepsTheRecordAndDropsTheContent(t *testing.T) {
 		t.Errorf("the page counts %d withheld entries and the grant hides %d",
 			res.Withheld, hidden)
 	}
-	// The stage and the head are the same answers §5.7's view gives, which is
+	// The stage and the head are the same answers the view gives, which is
 	// why filtering envelopes would be a disclosure that hides nothing: a
 	// caller who can open the case already holds both numbers, and the trail's
 	// length *is* the head revision.
@@ -667,7 +645,7 @@ func TestHistoryKeepsTheRecordAndDropsTheContent(t *testing.T) {
 			view.Stage)
 	}
 	// And the rows the auditor may see are the same rows the applicant may see, at
-	// the same addresses: the mask prunes declarations, and §5.1's addresses do not
+	// the same addresses: the mask prunes declarations, but the addresses do not
 	// move with it.
 	got := changes(t, res, 2, monshi.ChangeRows)
 	if len(got) != 1 || len(got[0].Rows) != len(rows) {
@@ -687,10 +665,8 @@ func TestHistoryKeepsTheRecordAndDropsTheContent(t *testing.T) {
 	}
 }
 
-// TestAVerdictEntryNamesTheUnitAndCarriesTheAccount is F4's and S1's shape read out
-// of the trail, where a host has only the record to go by: a decision's entry
-// addresses the governing unit and no instance, and the hand and the revision come
-// from the record beside it, because an entry keeps no second copy of either.
+// The envelope identifies the actor and revision; the change identifies the
+// review unit or signature field and its payload.
 func TestAVerdictEntryNamesTheUnitAndCarriesTheAccount(t *testing.T) {
 	_, dana, registrar, _, _ := trailPast(t)
 	res, err := registrar.History(ctx(), 0, 0)
@@ -722,25 +698,22 @@ func TestAVerdictEntryNamesTheUnitAndCarriesTheAccount(t *testing.T) {
 		t.Errorf("the decision entry says %s at %d, want the record's %s at %d",
 			got.By, got.At, head.By, head.Revision)
 	}
-	// The attestation is the other verdict kind, on the field and not the unit, and
-	// the reference is the caller's own words about the artifact — the one payload
-	// §5.10 says the case keeps without interpreting.
+	// The attestation is the other verdict kind, on the field and not the unit.
 	sigs := changes(t, res, 4, monshi.ChangeSign)
 	if len(sigs) != 1 {
 		t.Fatalf("the signature commit holds %d entries: %+v", len(sigs),
 			res.Commits[3])
 	}
 	if got := sigs[0].Path; got != "application.submitted" {
-		t.Errorf("the attestation is at %q, want the field S1 places", got)
+		t.Errorf("the attestation is at %q, want the signature field", got)
 	}
 	if got := sigs[0].Signature; got.Evidence != "envelope-7" ||
 		got.By != "dana" || got.At != res.Commits[3].Revision {
 		t.Errorf("the attestation reports %+v, want the hand, the record's "+
 			"revision and the reference", got)
 	}
-	// And both verdicts read back after the content commit erased them: the state
-	// keeps no standing decision and no signature, and the trail keeps both acts,
-	// which is §5.9's and §5.10's reason those entries were not dead weight.
+	// Both verdicts remain in history after the content commit clears them from
+	// the current state.
 	if erased := changes(t, res, 6, monshi.ChangeValue); len(erased) == 0 {
 		t.Fatal("the last commit wrote no values, so nothing erased either")
 	}
@@ -760,7 +733,7 @@ func TestAVerdictEntryNamesTheUnitAndCarriesTheAccount(t *testing.T) {
 	}
 }
 
-// TestHistoryRefusesWhatViewRefuses is §5.11's boundary with §4's drift rule, and
+// TestHistoryRefusesWhatViewRefuses is the boundary with the drift rule, and
 // it is the read where that rule does its stated work. compat.go compares each
 // slot's *path* and says the reason plainly: dropping the name from the path space
 // "would leave committed history pointing at a path that no longer resolves". A
@@ -782,8 +755,7 @@ func TestHistoryRefusesWhatViewRefuses(t *testing.T) {
 			"cannot show a semantic edit landing")
 	}
 
-	// A rename changes the path space, so §4 refuses it rather than reinterpret
-	// the data, and the trail refuses first rather than render nonsense.
+	// A rename changes the path space.
 	renamed, err := monshi.Load("trail.app", strings.NewReader(strings.Replace(
 		trailSrc, "full_name : string required;",
 		"codename : string required;", 1)))
@@ -843,7 +815,7 @@ func TestHistoryRefusesWhatViewRefuses(t *testing.T) {
 	// because nothing about an ordinal moved — is *not* a refusal. It lands on the
 	// mask, because the mask is evaluated at the read and not recorded at the
 	// commit: the same stored entries, the same order and the same envelopes, now
-	// with nothing withheld. That is the honest half of §5.11's rule, and the
+	// with nothing withheld. That is the honest half of the rule, and the
 	// reason a page stores no promises about who could see what.
 	broadened, err := monshi.Load("trail.app", strings.NewReader(
 		strings.Replace(trailSrc, "allow view application.notes;",
@@ -911,9 +883,11 @@ roles {
         allow view archive.filed_at;
     }
     Visitor {
-        // A grant with almost no reach of its own: the subtree the stage below
-        // hands it is readable only while the case sits there, because §3.5's
-        // mask is a function of roles and stage together.
+        // A grant with almost no reach of its own: the
+        // subtree the stage below hands it is readable
+        // only while the case sits there, because the
+        // mask is a function of roles and stage
+        // together.
         allow view archive;
     }
 }
@@ -947,7 +921,7 @@ stages {
 // so it says something a per-node lookup would get wrong in both directions.
 //
 // A grant on one member of a row discloses that member's values and the row
-// addresses they hang off — because §5.7's view shows a container to anyone it
+// addresses they hang off — because the view shows a container to anyone it
 // shows a child to, and an entry that listed instances the reader could not
 // address would be a page that cannot be read on. It does not disclose the sibling
 // member the grant does not name.
@@ -1093,7 +1067,7 @@ func TestTheTrailIsMaskedAtTheNodeAndStageTheCaseSitsAt(t *testing.T) {
 		t.Errorf("%d of %d records are silent, and every entry was outside "+
 			"the grant", silent, len(moved.Commits))
 	}
-	// The member reader is untouched by the edge, because §3.5's mask moved only
+	// The member reader is untouched by the edge, because the mask moved only
 	// for the grant that was stage-scoped: two reads of one trail that differ
 	// because of who is asking, which is the property the whole rule exists for.
 	after, err := member.History(ctx(), 0, 0)

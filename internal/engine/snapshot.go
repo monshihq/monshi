@@ -6,10 +6,10 @@ import (
 	"github.com/monshihq/monshi/internal/program"
 )
 
-// initialState is the case a `Create` stores: defaults materialized into
-// an empty frame at the definition's initial stage (DESIGN §5, RUNTIME
-// §5.1), with no history. Both store paths build it here, because "what an
-// empty case holds" is one rule and not a per-backend convention.
+// initialState is the case a `Create` stores: defaults materialized into an
+// empty frame at the definition's initial stage, with no history. Both store
+// paths build it here, because "what an empty case holds" is one rule and not a
+// per-backend convention.
 func initialState(img *program.Program) committedState {
 	st := newState(img)
 	st.applyDefaults()
@@ -70,9 +70,9 @@ type committedState struct {
 func (cs committedState) stageName() string { return cs.s.img.StageName(cs.stage) }
 
 // workingState is one actor's uncommitted copy: the committed revision it
-// diverged from, its own revision as the write guard, and the candidate
-// data. DESIGN §6.5's rebase compares `base` against the case's committed
-// revision; §6.2's refusal compares `rev` against the one an edit presented.
+// diverged from, its own revision as the write guard, and the candidate data.
+// The rebase compares `base` against the case's committed revision; the refusal
+// compares `rev` against the one an edit presented.
 type workingState struct {
 	base uint64
 	rev  uint64
@@ -82,7 +82,7 @@ type workingState struct {
 // clone hands out a private copy of a working copy. Two of the store's
 // guarantees rest on it: an abandoned candidate cannot leak into the next
 // session, and a saved candidate cannot be edited behind the store's back.
-// The cost is one row copy per operation, which is the cost §5.1's frame
+// The cost is one row copy per operation, which is the cost the frame
 // already pays — a working copy *is* a frame's candidate half, so this is
 // the same bytes moved once, not twice.
 func (w *workingState) clone() workingState {

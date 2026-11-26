@@ -2,10 +2,8 @@ package schema
 
 import "sort"
 
-// analyze runs the static semantics of SYNTAX.md §5 over the parsed AST
-// and fills the compiled schema. It is best-effort: every independent
-// problem is reported, and constructs whose resolution failed are skipped
-// by later checks instead of cascading false errors.
+// analyze resolves declarations and checks the model. It collects independent
+// errors and skips checks that would only repeat an earlier resolution failure.
 func analyze(def *astDef, s *Schema) {
 	a := &analyzer{
 		s:         s,
@@ -56,13 +54,13 @@ type analyzer struct {
 	typePos   map[string]pos
 	roles     map[string]*Role
 	roleAST   map[string]*astRoleDecl
-	tags      map[string]*Type // enum tag → owning enum type (N3 global)
+	tags      map[string]*Type // enum tag → owning enum type
 	formNodes map[string]*Node
 	nodes     map[string]*Node // absolute form-rooted path → node
 	stages    map[string]*Stage
 	stagePos  map[string]pos
-	rootNS    map[string]pos // forms ∪ stages ∪ types (N3)
-	upperNS   map[string]pos // roles ∪ enum tags (N3)
+	rootNS    map[string]pos // forms ∪ stages ∪ types
+	upperNS   map[string]pos // roles ∪ enum tags
 	builtins  map[string]*Type
 	bad       map[*Type]bool // types whose declaration failed; dependents skip checks
 	usedRoles map[string]bool
@@ -70,11 +68,11 @@ type analyzer struct {
 	sigs      []*Node // signature-typed fields, declaration order
 	sigRef    map[*Node]*astOperand
 	sites     []*site
-	allows    map[string]map[string]pos // P5: role → "perm\x00target"
+	allows    map[string]map[string]pos // role → "perm\x00target"
 	denies    map[string]map[string]pos
 }
 
-// site is one condition to type-check after the trees exist (§5.3-F6).
+// site is one condition to type-check after the trees exist.
 type site struct {
 	owner   *Node  // declaration bearing the condition; nil for transitions
 	stage   *Stage // stage owning a transition edge
@@ -134,8 +132,8 @@ func walkPath(form *Node, segs []string) *Node {
 	return cur
 }
 
-// checkBlocks enforces §3.1: order, uniqueness and obligation of the four
-// top-level blocks, and non-empty forms/stages.
+// checkBlocks validates block order, uniqueness and required blocks before
+// inspecting their contents.
 func (a *analyzer) checkBlocks(def *astDef) {
 	type blk struct {
 		word string

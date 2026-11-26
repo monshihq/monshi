@@ -1,6 +1,6 @@
 package engine
 
-// The storage contract seen from inside (DESIGN §8, RUNTIME §10): the two
+// The storage contract seen from inside: the two
 // implementations of `caseBackend` asked the same questions, with the same
 // refuser, over the same definition — and answered with the same bytes of
 // refusal. What the adapter exists to guarantee is that a refusal does
@@ -42,7 +42,7 @@ stages {
 // store the default runtime has always run on, and the adapter over
 // fresh `MemStorage` with the same definition registered — and one fixed
 // clock, so a commit record from each can be compared down to its
-// stamp. The clock is the point of the field: `at` is data (§5.11), and
+// stamp. The clock is the point of the field: `at` is data, and
 // two backends that disagree about the moment would be disagreeing about
 // the trail.
 func pairBackends(t *testing.T) (*Definition, *caseStore, *hostBackend) {
@@ -211,9 +211,6 @@ func TestTheTwoBackendsRefuseWithOneVoice(t *testing.T) {
 				hw, 0)
 			return e
 		}())
-	// And the defect guard §5.8 pays for a rebase lineage no caller of
-	// this package can reach: same numbers, same SCHEMA_MISMATCH, on a
-	// path only in-package tests (and the `Rebase` arithmetic) can walk.
 	sameRefusals(t, "move a lineage outside the trail",
 		func() error {
 			_, e := mem.saveWorking(bg, newRefuser("rebase", mID), "dana", 0,

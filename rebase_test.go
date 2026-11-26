@@ -1,6 +1,6 @@
 package monshi_test
 
-// Synchronization seen from outside the module (DESIGN §6.5; RUNTIME §5.8):
+// Synchronization seen from outside the module:
 // what a stale draft can and cannot do once the case moved underneath it, what
 // a rebase brings in, what it refuses to decide, and what `Discard` gives up.
 //
@@ -11,16 +11,9 @@ package monshi_test
 // history entries they are read out of — is in `rebase_store_test.go`, in
 // package, because no host can see any of it.
 //
-// The fixture states each claim with one declaration. Two roles with the same
-// grants and different identities are what make a stale pair at all: a working
-// copy belongs to a *user* (invariant 4), so two handles of one identity would
-// share the draft and could never disagree with the case. `fee` carries a
-// default, and it is not decoration — the merge's third version has to answer
-// what the copy descended from at a cell nobody wrote, and a field whose base
-// is its default rather than its absence is the only thing in a definition that
-// can tell those two apart. `Shadow` may write a field it may not see, which is
-// how §7's property 7 is stated at all: an actor with no view grant anywhere is
-// the one whose clashes have to be named without naming anything.
+// Two users with the same grants hold independent drafts. The restricted actor
+// lets these tests distinguish a visible conflict from one whose field name
+// would disclose another user's edit.
 
 import (
 	"strconv"
@@ -119,7 +112,7 @@ func mustRebase(t *testing.T, c monshi.Case) monshi.RebaseResult {
 
 // textAt and moneyAt read one cell of one actor's *draft* through the view,
 // which is the only exported way these tests can see a working state. A path
-// is selected alone rather than read out of a wider view because §5.7's answer
+// is selected alone rather than read out of a wider view because the answer
 // for content the actor may not see is a refusal, and a refusal is what some of
 // these tests are asserting.
 func textAt(t *testing.T, c monshi.Case, path string) string {
@@ -132,9 +125,7 @@ func moneyAt(t *testing.T, c monshi.Case, path string) decimal.Decimal {
 	return node(t, look(t, c, path), path).Value.Decimal()
 }
 
-// isBlank is how a test says a cell holds nothing rather than the empty
-// string: §5.7 renders an untouched field, and only its kind says it was never
-// written.
+// isBlank is how a test says a cell holds nothing rather than the empty string.
 func isBlank(t *testing.T, c monshi.Case, path string) bool {
 	t.Helper()
 	return node(t, look(t, c, path), path).Value.Kind() == monshi.KindNone
@@ -153,8 +144,6 @@ func committedFee(t *testing.T, c monshi.Case, at string) uint64 {
 // that publishes it. It answers with both numbers a following call needs — the
 // case's new revision, which is what another actor's copy is now behind, and
 // the actor's own working revision, which the next batch *from them* presents.
-// A §5.8 test is about two lineages at once, and reading one out of the other
-// is how a fixture gets the order wrong.
 func submitEdits(t *testing.T, c monshi.Case, working uint64,
 	edits ...monshi.Edit) (uint64, uint64) {
 	t.Helper()
@@ -166,8 +155,8 @@ func submitEdits(t *testing.T, c monshi.Case, working uint64,
 	return res.Revision, at
 }
 
-// mustAdd is a row creation, answered with the path §5.1 issued for it — the
-// only address the other actor's draft will hold it under too.
+// mustAdd returns the stable row path issued by Add. Both actors use that
+// address across rebases.
 func mustAdd(t *testing.T, c monshi.Case, working uint64,
 	path string) (string, uint64) {
 	t.Helper()
@@ -183,7 +172,7 @@ func mustAdd(t *testing.T, c monshi.Case, working uint64,
 
 // assertDraftAt is how a test says an operation left the copy alone. A batch
 // built on a number the copy no longer carries is refused before it resolves or
-// writes anything (§5.1's all-or-none), and the refusal names the number the
+// writes anything (the all-or-none), and the refusal names the number the
 // stored copy really carries — which is the only exported way these tests can
 // read a working revision without changing it.
 func assertDraftAt(t *testing.T, c monshi.Case, want uint64) {
@@ -211,9 +200,9 @@ func TestAStaleDraftSubmitsOnlyAfterRebasing(t *testing.T) {
 		t.Fatalf("the case is at %d, want 1", at)
 	}
 
-	// §5.4's base guard is the reason this file exists: a submit of a draft
-	// that descends from a revision the case no longer has is refused, and no
-	// amount of editing fixes it.
+	// The base guard is the reason this file exists: a submit of a draft that
+	// descends from a revision the case no longer has is refused, and no amount
+	// of editing fixes it.
 	if _, err := dana.Submit(ctx(), "application", base); !monshi.Failed(err,
 		monshi.StaleRevision) {
 		t.Fatalf("submitting a stale draft = %v, want STALE_REVISION", err)
@@ -229,9 +218,6 @@ func TestAStaleDraftSubmitsOnlyAfterRebasing(t *testing.T) {
 			res.Working, base+1)
 	}
 
-	// The whole point of §6.5's "synchronization is mandatory before a
-	// subsequent submit": the same submit now goes through, and the commit it
-	// writes holds both actors' content, not one of them.
 	sub, err := dana.Submit(ctx(), "application", res.Working)
 	if err != nil {
 		t.Fatalf("submitting after a rebase: %v", err)
@@ -289,8 +275,7 @@ func TestRebaseReportsTheFieldBothSidesChanged(t *testing.T) {
 	rt, dana := rebaseCase(t, applicant)
 	elliot := openAs(t, rt, dana.ID(), rebaseClerk)
 
-	// Both actors moved the same cell to different values, and this is the
-	// one case §6.5 will not decide for them.
+	// Both actors moved the same cell to different values.
 	base := mustEdit(t, dana, 0,
 		monshi.Set("application.fee",
 			monshi.Decimal(decimal.RequireFromString("7.50"))))
@@ -305,10 +290,7 @@ func TestRebaseReportsTheFieldBothSidesChanged(t *testing.T) {
 			got)
 	}
 
-	// The refusal changes nothing, which is §6.5's "a failed/conflicting
-	// rebase leaves the previous working state intact" and the reason the
-	// merge runs on a clone: same draft, same base, same revision number for
-	// the next batch.
+	// The refusal changes nothing.
 	if res.Base != 0 {
 		t.Errorf("a refused rebase reports base %d, want the copy's own 0",
 			res.Base)
@@ -420,7 +402,7 @@ func TestRebaseBringsInARowTheCaseAdded(t *testing.T) {
 
 	mustRebase(t, dana)
 
-	// §5.1's stable IDs are what this test is really about: the row arrives in
+	// The stable IDs are what this test is really about: the row arrives in
 	// another actor's draft under the *same* address the case issued, because
 	// nothing about a rebase renumbers a row that was created elsewhere.
 	res := look(t, dana, "application.holders")
@@ -472,10 +454,6 @@ func TestRebaseDropsARowTheCaseRemoved(t *testing.T) {
 	mustEdit(t, dana, 0, monshi.Set("application.name", monshi.Text("dana")))
 	mustRebase(t, dana)
 
-	// The case then removes it, and the draft's only claim on the row is that
-	// it contains the committed value: §6.5's "committed changes are
-	// integrated into the working state" means the deletion lands too, and
-	// with no conflict to report.
 	if rev, _ := submitEdits(t, elliot, his, monshi.Remove(holder)); rev != 2 {
 		t.Fatalf("the case is at %d after the removal, want 2", rev)
 	}
@@ -494,10 +472,7 @@ func TestRebaseRefusesToInterleaveTwoSetsOfAddedRows(t *testing.T) {
 	rt, dana := rebaseCase(t, applicant)
 	elliot := openAs(t, rt, dana.ID(), rebaseClerk)
 
-	// Both actors added a row to the same collection. Unioning the two lists
-	// is the part of §6.5 that is deferred — it is a decision about order, and
-	// about whose row the user sees first — so the merge says the collection
-	// clashed rather than guessing an answer that would look like a fact.
+	// Both actors added a row to the same collection.
 	danaRows, err := dana.Update(ctx(), 0,
 		monshi.Add("application.holders"), monshi.Add("application.holders"))
 	if err != nil {
@@ -618,9 +593,8 @@ func TestRebaseNamesAVeiledClashByItsFormOnly(t *testing.T) {
 			" CONFLICT: a silent success would move his base past an edit"+
 			" he can neither see nor resolve", err)
 	}
-	// The field's name is definition text and the value is not, but the *fact*
-	// that this particular cell moved is a fact about somebody else's write.
-	// §7's property 7 is held by naming the form and nothing under it.
+	// Naming the field would disclose which hidden cell changed. Report only
+	// its form.
 	if got := strings.Join(res.Conflicts, " "); got != "application" {
 		t.Errorf("Conflicts = %q, want the form alone", got)
 	}
@@ -665,9 +639,7 @@ func TestRebaseWritesNothingWhenTheCopyIsAlreadySynchronized(t *testing.T) {
 	elliot := openAs(t, rt, dana.ID(), rebaseClerk)
 
 	// Two shapes of "nothing to merge", and they are different claims. One
-	// holds no copy at all — dana, who has thrown hers away, and whom §6.5's
-	// "a new working copy starts from the latest committed state" says is
-	// already synchronized. The other holds a copy that descends from the
+	// holds no copy at all. The other holds a copy that descends from the
 	// case's newest revision already: elliot, who has just committed.
 	committedFee(t, elliot, "25.00")
 	if err := dana.Discard(ctx(), 0); err != nil {
@@ -684,7 +656,7 @@ func TestRebaseWritesNothingWhenTheCopyIsAlreadySynchronized(t *testing.T) {
 			res.Base)
 	}
 
-	// And nothing was allocated on the way to saying so. This is §5.7's rule
+	// And nothing was allocated on the way to saying so. This is the rule
 	// for `View` — an operation that reads cannot create per-user state —
 	// applied to the one other operation that walks committed content and
 	// reports on it. It is observable: a draft the call had written would sit
@@ -709,9 +681,7 @@ func TestRebaseWritesNothingWhenTheCopyIsAlreadySynchronized(t *testing.T) {
 	}
 	assertDraftAt(t, elliot, before.Working)
 
-	// A copy with no lineage to move still answers the question a submit asks,
-	// which is the reason §6.5 makes synchronization a call and not an error:
-	// dana's next submit needs no rebase at all.
+	// A copy with no lineage to move still answers the question a submit asks.
 	if _, err := dana.Submit(ctx(), "application", 1); err != nil {
 		t.Fatalf("submitting a draft made after a discard: %v", err)
 	}
@@ -731,9 +701,9 @@ func TestDiscardDropsTheDraftAndLeavesTheCase(t *testing.T) {
 		t.Fatalf("Discard: %v", err)
 	}
 
-	// §6.5's promise, stated as the view: the draft is gone, and what a new
-	// one is made from is the latest committed state — not the revision the
-	// discarded copy descended from, and not any of its values.
+	// The promise, stated as the view: the draft is gone, and what a new one is
+	// made from is the latest committed state — not the revision the discarded
+	// copy descended from, and not any of its values.
 	if got := moneyAt(t, dana, "application.fee"); !got.Equal(
 		decimal.RequireFromString("25")) {
 		t.Errorf("the draft now reads %s for a discarded field, want the"+
@@ -769,8 +739,7 @@ func TestDiscardGuardsTheRevisionItWasShown(t *testing.T) {
 		monshi.Text("second")))
 
 	// The number the caller presents is the one it observed, and a discard
-	// asked with an old one would delete work this session never saw (§6.5's
-	// reason, and invariant 4's).
+	// asked with an old one would delete work this session never saw.
 	err := dana.Discard(ctx(), w)
 	if !monshi.Failed(err, monshi.StaleRevision) {
 		t.Fatalf("discarding at %d = %v, want STALE_REVISION", w, err)
@@ -810,25 +779,23 @@ func TestDiscardOfAnAbsentDraftIsSuccessOnlyForTheRightNumber(t *testing.T) {
 	}
 
 	// Anything else is a caller that believes it holds edits the store has
-	// never heard of, which is the bug §10 says not to launder into a refusal
-	// about the case.
+	// never heard of.
 	if err := dana.Discard(ctx(), 4); !monshi.Failed(err, monshi.InvalidOp) {
 		t.Errorf("discarding at 4 with no draft = %v, want INVALID_OPERATION",
 			err)
 	}
 
 	// Which is a claim about *this* actor's copies and not about the case:
-	// elliot holds a draft that has never been at 4, so for him the same
-	// number is not an invention but a copy that has moved, and he hears the
-	// guard `Update` and `Submit` give. Invariant 4 makes working state
-	// per-user, and so it makes this refusal.
+	// elliot holds a draft that has never been at 4, so for him the same number
+	// is not an invention but a copy that has moved, and he hears the guard
+	// `Update` and `Submit` give.
 	if err := elliot.Discard(ctx(), 4); !monshi.Failed(err,
 		monshi.StaleRevision) {
 		t.Errorf("the clerk discarding at 4 = %v, want STALE_REVISION", err)
 	}
 }
 
-// TestSynchronizationRefusesAHandleOnNothing is §6.5's two operations seen
+// TestSynchronizationRefusesAHandleOnNothing is the two operations seen
 // from the one caller that cannot be answered any other way: a host that
 // ignored `Create`'s error holds a zero Case, and the answer must be the
 // store's own NOT_FOUND rather than a merge attempted against whichever record

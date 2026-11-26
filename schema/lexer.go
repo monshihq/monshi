@@ -2,7 +2,7 @@ package schema
 
 import "unicode/utf8"
 
-// lex tokenizes one definition source (§2). It recovers from invalid
+// lex tokenizes one definition source. It recovers from invalid
 // characters and bad escapes, and stops only at an unterminated string or
 // block comment, which leave the remainder uninterpretable.
 func lex(src string) ([]token, []Problem) {

@@ -1,9 +1,9 @@
 package engine
 
-// RUNTIME §3.9's seam: caller text in, ordinals and a row address out. Most of
-// what is asserted here is what resolution *refuses*, because that is the
-// property the operations depend on: there is no near miss, and no partial
-// answer for an operation to interpret.
+// The seam: caller text in, ordinals and a row address out. Most of what is
+// asserted here is what resolution *refuses*, because that is the property the
+// operations depend on: there is no near miss, and no partial answer for an
+// operation to interpret.
 
 import (
 	"fmt"
@@ -38,7 +38,7 @@ func TestResolveWalksTheTreesIndex(t *testing.T) {
 		}
 	}
 
-	// Member names are scoped to their container (N3), so one last segment at
+	// Member names are scoped to their container, so one last segment at
 	// two depths names two slots and only the absolute path decides which.
 	// This is why resolution walks rather than searches.
 	appNote := slotByPath(t, img, "application.note")
@@ -65,10 +65,8 @@ func TestResolveWalksTheTreesIndex(t *testing.T) {
 				tc.path, r.slot, ok, tc.want)
 			continue
 		}
-		// A member of a collection has no single value until an instance
-		// is named; a role-typed field is a value like any other, since
-		// it is being a *guard operand* that E2 forbids, not being
-		// addressable.
+		// A member of a collection has no single value until an instance is
+		// named.
 		member := img.CollOf(tc.want) != 0 && img.CollOf(tc.want) != tc.want
 		if r.hasValue == member {
 			t.Errorf("resolve(%q) hasValue = %v, want %v",
@@ -113,7 +111,7 @@ func TestResolveAddressesInstances(t *testing.T) {
 	cid, _, _ := s.addAt(cells, instPath{{rows, rid}})
 
 	// A repeated group's instance is an address; a repeated field's instance
-	// is a value of that field (§5.1).
+	// is a value of that field.
 	r, ok := s.resolve(fmt.Sprintf("f.rows.%d", rid))
 	if !ok || r.hasValue || r.slot != rows || r.depth != 1 {
 		t.Errorf("resolve(f.rows.%d) = (%d,value=%v,depth=%d,%v), want the row",
@@ -214,7 +212,7 @@ func TestResolveNamesOrdinals(t *testing.T) {
 		}
 	}
 	// Ordinal 0 is "no such thing" everywhere, so a miss cannot be confused
-	// with the zero value of a fresh variable (§3.1).
+	// with the zero value of a fresh variable.
 	for _, name := range []string{"application ", "Application", "applicant",
 		"person", "Draft", "", "all", "PERSON "} {
 		if id, ok := img.RoleByName(name); ok || id != 0 {
@@ -232,7 +230,7 @@ func TestResolveNamesOrdinals(t *testing.T) {
 	}
 }
 
-// TestResolveAllocatesNothing is RUNTIME §3.9's claim in one number: a path
+// TestResolveAllocatesNothing is the claim in one number: a path
 // request costs an answer, not a graph. The instance path lives in a fixed
 // array inside that answer, name segments are sliced without copying, and an
 // interned path is exactly the string the front end interned — so a request

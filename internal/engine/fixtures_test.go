@@ -10,8 +10,7 @@ import (
 	"github.com/monshihq/monshi/schema"
 )
 
-// specExample returns the language document's complete example.
-var specExample = testfixture.Example
+var registrationExample = testfixture.Example
 
 // compile checks source through the real front end and lowers it. Errors
 // fail the test; warnings are returned for the caller to judge.
@@ -33,9 +32,9 @@ func compile(t *testing.T, src string) (*program.Program, []schema.Problem) {
 
 func lowerExample(t *testing.T) *program.Program {
 	t.Helper()
-	img, warnings := compile(t, specExample(t))
+	img, warnings := compile(t, registrationExample(t))
 	if len(warnings) != 0 {
-		t.Fatalf("the §7 example must compile clean, got %s", join(diagnostics(warnings)))
+		t.Fatalf("the registration example must compile clean, got %s", join(diagnostics(warnings)))
 	}
 	return img
 }
@@ -69,10 +68,8 @@ func slotByPath(t *testing.T, img *program.Program, path string) program.NodeID 
 	return found[0]
 }
 
-// nestedSrc is the shape the §7 example cannot express: a repeated field, and
-// a collection inside a collection. SYNTAX §4 allows `multiple` on a field and
-// on a group, and nothing forbids a group inside a group, so the row model has
-// to answer for all three at once.
+// nestedSrc is the shape the registration example cannot express: a repeated
+// field, and a collection inside a collection.
 const nestedSrc = `
 roles {
     A { allow view, edit all; }

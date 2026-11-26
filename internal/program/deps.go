@@ -40,7 +40,7 @@ func (l *lowerer) dependencies() {
 	}
 	l.img.depOwn = flat
 
-	// §5.3's closure walk needs a queue bound known at lowering: no slot is
+	// The closure walk needs a queue bound known at lowering: no slot is
 	// enqueued twice, so the number of slots is the bound.
 	l.img.depBound = uint32(n)
 }

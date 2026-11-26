@@ -5,7 +5,7 @@ import (
 	"strconv"
 )
 
-// collectRoles registers the uppercase namespace entries (N3) for roles.
+// collectRoles registers the uppercase namespace entries for roles.
 func (a *analyzer) collectRoles(def *astDef) {
 	for _, rb := range def.roles {
 		for _, d := range rb.decls {
@@ -42,8 +42,8 @@ func (a *analyzer) declareUpper(p pos, name string, enumType *Type) {
 	}
 }
 
-// collectTypes checks type declarations (T1–T3) and registers custom
-// types in the global root namespace (N3).
+// collectTypes checks type declarations and registers custom
+// types in the global root namespace.
 func (a *analyzer) collectTypes(def *astDef) {
 	for _, tb := range def.types {
 		for _, d := range tb.decls {
@@ -77,7 +77,7 @@ func (a *analyzer) collectTypes(def *astDef) {
 						a.declareUpper(pos{tg.line, tg.col}, tg.name, t)
 						t.Tags = append(t.Tags, tg.name)
 					}
-				default: // T1: signature, options, custom, role — no other bases
+				default: // signature, options, custom, role — no other bases
 					t.Base = d.base.base
 					a.errf(pos{d.base.line, d.base.col}, CodeInvalidTypeBase, d.base.base)
 					a.bad[t] = true
@@ -90,7 +90,8 @@ func (a *analyzer) collectTypes(def *astDef) {
 	}
 }
 
-// decimalArgs enforces T2: 1 ≤ p ≤ 38, 0 ≤ s ≤ p.
+// decimalArgs checks that precision is 1 through 38 and scale is between zero
+// and precision.
 func (a *analyzer) decimalArgs(te *astTypeExpr, p pos) (int, int, bool) {
 	pr, err1 := strconv.Atoi(te.precision)
 	sc, err2 := strconv.Atoi(te.scale)

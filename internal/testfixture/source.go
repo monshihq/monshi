@@ -35,16 +35,15 @@ func Example(t testing.TB) string {
 	_, example, open := strings.Cut(section, "```\n")
 	src, _, close := strings.Cut(example, "\n```")
 	if !ok || !open || !close {
-		t.Fatal("missing fenced example in SYNTAX.md §7")
+		t.Fatal("missing fenced example in docs/SYNTAX.md")
 	}
 	return src + "\n"
 }
 
-// wideSrc is §8's generated corpus: one form, 40 fields, 6 roles, 5
-// stages, and one collection whose instances a request would carry. The
-// roles carry `view, edit all` rather than view alone so a benchmark on
-// this corpus can hold content: an empty frame makes a `View` traversal
-// cheaper than the profile §8 describes, and an `Update` on it impossible.
+// wideSrc is the generated corpus: one form, 40 fields, 6 roles, 5 stages, and
+// one collection whose instances a request would carry. The roles carry `view,
+// edit all` rather than view alone so a benchmark on this corpus can hold
+// content.
 func Wide(tb testing.TB) string {
 	tb.Helper()
 	var w strings.Builder
@@ -86,8 +85,8 @@ func Wide(tb testing.TB) string {
 	return w.String()
 }
 
-// parse is the front end, measured separately so §8's "schema → image"
-// row is not silently charged the lexer.
+// Parse checks a benchmark definition before timing compilation so the
+// measurement excludes lexing and parsing.
 func Parse(tb testing.TB, src string) *schema.Schema {
 	tb.Helper()
 	s, err := schema.Parse(strings.NewReader(src))

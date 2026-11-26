@@ -2,7 +2,7 @@ package engine
 
 import "sync"
 
-// registry is the definition registry (DESIGN §3). Its contents change only
+// registry is the definition registry. Its contents change only
 // through an explicit act on Runtime, so the value a handle carries — a
 // pointer to it — is immutable even while the map under it is not. A
 // Definition never changes after Load; "reloading" replaces the entry.

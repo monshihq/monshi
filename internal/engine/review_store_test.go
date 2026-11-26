@@ -1,12 +1,11 @@
 package engine
 
-// In-package tests for where a decision lives and what moves it (RUNTIME
-// §5.9). What a host observes — that a review commits, that a refusal arrives
-// with the right category — is asserted externally in review_test.go. This file
-// asserts the four things no host call reaches: the review table's allocation
-// and replacement, §4.2's reset as `commit` applies it, the two non-content
-// readers of a `chgReview` entry, and the gap list a destination's `require`
-// builds.
+// In-package tests for where a decision lives and what moves it. What a host
+// observes — that a review commits, that a refusal arrives with the right
+// category — is asserted externally in review_test.go. This file asserts the
+// four things no host call reaches: the review table's allocation and
+// replacement, the reset as `commit` applies it, the two non-content readers of
+// a `chgReview` entry, and the gap list a destination's `require` builds.
 
 import (
 	"testing"
@@ -14,15 +13,11 @@ import (
 	"github.com/monshihq/monshi/internal/program"
 )
 
-// reviewSrc states each of §4.2's shapes with one declaration: a verifiable
-// form (`application`), a `verifiable` *field* inside it (F3's governed cell
-// slot, which is the case §5.8's merge must not read as content), a `verifiable
-// multiple` (F4's whole-collection decision), and a unit that is not a form at
-// all (`archive.checks`, guarded so §5.2's pruning has something to remove).
-//
-// The nested annotations are what SYNTAX F3 says the front end warns about,
-// which is why this fixture is compiled by `mustLowerSource` and not held to
-// `lowerExample`'s warning-free rule.
+// reviewSrc states each of the shapes with one declaration: a verifiable
+// form (`application`), a `verifiable` *field* inside it (the governed cell
+// slot, which is the case the merge must not read as content), a `verifiable
+// multiple` (the whole-collection decision), and a unit that is not a form at
+// all (`archive.checks`, guarded so the pruning has something to remove).
 const reviewSrc = `
 types {
     legal_form : enum(PERSON, COMPANY);
@@ -130,7 +125,7 @@ func slotAt(t *testing.T, img *program.Program, path string) program.NodeID {
 // decided is the table one review of `unit` would have stored, built by hand so
 // the reset tests start from a decision instead of from the operation that
 // makes one.
-// resetBy runs §5.6's verification reset over a diff the way the store does, and
+// resetBy runs the verification reset over a diff the way the store does, and
 // hands back the table it produced. The list is one effect rather than the
 // package's two, so that a test about a decision is not also a test about a
 // signature.
@@ -203,7 +198,7 @@ func TestADecisionReplacesTheTableAndNotTheEntry(t *testing.T) {
 }
 
 func TestAReviewCommitDoesNotResetItself(t *testing.T) {
-	// §5.6's kind filter, which is the difference between a decision that stands
+	// The kind filter, which is the difference between a decision that stands
 	// and one that unmakes itself: the entry names a unit whose content did not
 	// move, and a reset that read a verdict as content would clear the mark the
 	// same commit is writing. The driver asks the content kinds positively, so
@@ -280,10 +275,7 @@ func TestAContentCommitResetsItsUnit(t *testing.T) {
 	if reviewAt(got, unit).code != verifPending {
 		t.Error("a changed unit still read APPROVED after the reset")
 	}
-	// A reset is the absence of a decision and not a third state: the author and
-	// the comment go with it, or a host renders "elliot rejected this" about
-	// content nobody has looked at. §4.2 keeps that account in the history,
-	// which is why clearing the entry here loses no fact.
+	// A reset is the absence of a decision and not a third state.
 	st := reviewAt(got, unit)
 	if st.by != "" || st.at != 0 || st.note != "" {
 		t.Errorf("the reset left %q@%d %q standing", st.by, st.at, st.note)
@@ -291,7 +283,7 @@ func TestAContentCommitResetsItsUnit(t *testing.T) {
 }
 
 func TestARowCommitResetsItsUnit(t *testing.T) {
-	// F4 says a `verifiable multiple` is reviewed as a whole, so a row appearing
+	// a `verifiable multiple` is reviewed as a whole, so a row appearing
 	// under it is content the reviewer never saw. The entry's slot is the
 	// collection's declaration, whose `verif` is the governing form: skipping
 	// `chgRows` would let an approval stand over new instances.
@@ -364,7 +356,7 @@ func TestAPendingScanListsGoverningUnitsOnce(t *testing.T) {
 	s := newState(img)
 	s.applyDefaults()
 
-	// Both nested annotations are governed by the form (F3), so a scan of the
+	// Both nested annotations are governed by the form, so a scan of the
 	// form's subtree answers one question and not three.
 	audit := slotAt(t, img, "application.audit")
 	off := slotAt(t, img, "application.signed_off")
@@ -380,8 +372,8 @@ func TestAPendingScanListsGoverningUnitsOnce(t *testing.T) {
 		t.Errorf("the gap is %v, want a decision gap at the unit's path",
 			gaps[0])
 	}
-	// Approved: nothing to ask. Rejected: still asked for, because §5.5's
-	// conjunct names APPROVED and no other decision.
+	// Approved: nothing to ask. Rejected: still asked for, because the conjunct
+	// names APPROVED and no other decision.
 	ok := decided(img, app, verifApproved, "")
 	if g := pendingUnits(&s, ok, app); len(g) != 0 {
 		t.Errorf("an approved form lists %d units", len(g))
@@ -393,9 +385,7 @@ func TestAPendingScanListsGoverningUnitsOnce(t *testing.T) {
 }
 
 func TestAPendingScanHonoursPruning(t *testing.T) {
-	// `archive.checks` is a unit that is not a form, and it is guarded: with the
-	// gate false, §5.2 takes its subtree out of the effective state, and the
-	// destination cannot ask for a decision about content nobody may see.
+	// `archive.checks` is a unit that is not a form.
 	img := mustLowerSource(t, reviewSrc)
 	archive := slotAt(t, img, "archive")
 	checks := slotAt(t, img, "archive.checks")
@@ -430,10 +420,10 @@ func TestAPendingScanHonoursPruning(t *testing.T) {
 }
 
 func TestAReviewEntryIsNotAMergeableChange(t *testing.T) {
-	// §5.8's hazard, made concrete. `application.signed_off` is both a cell slot
-	// and a governed node, so a merge that read a decision as a base value would
-	// answer "what did the case hold here" with "who approved it" — and a draft
-	// that never touched the box would be told the case says `true`.
+	// The hazard, made concrete. `application.signed_off` is both a cell slot
+	// and a governed node, so a merge that read a decision as a base value
+	// would answer "what did the case hold here" with "who approved it" — and a
+	// draft that never touched the box would be told the case says `true`.
 	img := mustLowerSource(t, reviewSrc)
 	off := slotAt(t, img, "application.signed_off")
 	window := []commitRecord{{revision: 1, changes: []commitChange{
@@ -481,10 +471,7 @@ func newReviewMerge(t *testing.T, img *program.Program) *rebaser {
 }
 
 func TestAReviewCommitSaysWhoAndWhen(t *testing.T) {
-	// The entry's shape is the claim: a decision writes one entry, at the unit,
-	// with the decision as its payload and no instance path — F4 means a
-	// decision is never about one row — while the author and the moment are the
-	// record's own and not repeated in the payload.
+	// The entry's shape is the claim.
 	rt, img, c := reviewCase(t, rvRegistrar)
 	unit := slotAt(t, img, "application")
 	res, err := c.Review(ctx(), "application", ReviewReject, 0, "incomplete")

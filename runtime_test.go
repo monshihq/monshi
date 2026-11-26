@@ -1,10 +1,6 @@
 package monshi_test
 
-// External tests for the exported half of milestone 2 (RUNTIME §10): the
-// registry, the handles, and what a host observes when a definition is
-// reloaded under a name cases were already created against. Everything here
-// sees only exported names — no `schema` import, no image, no ordinal —
-// which is the claim §10 makes about the seam.
+// Everything here sees only exported names.
 
 import (
 	"context"
@@ -17,7 +13,7 @@ import (
 	"github.com/monshihq/monshi"
 )
 
-// The §7 example's shape is asserted elsewhere; these sources are the
+// The registration example's shape is asserted elsewhere; these sources are the
 // smallest definitions that express one claim each.
 const hostDef = `
 roles {
@@ -47,13 +43,11 @@ var widened = strings.Replace(hostDef,
 var grown = strings.Replace(hostDef, "score : integer default 3;",
 	"score : integer default 3;\n        extra : string;", 1)
 
-// ctx is the caller's context. The in-memory store has nothing to cancel
-// yet, and DESIGN §6 says an operation that will do I/O takes one anyway, so
-// a host writes the call the same way in both milestones.
+// ctx supplies a request context for host-facing operations.
 func ctx() context.Context { return context.Background() }
 
 // dana is the actor most of these cases are created and opened by: an
-// identity plus the role the host says it authenticated (DESIGN §4.3).
+// identity plus the role the host says it authenticated.
 var dana = monshi.Actor{User: "dana", PrimaryRole: "Applicant"}
 
 func define(t *testing.T, rt *monshi.Runtime, id, src string) *monshi.Definition {
@@ -81,7 +75,7 @@ func TestDefineCreateAndOpenReadTheCase(t *testing.T) {
 	}
 
 	// A new case is at the initial stage and revision 0, and creating it
-	// appended no commit (DESIGN §5, invariant 2).
+	// appended no commit.
 	stage, err := c.Stage(ctx())
 	if err != nil {
 		t.Fatalf("Stage: %v", err)
@@ -93,7 +87,7 @@ func TestDefineCreateAndOpenReadTheCase(t *testing.T) {
 		t.Errorf("Revision = %d, %v, want 0 and no error", rev, err)
 	}
 
-	// Open resolves the definition through the case's own record (DESIGN §3),
+	// Open resolves the definition through the case's own record,
 	// so a host that only kept the CaseID still gets the right schema.
 	got, err := rt.Open(ctx(), c.ID(), monshi.Actor{User: "elliot"})
 	if err != nil {
@@ -114,9 +108,9 @@ func TestDefineCreateAndOpenReadTheCase(t *testing.T) {
 	}
 }
 
-// DESIGN §3: duplicate IDs are rejected, and the definition already
-// registered stays in place. Two Loads of one source are independent and
-// both valid — naming them the same is the host's mistake to hear about.
+// duplicate IDs are rejected, and the definition already registered stays in
+// place. Two Loads of one source are independent and both valid — naming them
+// the same is the host's mistake to hear about.
 func TestRegisterRefusesADuplicateID(t *testing.T) {
 	rt := monshi.NewRuntime()
 	first := define(t, rt, "dup", hostDef)
@@ -163,7 +157,7 @@ func TestRegisterRefusesADuplicateID(t *testing.T) {
 	}
 }
 
-// A definition that did not compile never reaches the registry (§7.5): a
+// A definition that did not compile never reaches the registry: a
 // host cannot half-install a schema and then open cases against it.
 func TestDefineRefusesSourceThatDoesNotCompile(t *testing.T) {
 	rt := monshi.NewRuntime()
@@ -200,7 +194,7 @@ func TestOpenRefusesWhatItCannotResolve(t *testing.T) {
 	// The zero CaseID and an ID this store never issued are both NOT_FOUND.
 	// There is no fallback that reads a similar-looking case instead, and no
 	// zero record to mistake for a real one: revision 0 at the initial stage
-	// is a state a case can genuinely be in (DESIGN §5).
+	// is a state a case can genuinely be in.
 	for _, id := range []monshi.CaseID{0, 1, 4242} {
 		_, err := rt.Open(ctx(), id, monshi.Actor{User: "dana"})
 		if !monshi.Failed(err, monshi.NotFound) {
@@ -244,7 +238,7 @@ func TestHandlesAreValuesNotCaches(t *testing.T) {
 	}
 	// A second handle for the same case, made by Open rather than by copy,
 	// reports the same revision: there is one stored state and no session
-	// map to keep in step (invariant 4).
+	// map to keep in step.
 	again, err := rt.Open(ctx(), c.ID(), monshi.Actor{User: "elliot"})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -280,9 +274,8 @@ func TestHandlesAreValuesNotCaches(t *testing.T) {
 	}
 }
 
-// The reload test, in both directions: a semantic change reinterprets the
-// same data (DESIGN §3), and a structural change is refused instead of
-// silently renumbering it (§9's SCHEMA_MISMATCH, invariant 8).
+// The reload test, in both directions: a semantic change reinterprets the same
+// data, and a structural change is refused instead of silently renumbering it.
 func TestReplaceReinterpretsCompatibleCases(t *testing.T) {
 	rt := monshi.NewRuntime()
 	define(t, rt, "host", hostDef)
@@ -401,7 +394,7 @@ func TestRuntimeIsSafeForConcurrentUse(t *testing.T) {
 	wg.Wait()
 
 	// Every goroutine got its own case: IDs are issued by the store and are
-	// never derived from content, so two creates cannot collide (§3.1).
+	// never derived from content, so two creates cannot collide.
 	seen := map[monshi.CaseID]bool{}
 	for i, id := range ids {
 		if id == 0 || seen[id] {
@@ -416,11 +409,7 @@ func TestRuntimeIsSafeForConcurrentUse(t *testing.T) {
 }
 
 func TestCaseErrorCarriesABackendsError(t *testing.T) {
-	// A host builds no CaseError today — the refusals come from this
-	// package — but milestone 4's backend does, by wrapping its own
-	// sentinel in Cause. §9's contract is that the category still answers
-	// `Failed` and the backend's error still answers `errors.Is`, and this
-	// is the shape that makes both true.
+	// A host builds no CaseError today.
 	sentinel := errors.New("connection reset")
 	err := &monshi.CaseError{Op: "commit", Reason: monshi.StorageFailure,
 		Case: 7, Detail: "the snapshot did not land", Cause: sentinel}

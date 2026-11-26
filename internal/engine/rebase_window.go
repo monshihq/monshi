@@ -6,7 +6,7 @@ import "slices"
 // collection the unseen commits touched, holding the *newest* committed value
 // for it and the address the entries give. The lists are kept in the order the
 // window first names each thing, because a report that walked a map would put
-// the same clash at a different place in the list on every run (§7.3).
+// the same clash at a different place in the list on every run.
 func (m *rebaser) collect(window []commitRecord) {
 	atCell := map[cellKey]int{}
 	atSet := map[setKey]int{}
@@ -92,13 +92,13 @@ func (m *rebaser) inSets(k setKey) bool {
 
 // resolve walks the *seen* commits backwards to fill in what the copy
 // descended from, which is the third version every comparison needs and the
-// part a forward diff cannot state directly (§5.1's reason for recording only
+// part a forward diff cannot state directly (the reason for recording only
 // new values).
 //
 // It is exact rather than reconstructed. Entries are ordered by revision, so
 // the newest one at or below the copy's base states the case's answer at that
 // base — for a cell, the value it held; for a collection, the very list of
-// instance IDs that made it up, which §5.8's entry-side list spells out and a
+// instance IDs that made it up, which the entry-side list spells out and a
 // count could not. Anything the scan does not find was never written: a
 // collection had no rows, since rows come only from a commit that says so, and
 // a cell holds what creating its row materialized — the default the definition
@@ -120,7 +120,7 @@ func (m *rebaser) inSets(k setKey) bool {
 // The newest answer wins because the scan runs backwards and because the guard
 // at the head of each branch refuses a second word for a question already
 // answered — an older entry reaching a resolved cell would be a lie about the
-// case's own past, since history holds forward diffs (§5.1). Stopping at zero
+// case's own past, since history holds forward diffs. Stopping at zero
 // is only the cost bound, never the correctness.
 func (m *rebaser) resolve(seen []commitRecord) {
 	atSet := map[setKey]*mergedSet{}
@@ -149,15 +149,15 @@ func (m *rebaser) resolve(seen []commitRecord) {
 	for i := range m.cells {
 		c := &m.cells[i]
 		if len(c.path) > 0 && !m.existedAtBase(c) {
-			// Answered by the list, and answered as absent: no row at the
-			// base means no value at the base, whatever the ledger said
-			// about a row the case has since forgotten. A row ID is issued
-			// once and never reused (§5.1), so no entry at or below the base
-			// can hold this cell's address either, and what the mark does is
-			// say so in the one place the value pass reads: a question with
-			// no answer in the ledger should not be a question the ledger is
-			// searched for. The base stays blank, and blank is what §5.8's
-			// comparison means when the case had nothing here.
+			// Answered by the list, and answered as absent: no row at the base
+			// means no value at the base, whatever the ledger said about a row
+			// the case has since forgotten. A row ID is issued once and never
+			// reused, so no entry at or below the base can hold this cell's
+			// address either, and what the mark does is say so in the one place
+			// the value pass reads: a question with no answer in the ledger
+			// should not be a question the ledger is searched for. The base
+			// stays blank, and blank is what the comparison means when the case
+			// had nothing here.
 			c.written = true
 			continue
 		}
@@ -205,7 +205,7 @@ func (m *rebaser) existedAtBase(c *mergedCell) bool {
 	// address is either a set the window moved or one `probe` appended, so a
 	// cell always has a list to ask. The answer stays *no* rather than panicking
 	// because a fixture that skipped the probe is a state in which the safe
-	// reading is that the row is not the draft's to keep — §5.8's rule that an
+	// reading is that the row is not the draft's to keep — the rule that an
 	// unanswered question falls back to refusing, not to merging.
 	return false
 }

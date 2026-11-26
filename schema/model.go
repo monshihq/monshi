@@ -7,7 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Code identifies a problem with a stable keyword (SYNTAX.md §2.4 rule IDs).
+// Code identifies a problem with a stable keyword.
 type Code string
 
 // Lexical and syntactic codes.
@@ -128,7 +128,7 @@ func (p Problem) Error() string {
 	return fmt.Sprintf("%d:%d: %s [%s]", p.Line, p.Col, msg, p.Code)
 }
 
-// Schema is a compiled, immutable case definition (SYNTAX.md §5.8).
+// Schema is a compiled, immutable case definition.
 // When Errors is non-empty the schema is incomplete and must not be used;
 // Warnings never invalidate a definition.
 type Schema struct {
@@ -136,7 +136,7 @@ type Schema struct {
 	Roles    []*Role   // declaration order
 	Forms    []*Node   // top-level form nodes, declaration order
 	Stages   []*Stage  // declaration order
-	Initial  *Stage    // first declared stage (SYNTAX.md §5.6-ST1)
+	Initial  *Stage    // first declared stage
 	Errors   []Problem // lexical, syntactic and semantic problems
 	Warnings []Problem // non-fatal diagnostics
 }

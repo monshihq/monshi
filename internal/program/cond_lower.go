@@ -19,7 +19,7 @@ type condScope struct {
 // take folds a sub-scope's reads into its parent. Negation compiles its
 // operand on a scope of its own, so the guard can name exactly the slots
 // whose absence would make it vacuous — and the parent still has to know
-// about every one of them, because §5.3's fanout is built from this list.
+// about every one of them, because the fanout is built from this list.
 func (sc *condScope) take(sub *condScope) {
 	for _, s := range sub.refs {
 		if sc.seen[s] {
@@ -48,7 +48,7 @@ func (l *lowerer) conditions() {
 		sid := l.stageOf[st]
 		info := &l.img.stages[sid]
 		if len(st.Edges) != len(info.edges) {
-			// Only a stage error (ST2/ST3) drops an edge, and Load refused
+			// Only a stage error drops an edge, and Load refused
 			// the definition in that case; a mismatch here is drift.
 			l.reportf(st.Name, "%d edges compiled, %d lowered",
 				len(st.Edges), len(info.edges))
@@ -91,7 +91,7 @@ func (l *lowerer) cond(x *schema.Expr, sc *condScope) (Predicate, bool) {
 		return nil, false
 	}
 	if !readsData(x) {
-		// No operand of this subtree is a case value: ST6's constant
+		// No operand of this subtree is a case value: the constant
 		// condition, folded once here instead of evaluated per request.
 		v, ok := l.evalConst(x, sc)
 		if !ok {
@@ -104,7 +104,7 @@ func (l *lowerer) cond(x *schema.Expr, sc *condScope) (Predicate, bool) {
 	}
 	switch x.Op {
 	case "":
-		// A standalone primary must be boolean (E4): a path to a boolean
+		// A standalone primary must be boolean: a path to a boolean
 		// field, never a bare tag or literal.
 		if x.Node == nil {
 			l.reportf(sc.at, "a standalone constant is not a condition")
@@ -115,7 +115,7 @@ func (l *lowerer) cond(x *schema.Expr, sc *condScope) (Predicate, bool) {
 			return nil, false
 		}
 		if l.typeBase(l.img.slots[n].Type) != BaseBoolean {
-			l.reportf(sc.at, "%s is not a boolean", l.img.Path(n)) // E4
+			l.reportf(sc.at, "%s is not a boolean", l.img.Path(n))
 			return nil, false
 		}
 		return isTrue(n), true
@@ -161,7 +161,7 @@ func (l *lowerer) cond(x *schema.Expr, sc *condScope) (Predicate, bool) {
 }
 
 // collect flattens one operator chain, so no source nesting depth survives
-// in the closure tree (§3.4).
+// in the closure tree.
 func (l *lowerer) collect(x *schema.Expr, op string, sc *condScope, out *[]Predicate) {
 	if x.Op == op {
 		if x.Left != nil {
@@ -215,8 +215,8 @@ const (
 	opConst
 )
 
-// leafSlot resolves a value-path operand to its slot, applying the §4
-// anti-drift checks that E1/E2/F7 already settled at compile time.
+// leafSlot resolves a scalar path operand and verifies that it can be read by a
+// condition.
 func (l *lowerer) leafSlot(n *schema.Node, sc *condScope) NodeID {
 	if n == nil {
 		l.reportf(sc.at, "condition operand is unresolved")
@@ -228,16 +228,16 @@ func (l *lowerer) leafSlot(n *schema.Node, sc *condScope) NodeID {
 		return badSlot
 	}
 	if l.img.slots[s].Role != 0 {
-		l.reportf(sc.at, "role-typed field %s is not a value", n.Path) // E2
+		l.reportf(sc.at, "role-typed field %s is not a value", n.Path)
 		return badSlot
 	}
 	if l.collection[s] {
-		l.reportf(sc.at, "condition reads %s inside a multiple collection", n.Path) // E2
+		l.reportf(sc.at, "condition reads %s inside a multiple collection", n.Path)
 		return badSlot
 	}
 	if sc.owner != 0 && l.inSubtree(sc.owner, s) {
 		l.reportf(sc.at, "condition of %s reads its own subtree",
-			l.img.Path(sc.owner)) // F7
+			l.img.Path(sc.owner))
 		return badSlot
 	}
 	if !sc.seen[s] {
@@ -247,7 +247,7 @@ func (l *lowerer) leafSlot(n *schema.Node, sc *condScope) NodeID {
 	return s
 }
 
-// inSubtree covers F7's self-reference test: a declaration whose condition
+// inSubtree covers the self-reference test: a declaration whose condition
 // reads itself or a descendant would make the dependency graph cyclic. The
 // front end rejects that; reaching here is drift.
 func (l *lowerer) inSubtree(root, n NodeID) bool {
@@ -273,7 +273,7 @@ func (l *lowerer) operandOf(x *schema.Expr, sc *condScope) (operand, bool) {
 	case x.Tag != "":
 		tag, ok := l.tagOf[x.Tag]
 		if !ok {
-			l.reportf(sc.at, "tag %s was not declared", x.Tag) // E1
+			l.reportf(sc.at, "tag %s was not declared", x.Tag)
 			return o, false
 		}
 		o.kind, o.tag, o.class = opTag, tag, BaseEnum
@@ -316,10 +316,8 @@ func litClass(v *schema.Value) uint8 {
 	return 0
 }
 
-// comparison builds the closure for one comparison, after checking the
-// pairing E3 requires: at least one typed operand, identical types for two
-// slots, an enum field paired only with a tag of that same enum, and a
-// literal already normalized to the operand's class.
+// comparison checks operand types before building the closure. A literal paired
+// with a slot must already have the slot's type.
 func (l *lowerer) comparison(x *schema.Expr, op cmpOp, sc *condScope) (Predicate, bool) {
 	a, ok := l.operandOf(x.Left, sc)
 	if !ok {
@@ -336,9 +334,9 @@ func (l *lowerer) comparison(x *schema.Expr, op cmpOp, sc *condScope) (Predicate
 		op = reverse(op)
 	}
 	if ordered(op) && (!orderable(a.class) || !orderable(b.class)) {
-		// E3: < <= > >= need integer, decimal, date, datetime or string.
-		// A boolean or enum pair can only be constant, and the fold above
-		// owns that case, so reaching here is drift.
+		// < <= > >= need integer, decimal, date, datetime or string. A boolean
+		// or enum pair can only be constant, and the fold above owns that case,
+		// so reaching here is drift.
 		l.reportf(sc.at, "%s cannot order a %s against %s pair",
 			x.Op, ClassName(a.class), ClassName(b.class))
 		return nil, false
@@ -354,8 +352,8 @@ func (l *lowerer) comparison(x *schema.Expr, op cmpOp, sc *condScope) (Predicate
 		return tagCmp(a.slot, op, b.tag), true
 	case a.kind == opSlot:
 		// The constant is compiled against the *operand's* class, so
-		// SYNTAX §5.8's promise — a literal already normalized to the type
-		// it pairs with — is what gets asserted here (RUNTIME §3.3).
+		// the promise — a literal already normalized to the type
+		// it pairs with — is what gets asserted here.
 		sv, _, ok := l.constValue(a.class, sc.at, b.src)
 		if !ok {
 			return nil, false
@@ -372,9 +370,7 @@ func (l *lowerer) comparison(x *schema.Expr, op cmpOp, sc *condScope) (Predicate
 	}
 }
 
-// twoSlots compares two case values. E3 admits only operands of an
-// identical type, so the classes agree by construction and the check below
-// is drift, not validation.
+// twoSlots compares two case values.
 func (l *lowerer) twoSlots(a, b operand, op cmpOp, sc *condScope) (Predicate, bool) {
 	if a.class != b.class {
 		l.reportf(sc.at, "%s and %s are not the same type",
@@ -383,7 +379,7 @@ func (l *lowerer) twoSlots(a, b operand, op cmpOp, sc *condScope) (Predicate, bo
 	}
 	if a.class == BaseEnum && l.img.slots[a.slot].Type != l.img.slots[b.slot].Type {
 		l.reportf(sc.at, "%s and %s are different enums",
-			l.img.Path(a.slot), l.img.Path(b.slot)) // E3
+			l.img.Path(a.slot), l.img.Path(b.slot))
 		return nil, false
 	}
 	switch a.class {
@@ -404,10 +400,10 @@ func (l *lowerer) twoSlots(a, b operand, op cmpOp, sc *condScope) (Predicate, bo
 	return nil, false
 }
 
-// slotConst compares a case value against a constant. SYNTAX §5.8 says the
-// literal already carries the operand's normalized type, so an integer
-// against a decimal or a text date against a date operand is drift here and
-// never a repair opportunity.
+// slotConst compares a case value against a constant. The literal already
+// carries the operand's normalized type, so an integer against a decimal or a
+// text date against a date operand is drift here and never a repair
+// opportunity.
 func (l *lowerer) slotConst(n NodeID, op cmpOp, c Cell, sc *condScope) (Predicate, bool) {
 	switch l.typeBase(l.img.slots[n].Type) {
 	case BaseString:
@@ -428,7 +424,7 @@ func (l *lowerer) slotConst(n NodeID, op cmpOp, c Cell, sc *condScope) (Predicat
 }
 
 // readsData reports whether a subtree touches case data at all. A tree that
-// does not is ST6's constant condition.
+// does not is the constant condition.
 func readsData(x *schema.Expr) bool {
 	if x == nil {
 		return false
@@ -451,7 +447,7 @@ func (l *lowerer) evalConst(x *schema.Expr, sc *condScope) (bool, bool) {
 		}
 		if o.class != BaseBoolean {
 			l.reportf(sc.at, "a standalone %s constant is not a condition",
-				ClassName(o.class)) // E4
+				ClassName(o.class))
 			return false, false
 		}
 		return o.sv.Int != 0, true
@@ -503,9 +499,8 @@ func (l *lowerer) evalConst(x *schema.Expr, sc *condScope) (bool, bool) {
 	return op.holds(r), true
 }
 
-// constOrder orders two constants of a reconciled class. Two number
-// literals of different widths are one class here, which is what E3's
-// NUMBER pairing means for a constant pair.
+// constOrder orders two constants of a reconciled class. Two number literals of
+// different widths are one class here.
 func constOrder(a, b operand) (int, bool) {
 	if a.class == b.class {
 		return constCompare(a.class, a.sv, b.sv), true
@@ -557,7 +552,7 @@ func ordered(op cmpOp) bool {
 	return op == cmpLt || op == cmpLe || op == cmpGt || op == cmpGe
 }
 
-// orderable is E3's set for the four ordering operators: the classes the
+// orderable is the set for the four ordering operators: the classes the
 // language can put an inequality on.
 func orderable(class uint8) bool {
 	switch class {

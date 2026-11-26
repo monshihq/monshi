@@ -5,18 +5,16 @@ import "strings"
 // report is the caller's list, with the count of entries that sit at content
 // this actor may not view.
 //
-// A visible clash is spelled as §5.1 spells an address, so every entry is a
-// path `Update` accepts and `View` renders. A veiled one is named by its form
-// and nothing more: the instance IDs inside a hidden collection are case data,
-// and so is the fact that a particular field moved — which is §5.7's rule that
-// a container grants nothing but its name, applied to the one other place this
-// package turns an address into text.
+// A veiled one is named by its form and nothing more: the instance IDs inside a
+// hidden collection are case data, and so is the fact that a particular field
+// moved — which is the rule that a container grants nothing but its name,
+// applied to the one other place this package turns an address into text.
 //
 // Duplicates are collapsed keeping the first, because two hidden clashes in one
 // form degrade to the same string and a host reading "application, application"
 // learns nothing new. Nothing else repeats: the merge settles each cell, and
 // each collection at each place, exactly once — which is why this list can be
-// longer than §5.4's gap list, whose walk visits one declaration per instance
+// longer than the gap list, whose walk visits one declaration per instance
 // and needs the collapsing `gapPaths` does.
 func (m *rebaser) report() ([]string, int) {
 	if len(m.clashes) == 0 {
@@ -36,7 +34,7 @@ func (m *rebaser) report() ([]string, int) {
 			veiled++
 			// And the address is never rendered, not even as an alternative:
 			// an instance ID inside a hidden collection is case data, and so
-			// is the fact that this particular field moved (§5.7).
+			// is the fact that this particular field moved.
 			p = m.img.Path(m.img.Owner(c.slot))
 		} else {
 			p = m.out.addr(c.slot, c.path)

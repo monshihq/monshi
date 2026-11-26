@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Parse compiles one Monshi definition read from r (SYNTAX.md). The
+// Parse compiles one Monshi definition read from r. The
 // returned error is non-nil only when parsing cannot run at all, e.g. an
 // I/O failure; every lexical, syntactic and semantic problem is reported
 // in Schema.Errors.
@@ -26,7 +26,7 @@ func NewParser(r io.Reader) *Parser { return &Parser{src: r, s: &Schema{}} }
 
 // Parse reads, lexes, parses and semantically checks the definition.
 // The pipeline is lexer → recursive-descent parser → AST → checker →
-// Schema (§6, DESIGN §4.5); the intermediate AST stays unexported.
+// Schema; the intermediate AST stays unexported.
 func (p *Parser) Parse() (*Schema, error) {
 	b, err := io.ReadAll(p.src)
 	if err != nil {
@@ -85,8 +85,8 @@ func (p *Parser) expectPunct(w string) {
 	}
 }
 
-// expectName consumes a non-reserved identifier usable as a declared name
-// or path segment; reserved words in name positions are N1 errors.
+// expectName consumes a non-reserved identifier usable as a declared name or
+// path segment.
 func (p *Parser) expectName(what string) string {
 	t := p.peek()
 	if t.kind != tkIdent {
@@ -194,7 +194,7 @@ func (p *Parser) skipBraces() {
 	}
 }
 
-// Definition (§3.1). Block order, duplicates and obligation are checked
+// Definition. Block order, duplicates and obligation are checked
 // semantically; the parser accepts blocks by keyword.
 
 func (p *Parser) parseDefinition() *astDef {
@@ -259,7 +259,7 @@ func (p *Parser) blockBody(decl func()) {
 	p.expectPunct("}")
 }
 
-// Types (§3.2).
+// Types.
 
 func (p *Parser) parseTypeDecl() *astTypeDecl {
 	t := p.peek()
@@ -280,7 +280,7 @@ func (p *Parser) expectInt(what string) string {
 	return t.text
 }
 
-// Roles (§3.3).
+// Roles.
 
 func (p *Parser) parseRoleDecl() *astRoleDecl {
 	t := p.peek()
@@ -291,7 +291,7 @@ func (p *Parser) parseRoleDecl() *astRoleDecl {
 }
 
 // parseGrant reads an allow/deny statement. Role-name position is enforced
-// by block context (§6); statement shape rules (P1) are semantic.
+// by block context; statement shape rules are semantic.
 func (p *Parser) parseGrant(stage bool) *astGrant {
 	t := p.next()
 	g := &astGrant{line: t.line, col: t.col, deny: t.text == "deny"}
@@ -341,7 +341,7 @@ func (p *Parser) parseGrantPath() []string {
 	return segs
 }
 
-// Forms (§3.4).
+// Forms.
 
 func (p *Parser) parseFormDecl() *astFormDecl {
 	t := p.peek()
@@ -417,7 +417,7 @@ func (p *Parser) parseTypeExpr() *astTypeExpr {
 	return te
 }
 
-// Attributes (§3.8). Kind/shape validity per node is semantic (§4 matrix).
+// Attributes. Kind/shape validity per node is semantic.
 
 func (p *Parser) parseAttrs() []*astAttr {
 	var as []*astAttr
@@ -455,7 +455,7 @@ func (p *Parser) parseAttrs() []*astAttr {
 	}
 }
 
-// Stages (§3.5). Statements dispatch on their first keyword token (§6).
+// Stages. Statements dispatch on their first keyword token.
 
 func (p *Parser) parseStageDecl() *astStageDecl {
 	t := p.peek()
@@ -509,7 +509,7 @@ func (p *Parser) parseTransition() *astTransition {
 	return tr
 }
 
-// Expressions (§3.6).
+// Expressions.
 
 func (p *Parser) parseExpr() *astExpr { return p.parseOr() }
 

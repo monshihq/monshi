@@ -53,14 +53,14 @@ func nodeByPath(t *testing.T, s *schema.Schema, path string) *schema.Node {
 	return nil
 }
 
-// --- the §7 example ---
+// --- the registration example ---
 
-func TestSpecExampleCompiles(t *testing.T) {
+func TestRegistrationExampleCompiles(t *testing.T) {
 	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 }
 
-func TestSpecExampleTopLevelShape(t *testing.T) {
+func TestRegistrationExampleTopLevelShape(t *testing.T) {
 	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
@@ -78,7 +78,7 @@ func TestSpecExampleTopLevelShape(t *testing.T) {
 		t.Errorf("stages = %v, want %v", got, wantStages)
 	}
 	if s.Initial != s.Stages[0] || s.Initial.Name != "draft" {
-		t.Errorf("initial stage = %v, want draft (first declared, ST1)", s.Initial)
+		t.Errorf("initial stage = %v, want draft (first declared)", s.Initial)
 	}
 }
 
@@ -114,7 +114,7 @@ func namesOfStages(ss []*schema.Stage) []string {
 	return out
 }
 
-func TestSpecExampleTypes(t *testing.T) {
+func TestRegistrationExampleTypes(t *testing.T) {
 	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
@@ -138,7 +138,7 @@ func TestSpecExampleTypes(t *testing.T) {
 	}
 }
 
-func TestSpecExampleNodesAndAttributes(t *testing.T) {
+func TestRegistrationExampleNodesAndAttributes(t *testing.T) {
 	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
@@ -162,7 +162,7 @@ func TestSpecExampleNodesAndAttributes(t *testing.T) {
 		t.Errorf("internal = kind %q parent %v", internal.Kind, internal.Parent)
 	}
 	if internal.Verifiable {
-		t.Error("verifiable is not inherited (F3): internal should not carry it")
+		t.Error("verifiable is not inherited: internal should not carry it")
 	}
 
 	sh := nodeByPath(t, s, "application.shareholders")
@@ -231,7 +231,7 @@ stages {
 
 // condLiteral returns the literal operand of a group's present[cond],
 // which the checker always builds as a comparison with the literal on
-// the right (SYNTAX.md §5.7-E3).
+// the right.
 func condLiteral(t *testing.T, s *schema.Schema, path string) *schema.Value {
 	t.Helper()
 	x := nodeByPath(t, s, path).PresentCond
@@ -246,7 +246,7 @@ func condLiteral(t *testing.T, s *schema.Schema, path string) *schema.Value {
 
 // A compiled definition normalizes comparison literals to the type of
 // the operand they pair with, so interpretation never re-parses or
-// re-widens a literal (SYNTAX.md §5.8).
+// re-widens a literal.
 func TestCompiledLiteralsAreNormalized(t *testing.T) {
 	s := mustParse(t, literalNormSrc)
 	requireClean(t, s)
@@ -273,7 +273,7 @@ func TestCompiledLiteralsAreNormalized(t *testing.T) {
 	}
 }
 
-func TestSpecExampleDefaults(t *testing.T) {
+func TestRegistrationExampleDefaults(t *testing.T) {
 	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
@@ -296,7 +296,7 @@ func TestSpecExampleDefaults(t *testing.T) {
 	}
 }
 
-func TestSpecExampleRolesAndGrants(t *testing.T) {
+func TestRegistrationExampleRolesAndGrants(t *testing.T) {
 	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
@@ -336,7 +336,7 @@ func TestSpecExampleRolesAndGrants(t *testing.T) {
 	}
 }
 
-func TestSpecExampleSignatureResolution(t *testing.T) {
+func TestRegistrationExampleSignatureResolution(t *testing.T) {
 	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
@@ -361,7 +361,7 @@ func TestSpecExampleSignatureResolution(t *testing.T) {
 	}
 }
 
-func TestSpecExampleConditionTrees(t *testing.T) {
+func TestRegistrationExampleConditionTrees(t *testing.T) {
 	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 
@@ -391,7 +391,7 @@ func TestSpecExampleConditionTrees(t *testing.T) {
 	}
 }
 
-func TestSpecExampleStageGraph(t *testing.T) {
+func TestRegistrationExampleStageGraph(t *testing.T) {
 	s := mustParse(t, testfixture.Example(t))
 	requireClean(t, s)
 

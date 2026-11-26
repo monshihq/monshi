@@ -1,12 +1,6 @@
 package engine
 
-// RUNTIME §5.1's layout and §5.2's presence and requiredness, tested against
-// the SYNTAX §7 example and two small definitions the example cannot express
-// (a cleared default, and collections inside collections).
-//
-// Nothing here goes through permissions or the operations: §5.2 is a pure
-// function of a row, and keeping it that way is why one closure serves both
-// the committed and the candidate state.
+// Nothing here goes through permissions or the operations.
 
 import (
 	"testing"
@@ -56,7 +50,7 @@ func TestFrameMaterializesDefaults(t *testing.T) {
 	if v := f.commit.value(fee); !v.Set || !v.Decimal.Equal(decimal.NewFromInt(0)) {
 		t.Errorf("fee = %v, want the declared 0.00", v)
 	}
-	// A stored false is a value, not an absence: §5.2's emptiness test asks
+	// A stored false is a value, not an absence: the emptiness test asks
 	// whether something was entered.
 	urgent := slotByPath(t, img, "application.urgent")
 	if v := f.commit.value(urgent); !v.Set || v.Int != 0 {
@@ -70,8 +64,8 @@ func TestFrameMaterializesDefaults(t *testing.T) {
 	if v := f.commit.value(note); v.Set {
 		t.Errorf("note = %v, want absent", v)
 	}
-	// The working copy starts from the committed state (DESIGN §6.5) and is
-	// independent of it: no working edit reaches committed data (invariant 1).
+	// The working copy starts from the committed state and is
+	// independent of it: no working edit reaches committed data.
 	c, ok := f.work.cellOf(note)
 	if !ok {
 		t.Fatal("application.note has no cell")
@@ -88,7 +82,7 @@ func TestPresenceGuardsAndDerivedPruning(t *testing.T) {
 	risk := slotByPath(t, img, "application.internal.risk_score")
 
 	// Absent operand: the guard is unsatisfied, so the group is not part of
-	// the effective state (E6).
+	// the effective state.
 	fresh := newFrame(img)
 	if fresh.commit.present(internal) {
 		t.Error("internal is present with no kind entered")
@@ -119,7 +113,7 @@ func TestPresenceGuardsAndDerivedPruning(t *testing.T) {
 		t.Error("an unconditional field is not present")
 	}
 	// One closure, two states: editing the candidate does not move the
-	// committed answer, which is §5.1's swap and invariant 1 in miniature.
+	// committed answer.
 	kind := slotByPath(t, img, "application.kind")
 	c, ok := company.work.cellOf(kind)
 	if !ok {
@@ -164,12 +158,12 @@ stages {
 	cond := slotByPath(t, img, "f.cond")
 
 	// A default is a value, so a required defaulted field is satisfied
-	// before anyone types anything (DESIGN §4.1).
+	// before anyone types anything.
 	if sat, ok := f.work.satisfiedHere(n); !ok || !sat {
 		t.Errorf("required with a default: satisfied=%v answered=%v", sat, ok)
 	}
 	// Clearing it does not make the field absent; it makes it empty, and
-	// empty fails required even though a default exists (§5.2).
+	// empty fails required even though a default exists.
 	c, _ := f.work.cellOf(n)
 	c.clear()
 	if sat, _ := f.work.satisfiedHere(n); sat {
@@ -193,7 +187,7 @@ stages {
 	}
 	// required[expr] asks the guard first: unsatisfied guard, no demand.
 	if sat, _ := f.work.satisfiedHere(cond); !sat {
-		t.Error("cond is demanded while .kind is absent (E6)")
+		t.Error("cond is demanded while .kind is absent")
 	}
 	c, _ = f.work.cellOf(kind)
 	c.set(program.Cell{Set: true, Text: "x"})
@@ -232,7 +226,7 @@ func TestCollectionRequirednessCountsInstances(t *testing.T) {
 	if sat, _ := company.work.satisfiedHere(coll); !sat {
 		t.Error("one instance did not satisfy required[.kind == COMPANY]")
 	}
-	// SYNTAX §4: members are still required, per instance.
+	// members are still required, per instance.
 	mc, ok := company.work.cellAt(name, instPath{{coll, id}})
 	if !ok {
 		t.Fatal("a member of the new instance is not addressable")
@@ -245,7 +239,7 @@ func TestCollectionRequirednessCountsInstances(t *testing.T) {
 		t.Error("a filled required member did not satisfy requiredness")
 	}
 	// A member has no single value, so the state refuses to invent one: this
-	// is E2's rule, expressed as an addressing property rather than a check.
+	// is the rule, expressed as an addressing property rather than a check.
 	if _, ok := company.work.cellOf(name); ok {
 		t.Error("a collection member has a cell in the base row")
 	}
@@ -261,7 +255,7 @@ func TestInstanceRowsAreOffsetAndStable(t *testing.T) {
 	shares := slotByPath(t, img, "application.shareholders.shares")
 
 	// The row covers the collection's descendants, and the collection's own
-	// slot does not live in it (§5.1).
+	// slot does not live in it.
 	if got := img.RowLen(coll); got != 2 {
 		t.Fatalf("rowLen(shareholders) = %d, want its two members", got)
 	}
@@ -307,7 +301,7 @@ func TestInstanceRowsAreOffsetAndStable(t *testing.T) {
 		t.Errorf("position after removal = %d, want 1", pos)
 	}
 	// Clone copies rows, so a candidate cannot write through to committed
-	// data (invariant 1) — including the ID map, which is what a stale row
+	// data — including the ID map, which is what a stale row
 	// would otherwise expose.
 	before, _ := f.work.cellAt(name, instPath{{coll, id2}})
 	f.commit = f.work.clone()
@@ -364,8 +358,8 @@ func TestNestedAndRepeatedFieldRows(t *testing.T) {
 	if got := f.work.rows(tags).count(); got != 1 || tpos != 0 {
 		t.Errorf("repeated field has %d rows at position %d, want 1 at 0", got, tpos)
 	}
-	// A repeated field answers §5.2 at the top level: it is a count, not a
-	// value, and the count is global.
+	// A repeated field at the top level has a single count, independent of the
+	// current instance.
 	if sat, ok := f.work.satisfiedHere(tags); !ok || !sat {
 		t.Errorf("repeated field: satisfied=%v answered=%v", sat, ok)
 	}
@@ -383,8 +377,7 @@ func TestNestedAndRepeatedFieldRows(t *testing.T) {
 		t.Errorf("rows.n = %v, want the declared default 7", v)
 	}
 	// A nested collection's rows live inside the outer instance, and its own
-	// slot belongs to the outer row's range, not to its own. It has no global
-	// count, so §5.2 refuses to answer for it and countAt does.
+	// slot belongs to the outer row's range, not to its own.
 	cid, _, ok := f.work.addAt(cells, instPath{{rows, rid}})
 	if !ok {
 		t.Fatal("Add refused the nested collection")
@@ -409,7 +402,7 @@ func TestNestedAndRepeatedFieldRows(t *testing.T) {
 		t.Error("a stale outer ID still addressed a nested row")
 	}
 	if _, ok := f.work.satisfiedHere(cells); ok {
-		t.Error("a nested collection answered §5.2 with no enclosing instance")
+		t.Error("a nested collection reported satisfaction with no enclosing instance")
 	}
 	if n, ok := f.work.countAt(cells, instPath{{rows, rid}}); !ok || n != 1 {
 		t.Errorf("countAt(cells in rows.%d) = %d %v, want 1", rid, n, ok)
@@ -436,8 +429,8 @@ func TestNestedAndRepeatedFieldRows(t *testing.T) {
 	if cc.get().Int == 4 {
 		t.Error("a nested working row wrote through into the committed copy")
 	}
-	// Removing an outer instance takes its nested rows with it (DESIGN §5.1:
-	// Remove is not for deleting fixed schema nodes, it is for deleting rows).
+	// Removing an outer instance takes its nested rows with it (Remove is not
+	// for deleting fixed schema nodes, it is for deleting rows).
 	if !f.work.removeAt(rows, nil, rid) {
 		t.Fatal("Remove refused the outer instance")
 	}
@@ -454,7 +447,7 @@ func TestStateValueOfACollectionIsItsRowCount(t *testing.T) {
 		t.Error("an empty collection reports instances it does not have")
 	}
 	// A collection has no cell: what it has is rows, and value() says so
-	// without inventing a payload slot (§5.1).
+	// without inventing a payload slot.
 	if _, ok := f.work.cellOf(coll); ok {
 		t.Error("a collection has a cell in the base row")
 	}
@@ -464,11 +457,9 @@ func TestStateValueOfACollectionIsItsRowCount(t *testing.T) {
 	}
 }
 
-// TestAppendixARequiredness completes RUNTIME Appendix A's trace as far as
-// the data layer answers: presence, requiredness and the instance rows
-// between them. The rest of the trace is a transition, and
-// `TestAppendixATransitionTrace` runs it against this same corpus.
-func TestAppendixARequiredness(t *testing.T) {
+// The rest of the trace is a transition, and `TestRegistrationTransitionTrace`
+// runs it against this same corpus.
+func TestRegistrationRequiredness(t *testing.T) {
 	img := lowerExample(t)
 	kind := slotByPath(t, img, "application.kind")
 	internal := slotByPath(t, img, "application.internal")
@@ -480,8 +471,6 @@ func TestAppendixARequiredness(t *testing.T) {
 	registered := slotByPath(t, img, "application.registered")
 
 	s := &newFrame(img).commit
-	// F6, from the state's side: the collection has one condition, and it
-	// is asked once for the whole set — never per row, and never per member.
 	// The two attributes are one expression each, so the two closures answer
 	// alike on every row, which is the most that sharing can mean here.
 	if img.Slot(coll).CondReq == 0 || img.Slot(internal).CondPres == 0 {
@@ -500,8 +489,7 @@ func TestAppendixARequiredness(t *testing.T) {
 			t.Errorf("the two guards disagree on %v: %v vs %v", v, got, want)
 		}
 	}
-	// A fresh case: the guard's operand was never entered, so E6 makes the
-	// group absent and the collection undemanded.
+	// Without a kind, the group is absent and the collection is optional.
 	if s.present(internal) {
 		t.Error("internal is present with no kind entered")
 	}
@@ -509,7 +497,7 @@ func TestAppendixARequiredness(t *testing.T) {
 		t.Error("shareholders' membership is not guarded, only its requiredness")
 	}
 	if sat, ok := s.satisfiedHere(coll); !ok || !sat {
-		t.Errorf("shareholders: satisfied=%v answered=%v, E6 demands nothing",
+		t.Errorf("shareholders: satisfied=%v answered=%v, missing values satisfy no condition",
 			sat, ok)
 	}
 	if s.reached(risk) {
@@ -530,7 +518,7 @@ func TestAppendixARequiredness(t *testing.T) {
 		}
 	}
 	// `required` with no default is a demand a fresh case does not meet,
-	// and the only way to meet it is to enter a value (§5.2's one test).
+	// and the only way to meet it is to enter a value (the one test).
 	full := slotByPath(t, img, "application.full_name")
 	if sat, ok := s.satisfiedHere(full); !ok || sat {
 		t.Errorf("%s: satisfied=%v answered=%v, want an unset demand",
@@ -556,8 +544,7 @@ func TestAppendixARequiredness(t *testing.T) {
 	if sat, _ := s.satisfiedHere(coll); !sat {
 		t.Error("one instance did not satisfy the collection's requiredness")
 	}
-	// SYNTAX §4: requiredness inside a collection is per instance, so the
-	// state answers it only when the instance is named (§5.4).
+	// Requirements inside a collection are evaluated for a specific row.
 	if _, ok := s.satisfiedHere(holder); ok {
 		t.Error("a member answered requiredness with no instance named")
 	}
@@ -580,9 +567,8 @@ func TestAppendixARequiredness(t *testing.T) {
 			t.Errorf("%s is still demanded once it holds a value", img.Path(n))
 		}
 	}
-	// The instance is complete, so the collection's requiredness has one
-	// more answer to give — and it is the same one: the guard held, and a
-	// row exists. §5.4 will ask it per instance at Submit.
+	// The guard holds and a complete row exists, so the collection satisfies
+	// its requirement.
 	if sat, _ := s.satisfiedHere(coll); !sat {
 		t.Error("a filled collection lost its requiredness answer")
 	}
@@ -599,9 +585,7 @@ func fill(t *testing.T, s *state, n program.NodeID, path instPath, v program.Cel
 }
 
 // TestRowsRefuseWhatTheyDoNotHold covers the refusals around the row model —
-// the shapes that have no address, no count and no aggregate answer. Each is
-// a claim §5.1 makes by its omission: a state does not invent a value for
-// structure, and does not answer a question one row cannot ask.
+// the shapes that have no address, no count and no aggregate answer.
 func TestRowsRefuseWhatTheyDoNotHold(t *testing.T) {
 	const plainSrc = `
 roles {
@@ -645,7 +629,7 @@ stages {
 	}
 	// Structure inside an instance: a plain group's member is stored in the
 	// enclosing instance's row — `meta` is not a collection, so it gets no
-	// rows of its own (§5.1) — while the group itself has no value there.
+	// rows of its own — while the group itself has no value there.
 	mc, ok := s.cellAt(m, instPath{{rows, 1}})
 	if !ok {
 		t.Fatal("a group inside a collection has no address in the outer row")
@@ -655,10 +639,10 @@ stages {
 		t.Error("a plain group holds a value")
 	}
 	if sat, _ := s.satisfiedHere(m); sat {
-		t.Error("m answered §5.2 in aggregate while its instance is unnamed")
+		t.Error("m reported satisfaction in aggregate while its instance is unnamed")
 	}
 	if _, ok := s.satisfiedHere(meta); ok {
-		t.Error("a group inside a collection answered §5.2 with no instance named")
+		t.Error("a group inside a collection reported satisfaction with no instance named")
 	}
 	if !s.fills(meta, program.Cell{}) {
 		t.Error("a plain group's requiredness asks for a value it cannot have")
@@ -681,13 +665,12 @@ stages {
 	if s.removeAt(rows, nil, 7) {
 		t.Error("Remove answered for an outer ID nobody issued")
 	}
-	// A slot inside a collection has no base-row cell and no aggregate value,
-	// so §5.2 refuses it in both directions: E2's rule as an addressing fact.
+	// A slot inside a collection has no base-row cell and no aggregate value.
 	if _, ok := s.cellOf(m); ok {
 		t.Error("a collection's member has a cell in the base row")
 	}
 	if _, ok := s.satisfiedHere(m); ok {
-		t.Error("a plain field inside a collection answered §5.2 in aggregate")
+		t.Error("a plain field inside a collection reported satisfaction in aggregate")
 	}
 	// `Add` is a collection operation: a field, however addressable, has no
 	// rows to append to, and the state says so rather than inventing a set.

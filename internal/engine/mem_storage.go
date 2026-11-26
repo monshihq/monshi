@@ -6,13 +6,11 @@ import (
 	"sync"
 )
 
-// NewMemStorage returns the library's own Storage: the same three kinds
-// of state DESIGN §5 names, held in maps, guarded exactly as store.go's
-// in-memory seam guards them. It is the conformance implementation the
-// contract's tests run against first — a host comparing its backend
-// against this one gets the same refusals — and a service that wants
-// process-lifetime durability behind the exported verbs without a
-// database can use it directly.
+// NewMemStorage returns the library's own Storage. It is the conformance
+// implementation the contract's tests run against first — a host comparing its
+// backend against this one gets the same refusals — and a service that wants
+// process-lifetime durability behind the exported verbs without a database can
+// use it directly.
 func NewMemStorage() *MemStorage {
 	return &MemStorage{cases: map[CaseID]*memCase{}}
 }

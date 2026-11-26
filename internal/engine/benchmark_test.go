@@ -1,21 +1,19 @@
 package engine
 
-// RUNTIME §8's harness. What is measured here is what is shipped:
-// lowering, the two hot reads the image exists to make cheap — one
-// condition closure, one permission resolve — path resolution, the
-// fanout on its own, one accepted edit batch, the two operations that
-// commit, and the read that renders them. Nothing is faked: a benchmark
-// that hand-builds a state and calls one internal function measures the
-// fixture rather than a request, which is the one claim §8's rows have
-// to be able to survive.
+// The harness. What is measured here is what is shipped: lowering, the two hot
+// reads the image exists to make cheap — one condition closure, one permission
+// resolve — path resolution, the fanout on its own, one accepted edit batch,
+// the two operations that commit, and the read that renders them. Nothing is
+// faked: a benchmark that hand-builds a state and calls one internal function
+// measures the fixture rather than a request, which is the one claim the rows
+// have to be able to survive.
 //
 // A row is measured against something. Where the pair is not obvious from
 // the name, the benchmark's own comment says what its sub-benchmarks are
 // the two ends of, because a number with no comparison is folklore with a
 // timestamp on it.
 //
-// These are not pass/fail tests. They exist so the cost claims in §2.2
-// and §8 stay assertions someone re-runs rather than folklore.
+// These are not pass/fail tests.
 
 import (
 	"strconv"
@@ -37,13 +35,13 @@ func mustLower(tb testing.TB, id, src string) *program.Program {
 	return img
 }
 
-// BenchmarkCondEval runs the §7 example's own guard: internal
-// present[.kind == COMPANY], which lowers to one tagCmp closure (§3.4).
+// BenchmarkCondEval runs the registration example's own guard: internal
+// present[.kind == COMPANY], which lowers to one tagCmp closure.
 // The state view is built once, so what is timed is one presence test and
 // one ordinal compare through a closure — the whole cost of a condition
 // at request time.
 func BenchmarkCondEval(b *testing.B) {
-	img := mustLower(b, "bench", specExample(b))
+	img := mustLower(b, "bench", registrationExample(b))
 	kind := findSlot(img, "application.kind")
 	internal := findSlot(img, "application.internal")
 	c := img.Cond(img.Slot(internal).CondPres)
@@ -61,9 +59,7 @@ func BenchmarkCondEval(b *testing.B) {
 	}
 }
 
-// BenchmarkPermResolve asks the §3.5 question for every slot at once:
-// bits for one role, in one stage, with the overlay probed. The table
-// reports ns per slot, because "2 bitmap ops per node" is the claim
+// The table reports ns per slot, because "2 bitmap ops per node" is the claim
 // being measured, not the loop around it.
 func BenchmarkPermResolve(b *testing.B) {
 	img := mustLower(b, "bench", testfixture.Wide(b))
@@ -113,20 +109,16 @@ func findStage(img *program.Program, name string) program.StageID {
 	return id
 }
 
-// BenchmarkUpdate is §8's request-level row: one accepted batch of three
-// edits through the exported operation, on the SYNTAX §7 definition and a
-// case create made. What it measures is what a host pays — resolve, the
-// permission fold, three settles, and the store's clone-and-guard — rather
-// than one internal function reached by a fixture.
+// What it measures is what a host pays — resolve, the permission fold, three
+// settles, and the store's clone-and-guard — rather than one internal function
+// reached by a fixture.
 //
 // The three paths are one per payload shape that costs something to check: a
 // plain string, an enum tag resolved against its owning type, and a decimal
-// against its declared bounds. `Applicant` is the actor the §7 roles block
-// grants the form to, so the batch is accepted and the guard is the store's
-// own revision, threaded forward as a host would.
+// against its declared bounds.
 func BenchmarkUpdate(b *testing.B) {
 	rt := NewRuntime()
-	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	d := &Definition{img: mustLower(b, "bench", registrationExample(b))}
 	if err := rt.Register(d); err != nil {
 		b.Fatalf("Register: %v", err)
 	}
@@ -150,17 +142,17 @@ func BenchmarkUpdate(b *testing.B) {
 	}
 }
 
-// BenchmarkUpdateFanout measures §5.3's walk on its own, in four shapes, so the
+// BenchmarkUpdateFanout measures the walk on its own, in four shapes, so the
 // two claims the section makes are two comparisons rather than one number.
 //
-// Sized by the definition, not by the batch: `spec/floor` writes `full_name`, a
-// field no guard in the §7 example reads, and `wide/floor` writes the same
+// Sized by the definition, not by the batch: `registration/floor` writes `full_name`, a
+// field no guard in the registration example reads, and `wide/floor` writes the same
 // nothing against the 51-slot corpus. Same work, 20 slots versus 51, and the
 // difference is the visited array and queue that `depBound` fixed at lowering —
-// which is also why the *edge* count barely appears: `spec/guard` crosses both
+// which is also why the *edge* count barely appears: `registration/guard` crosses both
 // edges the small definition has, from `kind` to the group and the collection
 // its tag decides the presence of, expands each to its subtree, and collapses
-// them back on the way out. `spec/all` is the ceiling, and a ceiling on the same
+// them back on the way out. `registration/all` is the ceiling, and a ceiling on the same
 // image as the floor is what makes the pair readable: a closure from any subset
 // visits a subset of these edges and enqueues a subset of these slots.
 //
@@ -168,16 +160,16 @@ func BenchmarkUpdate(b *testing.B) {
 // walk allocates nothing per edge, and no path string is built for a slot the
 // collapse drops.
 func BenchmarkUpdateFanout(b *testing.B) {
-	spec := mustLower(b, "spec", specExample(b))
+	registration := mustLower(b, "registration", registrationExample(b))
 	wide := mustLower(b, "wide", testfixture.Wide(b))
-	floor := findSlot(spec, "application.full_name")
-	guarded := findSlot(spec, "application.kind")
+	floor := findSlot(registration, "application.full_name")
+	guarded := findSlot(registration, "application.kind")
 	unread := findSlot(wide, "f.s1")
 
-	b.Run("spec", func(b *testing.B) {
-		b.Run("floor", func(b *testing.B) { walkOne(b, spec, floor) })
-		b.Run("guard", func(b *testing.B) { walkOne(b, spec, guarded) })
-		b.Run("all", func(b *testing.B) { walkAll(b, spec) })
+	b.Run("registration", func(b *testing.B) {
+		b.Run("floor", func(b *testing.B) { walkOne(b, registration, floor) })
+		b.Run("guard", func(b *testing.B) { walkOne(b, registration, guarded) })
+		b.Run("all", func(b *testing.B) { walkAll(b, registration) })
 	})
 	b.Run("wide", func(b *testing.B) {
 		b.Run("floor", func(b *testing.B) { walkOne(b, wide, unread) })
@@ -221,14 +213,14 @@ func walkAll(b *testing.B, img *program.Program) {
 	}
 }
 
-// benchSpecCase is a runtime and one Applicant's handle on a case of the §7
-// corpus, which is what both commit benchmarks below drive. Built the way a
-// host builds it — `Create`, then operations on the handle — so the numbers
-// are a request's and not a fixture's.
-func benchSpecCase(b *testing.B) Case {
+// benchRegistrationCase is a runtime and one Applicant's handle on a case of
+// the registration fixture, which is what both commit benchmarks below drive.
+// Built the way a host builds it — `Create`, then operations on the handle — so
+// the numbers are a request's and not a fixture's.
+func benchRegistrationCase(b *testing.B) Case {
 	b.Helper()
 	rt := NewRuntime()
-	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	d := &Definition{img: mustLower(b, "bench", registrationExample(b))}
 	if err := rt.Register(d); err != nil {
 		b.Fatalf("Register: %v", err)
 	}
@@ -243,7 +235,7 @@ func benchSpecCase(b *testing.B) Case {
 // A complete `application` in three writes: the two required fields, and a
 // fee that differs every call so the diff has something to say. `PERSON`
 // keeps the conditional collection and the gated subtree out of the walk,
-// which is the cheap case — the completeness pass asks the §7 example's whole
+// which is the cheap case — the completeness pass asks the registration example's whole
 // preorder range either way, and pruning is what it declines to answer.
 func completeApplication(i int) []Edit {
 	return []Edit{
@@ -254,24 +246,21 @@ func completeApplication(i int) []Edit {
 	}
 }
 
-// BenchmarkSubmit measures the commit path (RUNTIME §5.4, DESIGN §6.3) as the
+// BenchmarkSubmit measures the commit path as the
 // request a host actually makes: a batch that changes one form, then the
 // submit of that form. What it charges, in order, is the copy's read, the
 // completeness walk, `Validate` re-run over the subtree, the forward diff, and
 // then the store's three consistent writes — of which one is a clone of the
-// committed snapshot, because §5.1's state is materialized per case rather
+// committed snapshot, because the state is materialized per case rather
 // than per revision and a commit has to leave the old one intact for whoever
 // is reading it.
 //
-// That clone is why the pair is not "an update plus a flag", and milestone 4
-// will not make it cheaper: the transaction changes how the three writes are
-// made durable, not how many bytes the new snapshot holds.
+// That clone is why the pair is not "an update plus a flag".
 //
-// The tail this row now also carries is §5.3's walk over the entries the
-// commit recorded, which is what `CommitResult.Affected` is made of (§9):
-// four objects on a submitting corpus, and the row in §8 says which four.
+// The tail this row now also carries is the walk over the entries the commit
+// recorded.
 func BenchmarkSubmit(b *testing.B) {
-	c := benchSpecCase(b)
+	c := benchRegistrationCase(b)
 	base := uint64(0)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -286,13 +275,11 @@ func BenchmarkSubmit(b *testing.B) {
 	}
 }
 
-// BenchmarkSubmitNoOp measures the half of §5.4 that runs when the answer is
-// "nothing to write": every check passes, the diff is empty, and the case's
-// revision and history stay where they were. The gap between this and
-// `BenchmarkSubmit` minus an update is what a commit costs on top of deciding
-// that one is needed — the clone, the entry and the rebase.
+// The gap between this and `BenchmarkSubmit` minus an update is what a commit
+// costs on top of deciding that one is needed — the clone, the entry and the
+// rebase.
 func BenchmarkSubmitNoOp(b *testing.B) {
-	c := benchSpecCase(b)
+	c := benchRegistrationCase(b)
 	res, err := c.Update(ctx(), 0, completeApplication(0)...)
 	if err != nil {
 		b.Fatalf("Update: %v", err)
@@ -311,7 +298,7 @@ func BenchmarkSubmitNoOp(b *testing.B) {
 	}
 }
 
-// benchSpecReview is the §7 corpus's two-edge loop out of and back into
+// benchRegistrationReview is the registration fixture's two-edge loop out of and back into
 // `draft`: a Manager rejects to `correction`, and `correction` accepts back to
 // `draft`. Both edges are unconditional and neither destination names a
 // `require`, so one call is one commit with nothing else on its tab — no
@@ -322,10 +309,10 @@ func BenchmarkSubmitNoOp(b *testing.B) {
 // The actor is a Manager by primary role rather than the committed reviewer,
 // because conferring the role through `application.reviewer` would mean
 // committing content inside the timed loop.
-func benchSpecReview(b *testing.B) Case {
+func benchRegistrationReview(b *testing.B) Case {
 	b.Helper()
 	rt := NewRuntime()
-	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	d := &Definition{img: mustLower(b, "bench", registrationExample(b))}
 	if err := rt.Register(d); err != nil {
 		b.Fatalf("Register: %v", err)
 	}
@@ -337,15 +324,15 @@ func benchSpecReview(b *testing.B) Case {
 	return c
 }
 
-// BenchmarkTransition measures a stage move end to end (RUNTIME §5.5, DESIGN
-// §6.4): the role fold, the edge lookup, one mask test, the revision compare,
-// the destination's `require` — nothing, for these two stages — the view walk,
-// and then the store's three consistent writes. It is the commit path minus
-// §5.4's two walks and minus §5.6's diff, which is the honest way to say what
-// a transition costs: it pays for a commit and for neither of the passes that
-// decide whether a commit is warranted.
+// BenchmarkTransition measures a stage move end to end: the role fold, the edge
+// lookup, one mask test, the revision compare, the destination's `require` —
+// nothing, for these two stages — the view walk, and then the store's three
+// consistent writes. It is the commit path minus the two walks and minus the
+// diff, which is the honest way to say what a transition costs: it pays for a
+// commit and for neither of the passes that decide whether a commit is
+// warranted.
 func BenchmarkTransition(b *testing.B) {
-	c := benchSpecReview(b)
+	c := benchRegistrationReview(b)
 	dest := [2]string{"correction", "draft"}
 	rev := uint64(0)
 	b.ReportAllocs()
@@ -366,7 +353,7 @@ func BenchmarkTransition(b *testing.B) {
 // the error's own allocation; what it isolates is that the checks before a
 // commit are a fraction of what the commit is.
 func BenchmarkTransitionGuard(b *testing.B) {
-	c := benchSpecReview(b)
+	c := benchRegistrationReview(b)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		_, err := c.Transition(ctx(), "person_review", 0)
@@ -377,7 +364,7 @@ func BenchmarkTransitionGuard(b *testing.B) {
 	}
 }
 
-// benchWideCase is §8's corpus as a live case: a role that sees the whole
+// benchWideCase is the corpus as a live case: a role that sees the whole
 // definition, a draft with content in it, and rows in the collection, so the
 // walk below is asked about data and not about an empty frame. Everything is
 // prepared outside the timed loop — the batch, the rows and the values are the
@@ -415,12 +402,10 @@ func benchWideCase(tb testing.TB, rows int) Case {
 	return c
 }
 
-// BenchmarkViewWide is §8's last request-level row: the whole visible case read
-// at once, on the corpus §8 calls the worst locality profile a traversal can
-// have. Every one of the 51 slots is visible to this actor, so `visible()` pays
-// its full scan; four fields hold values and the collection holds rows, so the
-// walk reads the draft at instance addresses rather than answering from
-// declaration cells alone.
+// BenchmarkViewWide is the last request-level row. Every one of the 51 slots is
+// visible to this actor, so `visible()` pays its full scan; four fields hold
+// values and the collection holds rows, so the walk reads the draft at instance
+// addresses rather than answering from declaration cells alone.
 //
 // The second sub-case is the comparison that makes the number mean something:
 // one field asked for by path, which is the same operation with a selection of
@@ -445,7 +430,7 @@ func BenchmarkViewWide(b *testing.B) {
 				b.Fatalf("the wide corpus has %d roots", len(res.Roots))
 			}
 		}
-		// Nodes and slots are both reported because §8's per-node figures
+		// Nodes and slots are both reported because the per-node figures
 		// divide by the former and the corpus is described in the latter:
 		// instances multiply a group's members into more nodes than the
 		// definition has slots, and a row that reads well against the wrong
@@ -469,10 +454,10 @@ func BenchmarkViewWide(b *testing.B) {
 	})
 }
 
-// countNodes counts the nodes a view rendered, which is the denominator §8's
-// per-node cost is stated against. It is a helper rather than an assertion:
-// the number changes with the corpus's row count, and a benchmark that failed
-// on it would be a benchmark that cannot be re-run after a fixture edit.
+// countNodes counts the nodes a view rendered, which is the denominator the
+// per-node cost is stated against. It is a helper rather than an assertion: the
+// number changes with the corpus's row count, and a benchmark that failed on it
+// would be a benchmark that cannot be re-run after a fixture edit.
 func countNodes(nodes []*ViewNode) int {
 	n := 0
 	for _, x := range nodes {
@@ -482,15 +467,12 @@ func countNodes(nodes []*ViewNode) int {
 	return n
 }
 
-// benchSyncPair is one §7 case seen by two Applicant sessions of two
-// different users: the shape DESIGN §6.5 exists for, where one holds a draft
-// and the other has just committed past it. The role is Applicant because
-// §7 grants it `view, edit, submit application` at `draft` and `correction`,
-// and the loop below submits rather than transitions.
+// benchSyncPair opens the same case for two Applicants so one can commit while
+// the other's draft is stale.
 func benchSyncPair(tb testing.TB) (dana, elliot Case) {
 	tb.Helper()
 	rt := NewRuntime()
-	d := &Definition{img: mustLower(tb, "bench", specExample(tb))}
+	d := &Definition{img: mustLower(tb, "bench", registrationExample(tb))}
 	if err := rt.Register(d); err != nil {
 		tb.Fatalf("Register: %v", err)
 	}
@@ -507,14 +489,13 @@ func benchSyncPair(tb testing.TB) (dana, elliot Case) {
 	return dana, elliot
 }
 
-// BenchmarkRebaseClean measures §5.8's merge when the answer is silence: a
-// draft holding an edit in a field the commits never touch, against a case
-// that has moved by exactly one value commit. Every cell in the window is
-// taken and nothing is asked of the user, which is the shape §6.5 promises
-// will not need a human. The comparison is `BenchmarkRebaseSynced` below, and
-// the honest further subtraction is `BenchmarkSubmit`: this row is that plus
-// the walk over the unseen record, the clone the merge runs on, the cell
-// comparisons, and the guarded save that moves the lineage.
+// BenchmarkRebaseClean measures the merge when the answer is silence: a draft
+// holding an edit in a field the commits never touch, against a case that has
+// moved by exactly one value commit. Every cell in the window is taken and
+// nothing is asked of the user. The comparison is `BenchmarkRebaseSynced`
+// below, and the honest further subtraction is `BenchmarkSubmit`: this row is
+// that plus the walk over the unseen record, the clone the merge runs on, the
+// cell comparisons, and the guarded save that moves the lineage.
 //
 // The per-iteration commit is not padding. A rebase with no window is the
 // synchronized row, and a rebase measured against a history that never moves
@@ -553,7 +534,7 @@ func BenchmarkRebaseClean(b *testing.B) {
 }
 
 // BenchmarkRebaseSynced measures the same call when the copy already descends
-// from the case's newest revision: no merge, no save, and §5.8's claim that a
+// from the case's newest revision: no merge, no save, and the claim that a
 // redundant rebase writes nothing. What remains is the read of the draft —
 // the look-up, the fold, and the snapshot clone — which is why this is the
 // floor the rows above and below it are stated against.
@@ -577,12 +558,10 @@ func BenchmarkRebaseSynced(b *testing.B) {
 // BenchmarkRebaseRows is the same merge with the window's commit moving a row
 // list: one shareholder in and one out every iteration, so the case's work
 // churns while its count — and the clone the merge pays for — stays the same
-// size. The draft has not touched the rows, which puts every call on the
-// branch that adopts the committed list, the only row policy in §5.8 that
-// copies content rather than comparing it. The comparison is
-// `BenchmarkRebaseClean`, whose window holds one value and no rows: the gap
-// is the set entry's base resolution, the list comparison, and the row copies
-// that `apply` makes behind it.
+// size. The draft has not touched the rows. The comparison is
+// `BenchmarkRebaseClean`, whose window holds one value and no rows: the gap is
+// the set entry's base resolution, the list comparison, and the row copies that
+// `apply` makes behind it.
 func BenchmarkRebaseRows(b *testing.B) {
 	dana, elliot := benchSyncPair(b)
 	res, err := elliot.Update(ctx(), 0,
@@ -647,11 +626,9 @@ func BenchmarkRebaseRows(b *testing.B) {
 	}
 }
 
-// BenchmarkDiscard is §6.5's other exit: the drop of a draft that holds work.
-// The pair is the shape of the same call with nothing behind it — an actor
-// with no copy, which is the one discard §5.8 says is already true — so the
-// gap is the guarded delete, and what the loop's batch costs is charged to
-// `BenchmarkUpdate` by comparison rather than hidden here.
+// BenchmarkDiscard is the other exit: the drop of a draft that holds work. The
+// pair is the shape of the same call with nothing behind it — an actor with no
+// copy.
 func BenchmarkDiscard(b *testing.B) {
 	b.Run("draft", func(b *testing.B) {
 		dana, _ := benchSyncPair(b)
@@ -681,22 +658,19 @@ func BenchmarkDiscard(b *testing.B) {
 	})
 }
 
-// BenchmarkReview is a decision end to end (RUNTIME §5.9, DESIGN §6.4): the
-// role fold, the §3.9 resolution, the mask test, the unit test, the revision
-// compare, and then a commit whose diff is one entry. The loop alternates
-// approve and revoke so that every iteration commits — a repeated decision is
-// refused work by §6.3's rule, so a benchmark that asked for the same approval
-// twice would be measuring `BenchmarkReviewNoOp` and calling it a commit.
+// BenchmarkReview is a decision end to end. The loop alternates approve and
+// revoke so that every iteration commits — a repeated decision is refused work
+// by the rule, so a benchmark that asked for the same approval twice would be
+// measuring `BenchmarkReviewNoOp` and calling it a commit.
 //
-// The content stays empty on purpose: `Review` decides what the case holds and
-// asks nothing about completeness, which is §5.4's question at `Submit` and
-// §5.5's at a destination's `require`.
+// Leave content empty. Review decides the committed content as it stands;
+// completeness is checked during submit and transition.
 //
-// The result's `Affected` seeds the walk's cheapest shape (§9): the verdict
+// The result's `Affected` seeds the walk's cheapest shape: the verdict
 // entry re-asked, the decided unit rendered, and whatever the same commit's
 // reset moved arriving with them.
 func BenchmarkReview(b *testing.B) {
-	c := benchSpecReview(b)
+	c := benchRegistrationReview(b)
 	rev := uint64(0)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -717,7 +691,7 @@ func BenchmarkReview(b *testing.B) {
 // gap to `BenchmarkReview` is what the store's three writes, the table copy and
 // the reset cost — everything a decision does rather than decides.
 func BenchmarkReviewNoOp(b *testing.B) {
-	c := benchSpecReview(b)
+	c := benchRegistrationReview(b)
 	res, err := c.Review(ctx(), "application", ReviewApprove, 0, "")
 	if err != nil {
 		b.Fatalf("the decision every timed call repeats: %v", err)
@@ -735,15 +709,11 @@ func BenchmarkReviewNoOp(b *testing.B) {
 	}
 }
 
-// BenchmarkReviewRefused is the same call stopped at the door, and the row that
-// says what an unauthorized decision costs a host: the fold, the resolution, one
-// mask test and a refusal. It answers before the unit test and before the
-// revision compare, which is §7's property 7 for this operation — so the
-// message's allocations are the whole bill, and no case fact is read to build
-// it. The actor holds the primary role the definition never granted.
+// BenchmarkReviewRefused measures the unauthorized path, which checks
+// permissions before comparing revisions.
 func BenchmarkReviewRefused(b *testing.B) {
 	rt := NewRuntime()
-	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	d := &Definition{img: mustLower(b, "bench", registrationExample(b))}
 	if err := rt.Register(d); err != nil {
 		b.Fatalf("Register: %v", err)
 	}
@@ -761,18 +731,14 @@ func BenchmarkReviewRefused(b *testing.B) {
 	}
 }
 
-// benchGateCase builds a SYNTAX §7 case whose `application` is complete and
-// APPROVED, and hands back the manager who may move it. The applicant writes
-// the content and the manager decides about it, because §7 grants `submit` to
-// one and `review` to the other, and a fixture that faked either with a role
-// the definition does not hold would be measuring a different case.
+// The applicant writes the content and the manager decides about it.
 //
 // The revision returned is the one the manager's own decision committed at:
 // every timed call starts from it.
 func benchGateCase(b *testing.B) (Case, uint64) {
 	b.Helper()
 	rt := NewRuntime()
-	d := &Definition{img: mustLower(b, "gate", specExample(b))}
+	d := &Definition{img: mustLower(b, "gate", registrationExample(b))}
 	if err := rt.Register(d); err != nil {
 		b.Fatalf("Register: %v", err)
 	}
@@ -808,7 +774,7 @@ func benchGateCase(b *testing.B) (Case, uint64) {
 
 // BenchmarkTransitionRequires is `BenchmarkTransition`'s gated twin: the same
 // three commits per iteration, one of which moves into a stage that declares
-// `require application` and so runs §5.5's completeness pass and approval
+// `require application` and so runs the completeness pass and approval
 // scan. The reject to `correction` and the accept back to `draft` ask nothing
 // — a reject skips completeness, and neither of those stages requires a form —
 // so the row is one gated move in three undated ones, and the claim made from
@@ -826,10 +792,10 @@ func BenchmarkTransitionRequires(b *testing.B) {
 	}
 }
 
-// benchSpecSign is a case ready to be signed: the content §7's required fields
+// benchRegistrationSign is a case ready to be signed: the content the required fields
 // ask for, the reviewer the form names in it, and the approval the form's own
 // `verifiable` declaration makes a precondition of an attestation about it. Two
-// actors, because §4.2's readiness test is about content and a judgement other
+// actors, because the readiness test is about content and a judgement other
 // hands made, and a benchmark that skipped it would be measuring a call the
 // operation cannot make.
 //
@@ -839,10 +805,10 @@ func BenchmarkTransitionRequires(b *testing.B) {
 // pending-unit scan before it asks the store for anything. The subtraction that
 // reads this row against `BenchmarkSubmit` is therefore the gate's walk, the
 // table copy and the entry, and not a clean commit.
-func benchSpecSign(b *testing.B) (Case, uint64) {
+func benchRegistrationSign(b *testing.B) (Case, uint64) {
 	b.Helper()
 	rt := NewRuntime()
-	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	d := &Definition{img: mustLower(b, "bench", registrationExample(b))}
 	if err := rt.Register(d); err != nil {
 		b.Fatalf("Register: %v", err)
 	}
@@ -874,18 +840,15 @@ func benchSpecSign(b *testing.B) (Case, uint64) {
 	return elliot, rvs.Revision
 }
 
-// BenchmarkSign is an attestation end to end (RUNTIME §5.10, DESIGN §4.2): the
-// fold, the resolution, the mask and the signature entry's own conjunct, the
-// readiness gate's two scans, the revision compare, and then a commit whose diff
-// is one entry. The loop alternates the evidence reference so that every
-// iteration commits: the same hand pointing at the same artifact twice is
-// already true, and §6.3 refuses that work — so a benchmark that repeated one
-// reference would be measuring `BenchmarkSignNoOp` and calling it a commit.
+// BenchmarkSign is an attestation end to end: the fold, the resolution, the
+// mask and the signature entry's own conjunct, the readiness gate's two scans,
+// the revision compare, and then a commit whose diff is one entry. The loop
+// alternates the evidence reference so that every iteration commits.
 //
-// The one entry makes the result's list the walk's smallest answer (§9): the
+// The one entry makes the result's list the walk's smallest answer: the
 // attested field, with no erasure for a signature commit to report.
 func BenchmarkSign(b *testing.B) {
-	c, rev := benchSpecSign(b)
+	c, rev := benchRegistrationSign(b)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		ref := "envelope-a"
@@ -902,12 +865,12 @@ func BenchmarkSign(b *testing.B) {
 
 // BenchmarkSignNoOp is the double-click: the same hand, the same content, the
 // same reference, answered with success and no commit. The gap to
-// `BenchmarkSign` is what the store's writes, the table copy and the reset
-// cost — everything an attestation does besides being made, and the reason §8's
-// claim that a repeated request is cheap is a measured row rather than a reading
-// of the code.
+// `BenchmarkSign` is what the store's writes, the table copy and the reset cost
+// — everything an attestation does besides being made, and the reason the claim
+// that a repeated request is cheap is a measured row rather than a reading of
+// the code.
 func BenchmarkSignNoOp(b *testing.B) {
-	c, rev := benchSpecSign(b)
+	c, rev := benchRegistrationSign(b)
 	res, err := c.Sign(ctx(), "application.approved_by", rev, "envelope")
 	if err != nil {
 		b.Fatalf("the attestation every timed call repeats: %v", err)
@@ -932,10 +895,10 @@ func BenchmarkSignNoOp(b *testing.B) {
 // one mask test and a refusal — before the shape questions, before the revision
 // compare, and before either scan that answers what the signature would have
 // bound. The actor holds `view`, `edit` and `review` on this form and no `sign`
-// grant anywhere in the case, which is the definition §7 ships with.
+// grant anywhere in the case.
 func BenchmarkSignRefused(b *testing.B) {
 	rt := NewRuntime()
-	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	d := &Definition{img: mustLower(b, "bench", registrationExample(b))}
 	if err := rt.Register(d); err != nil {
 		b.Fatalf("Register: %v", err)
 	}
@@ -953,7 +916,7 @@ func BenchmarkSignRefused(b *testing.B) {
 	}
 }
 
-// BenchmarkSigReset prices §4.2's invalidation at the seam it actually runs in:
+// BenchmarkSigReset prices the invalidation at the seam it actually runs in:
 // one diff entry in a form whose attestation stands, measured against the same
 // entry in a form whose signature field is empty. Both rows build their table
 // the same way inside the loop, so the subtraction is the effect and not the
@@ -967,7 +930,7 @@ func BenchmarkSignRefused(b *testing.B) {
 // forms are unsigned — the state most of a definition's life is spent in —
 // answers with no copy at all, which is the second row.
 func BenchmarkSigReset(b *testing.B) {
-	img := mustLower(b, "bench", specExample(b))
+	img := mustLower(b, "bench", registrationExample(b))
 	field := findSlot(img, "application.approved_by")
 	name := findSlot(img, "application.full_name")
 	changes := []commitChange{{kind: chgValue, slot: name, v: txt("Ada")}}
@@ -1002,18 +965,18 @@ func BenchmarkSigReset(b *testing.B) {
 }
 
 // benchTrail is a case with a long past: `commits` whole-form submits, each
-// changing the fee so §5.1's diff has something to record. It is the fixture the
+// changing the fee so the diff has something to record. It is the fixture the
 // two reads below need and the one `BenchmarkSubmit` deliberately is not — that
 // one measures a commit, and a commit's cost cannot be separated from the trail
 // it appends to, because the trail grows as the benchmark runs.
 //
 // The image comes back beside the handle because `BenchmarkReplayTo` folds the
-// entries without an operation around them: the derivation is §5.11's internal
+// entries without an operation around them: the derivation is the internal
 // claim, and a host never calls it.
 func benchTrail(tb testing.TB, commits int) (Case, *program.Program) {
 	tb.Helper()
 	rt := NewRuntime()
-	img := mustLower(tb, "bench", specExample(tb))
+	img := mustLower(tb, "bench", registrationExample(tb))
 	d := &Definition{img: img}
 	if err := rt.Register(d); err != nil {
 		tb.Fatalf("Register: %v", err)
@@ -1037,7 +1000,7 @@ func benchTrail(tb testing.TB, commits int) (Case, *program.Program) {
 	return c, img
 }
 
-// BenchmarkHistory measures the trail read (RUNTIME §5.11) two ways over the
+// BenchmarkHistory measures the trail read two ways over the
 // same thousand-commit case, and the two rows' difference is the section's cost
 // claim: a page costs its page. `page` asks for twenty records from the middle,
 // `whole` asks for everything — a thousand records, three entries each — and the
@@ -1046,10 +1009,6 @@ func benchTrail(tb testing.TB, commits int) (Case, *program.Program) {
 // carries, which a call does once however long the trail is. Nothing in the read
 // searches or copies the trail, so a caller who pages through history pays for
 // what they read and nothing else.
-//
-// It is also the reason §5.11 can say the read does not replay: the entries
-// render from their own record, and the fold that answers a question about a
-// *state* is the benchmark below, not this one.
 func BenchmarkHistory(b *testing.B) {
 	c, _ := benchTrail(b, 1000)
 	b.Run("page", func(b *testing.B) {
@@ -1081,7 +1040,7 @@ func BenchmarkHistory(b *testing.B) {
 
 // BenchmarkReplayTo measures the derivation the exported read declines to run:
 // folding every entry into a state is what "what did this case hold at revision
-// 500?" costs, and §5.11's answer is that it is O(trail), not O(page) — which is
+// 500?" costs, and the answer is that it is O(trail), not O(page) — which is
 // why `History` renders entries from their own records and a host is given the
 // trail rather than a snapshot of a past it did not ask to rebuild.
 //
@@ -1111,7 +1070,7 @@ func BenchmarkReplayTo(b *testing.B) {
 		}
 	}
 	if fee == 0 {
-		b.Fatal("the §7 example lost its fee")
+		b.Fatal("the registration example lost its fee")
 	}
 	held := func(to uint64) string {
 		st := replayTo(img, hist, to)

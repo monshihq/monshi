@@ -15,8 +15,8 @@ type differ struct {
 // diffForm compares two states over one subtree and returns the changes that
 // landed. `old` is the committed snapshot the candidate descends from and
 // `next` the candidate; the order matters because the diff records `next`'s
-// values (§5.1: new values, never old), and it is why a submit of one form
-// reports nothing about another (§6.3's diff limited to the selected form).
+// values (new values, never old), and it is why a submit of one form
+// reports nothing about another (the diff limited to the selected form).
 func diffForm(old, next *state, root program.NodeID) []commitChange {
 	d := differ{old: old, next: next}
 	img := old.img
@@ -33,17 +33,17 @@ func diffForm(old, next *state, root program.NodeID) []commitChange {
 			d.value(n, nil)
 		default:
 			// A member of a collection is compared per instance inside `set`,
-			// and structure has no value to compare: §5.2's two answers, and
+			// and structure has no value to compare: the two answers, and
 			// the reason a group never appears in a diff as itself.
 		}
 	}
 	return d.out
 }
 
-// value records a change to one field at one address, if there is one. An
-// unset payload is a change when the other state had a value: that is how a
-// committed `Empty`, or a removed instance's content, reaches the entry (§5.1:
-// a forward diff records the removal as an effect).
+// value records a change to one field at one address, if there is one. An unset
+// payload is a change when the other state had a value: that is how a committed
+// `Empty`, or a removed instance's content, reaches the entry (a forward diff
+// records the removal as an effect).
 func (d *differ) value(n program.NodeID, p instPath) {
 	v := d.next.cellValue(n, p)
 	if d.old.img.Same(n, d.old.cellValue(n, p), v) {
@@ -60,13 +60,13 @@ func (d *differ) set(coll program.NodeID) {
 		before := d.old.rowsFor(coll, host).list()
 		after := d.next.rowsFor(coll, host).list()
 		if !sameRows(before, after) {
-			// The count is the forward fact about a set, and the ID list is
-			// the same fact spelled far enough to be *used*: §6.5's rebase
-			// compares a draft's rows against the set as it stood at the
-			// copy's base, and a count cannot say which rows those were. RUNTIME
-			// §5.6's reset and invalidate indexing does not read the list — it
-			// is per-slot, not per-row — so this costs a commit only what its
-			// own diff already knows.
+			// The count is the forward fact about a set, and the ID list is the
+			// same fact spelled far enough to be *used*: the rebase compares a
+			// draft's rows against the set as it stood at the copy's base, and
+			// a count cannot say which rows those were. The reset and
+			// invalidate indexing does not read the list — it is per-slot, not
+			// per-row — so this costs a commit only what its own diff already
+			// knows.
 			d.out = append(d.out, commitChange{
 				kind: chgRows, slot: coll, path: host,
 				ids: rowIDs(after),
@@ -80,7 +80,7 @@ func (d *differ) set(coll program.NodeID) {
 			// what keeps a deeper collection's members out of this loop —
 			// they are compared when their own set is visited, at the address
 			// that includes this instance's ID. A repeated *field* passes it
-			// too, and correctly: its rows are its own values (§5.1).
+			// too, and correctly: its rows are its own values.
 			for x := lo; x < hi; x++ {
 				if img.Slot(x).Kind == program.KindField && img.CollOf(x) == coll {
 					d.value(x, p)
@@ -106,9 +106,9 @@ func (d *differ) hosts(coll program.NodeID) []instPath {
 }
 
 // sameRows compares instance sets by their IDs in order, which is the whole
-// question "did the rows move": a value inside a row is compared separately,
-// so a set is the same when the same instances exist in the same order, and
-// §5.1's creation order is what makes the order meaningful.
+// question "did the rows move": a value inside a row is compared separately, so
+// a set is the same when the same instances exist in the same order, but the
+// creation order is what makes the order meaningful.
 func sameRows(a, b []instRow) bool {
 	if len(a) != len(b) {
 		return false
@@ -138,10 +138,7 @@ func unionRows(now, was []instRow) []instanceID {
 	return out
 }
 
-// rowIDs lists a set's instance IDs in order, or nil when it has none: an
-// empty list and no list mean the same thing to the reader, and keeping them
-// the same is what lets §5.8 compare a set without a nil check beside every
-// comparison.
+// rowIDs lists a set's instance IDs in order, or nil when it has none.
 func rowIDs(rows []instRow) []instanceID {
 	if len(rows) == 0 {
 		return nil

@@ -6,12 +6,11 @@ import (
 	"github.com/monshihq/monshi/schema"
 )
 
-// ruleCase is one definition snippet and the diagnostics it must
-// trigger. Case names carry the SYNTAX.md rule ID they verify. The
-// table asserts presence: listed codes MUST appear in Errors /
-// Warnings; recovery cascades may add further diagnostics. When errs is
-// empty the case additionally asserts the compile is error-free, so
-// warning-only cases prove warnings never leak into Errors.
+// ruleCase is one definition snippet and the diagnostics it must trigger. The
+// table asserts presence: listed codes MUST appear in Errors / Warnings;
+// recovery cascades may add further diagnostics. When errs is empty the case
+// additionally asserts the compile is error-free, so warning-only cases prove
+// warnings never leak into Errors.
 type ruleCase struct {
 	name  string
 	src   string
@@ -21,217 +20,217 @@ type ruleCase struct {
 }
 
 var ruleCases = []ruleCase{
-	// §2.4 / §5.1-N1 — reserved words as names.
-	{"N1-ReservedFormName", `forms { default { } } stages { d { } }`,
+	// Reserved words as names.
+	{"ReservedFormName", `forms { default { } } stages { d { } }`,
 		[]schema.Code{schema.CodeReservedName}, nil, false},
-	{"N1-ReservedFieldName", `forms { f { view : string; } } stages { d { } }`,
+	{"ReservedFieldName", `forms { f { view : string; } } stages { d { } }`,
 		[]schema.Code{schema.CodeReservedName}, nil, false},
 
-	// §5.1-N2 — casing.
-	{"N2-LowercaseRole", `roles { applicant { allow view f; } } forms { f { } } stages { d { } }`,
+	// Casing.
+	{"LowercaseRole", `roles { applicant { allow view f; } } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeNameCase}, nil, false},
-	{"N2-UppercaseField", `forms { f { X : string; } } stages { d { } }`,
+	{"UppercaseField", `forms { f { X : string; } } stages { d { } }`,
 		[]schema.Code{schema.CodeNameCase}, nil, false},
-	{"N2-UppercaseForm", `forms { Application { } } stages { d { } }`,
+	{"UppercaseForm", `forms { Application { } } stages { d { } }`,
 		[]schema.Code{schema.CodeNameCase}, []schema.Code{schema.CodeEmptyForm}, false},
-	{"N2-UppercaseStage", `forms { f { } } stages { Draft { } }`,
+	{"UppercaseStage", `forms { f { } } stages { Draft { } }`,
 		[]schema.Code{schema.CodeNameCase}, nil, false},
-	{"N2-LowercaseTag", `types { e : enum(red); } forms { f { } } stages { d { } }`,
+	{"LowercaseTag", `types { e : enum(red); } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeNameCase}, nil, false},
-	{"N2-UppercaseType", `types { T : string; } forms { f { } } stages { d { } }`,
+	{"UppercaseType", `types { T : string; } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeNameCase}, nil, false},
 
-	// §5.1-N3 — namespaces.
-	{"N3-FormVsTypeCollision", `types { x : string; } forms { x { } } stages { d { } }`,
+	// Namespaces.
+	{"FormVsTypeCollision", `types { x : string; } forms { x { } } stages { d { } }`,
 		[]schema.Code{schema.CodeDuplicateName}, nil, false},
-	{"N3-StageVsFormCollision", `forms { f { } } stages { f { } }`,
+	{"StageVsFormCollision", `forms { f { } } stages { f { } }`,
 		[]schema.Code{schema.CodeDuplicateName}, nil, false},
-	{"N3-DuplicateTagAcrossEnums", `types { e1 : enum(PERSON); e2 : enum(PERSON); } forms { f { } } stages { d { } }`,
+	{"DuplicateTagAcrossEnums", `types { e1 : enum(PERSON); e2 : enum(PERSON); } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeDuplicateName}, nil, false},
-	{"N3-TagVsRoleCollision", `roles { PERSON { allow view f; } } types { e1 : enum(PERSON); } forms { f { } } stages { d { } }`,
+	{"TagVsRoleCollision", `roles { PERSON { allow view f; } } types { e1 : enum(PERSON); } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeDuplicateName}, nil, false},
-	{"N3-DuplicateMembers", `forms { f { a : string; a : integer; } } stages { d { } }`,
+	{"DuplicateMembers", `forms { f { a : string; a : integer; } } stages { d { } }`,
 		[]schema.Code{schema.CodeDuplicateName}, nil, false},
-	{"N3-DuplicateRoles", `roles { R { allow view f; } R { allow view f; } } forms { f { } } stages { d { } }`,
+	{"DuplicateRoles", `roles { R { allow view f; } R { allow view f; } } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeDuplicateName}, nil, false},
-	{"N3-DuplicateStages", `forms { f { } } stages { d { } d { } }`,
+	{"DuplicateStages", `forms { f { } } stages { d { } d { } }`,
 		[]schema.Code{schema.CodeDuplicateName}, nil, false},
 
-	// §5.2-T1/T2 — type bases and decimal arguments.
-	{"T1-CustomOverCustom", `types { a : string; b : a; } forms { f { } } stages { d { } }`,
+	// Type bases and decimal arguments.
+	{"CustomOverCustom", `types { a : string; b : a; } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidTypeBase}, nil, false},
-	{"T1-OptionsBase", `types { b : options; } forms { f { } } stages { d { } }`,
+	{"OptionsBase", `types { b : options; } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidTypeBase}, nil, false},
-	{"T1-SignatureBase", `types { b : signature(R); } forms { f { } } stages { d { } }`,
+	{"SignatureBase", `types { b : signature(R); } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidTypeBase}, nil, false},
-	{"T1-RoleBase", `roles { R { allow view f; } } types { t : R; } forms { f { } } stages { d { } }`,
+	{"RoleBase", `roles { R { allow view f; } } types { t : R; } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidTypeBase}, nil, false},
-	{"T1-UnknownBaseIsUnknownType", `forms { f { a : Nope; } } stages { d { } }`,
+	{"UnknownBaseIsUnknownType", `forms { f { a : Nope; } } stages { d { } }`,
 		[]schema.Code{schema.CodeUnknownRole}, nil, false},
-	{"T2-DecimalArgs", `types { a : decimal(0, 1); b : decimal(40, 0); c : decimal(4, 5); } forms { f { } } stages { d { } }`,
+	{"DecimalArgs", `types { a : decimal(0, 1); b : decimal(40, 0); c : decimal(4, 5); } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidDecimalArgs}, nil, false},
-	{"T2-DecimalNonNumericArgs", `types { a : decimal(x, 1); } forms { f { } } stages { d { } }`,
+	{"DecimalNonNumericArgs", `types { a : decimal(x, 1); } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeUnexpectedToken}, nil, false},
 
-	// §5.3 — forms, fields, groups.
-	{"F1-EmptyGroup", `forms { f { g { } } } stages { d { } }`,
+	// Forms, fields, groups.
+	{"EmptyGroup", `forms { f { g { } } } stages { d { } }`,
 		[]schema.Code{schema.CodeEmptyGroup}, nil, false},
-	{"F1-EmptyFormWarns", `forms { f { } } stages { d { } }`,
+	{"EmptyFormWarns", `forms { f { } } stages { d { } }`,
 		nil, []schema.Code{schema.CodeEmptyForm}, false},
-	{"F3-RedundantVerifiable", `forms { f verifiable { g verifiable { x : string; } } } stages { d { } }`,
+	{"RedundantVerifiable", `forms { f verifiable { g verifiable { x : string; } } } stages { d { } }`,
 		nil, []schema.Code{schema.CodeRedundantVerifiable}, false},
-	{"F5-BinaryDefault", `forms { f { x : binary default "z"; } } stages { d { } }`,
+	{"BinaryDefault", `forms { f { x : binary default "z"; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidDefault}, nil, false},
-	{"F5-GroupDefault", `forms { f { g default 1 { x : string; } } } stages { d { } }`,
+	{"GroupDefault", `forms { f { g default 1 { x : string; } } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidAttribute}, nil, false},
-	{"F5-BadDateDefault", `forms { f { d : date default "2026-13-01"; } } stages { d { } }`,
+	{"BadDateDefault", `forms { f { d : date default "2026-13-01"; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidDefault}, nil, false},
-	{"F5-DecimalDefaultTooWide", `forms { f { a : decimal(4, 2) default 1234.50; b : decimal(4, 2) default 1.234; } } stages { s { } }`,
+	{"DecimalDefaultTooWide", `forms { f { a : decimal(4, 2) default 1234.50; b : decimal(4, 2) default 1.234; } } stages { s { } }`,
 		[]schema.Code{schema.CodeInvalidDefault}, nil, false},
-	{"F5-RoleFieldDefault", `roles { R { allow view f; } } forms { f { who : R default "x"; } } stages { d { } }`,
+	{"RoleFieldDefault", `roles { R { allow view f; } } forms { f { who : R default "x"; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidDefault}, nil, false},
-	{"F5-FloatDefaultOnInteger", `forms { f { n : integer default 1.5; } } stages { d { } }`,
+	{"FloatDefaultOnInteger", `forms { f { n : integer default 1.5; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidDefault}, nil, false},
-	{"F5-RelativePathDefault", `forms { f { a : boolean; b : string default .a; } } stages { d { } }`,
+	{"RelativePathDefault", `forms { f { a : boolean; b : string default .a; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidDefault}, nil, false},
-	{"F5-OptionsDefault", `forms { f { o : options default "x"; } } stages { d { } }`,
+	{"OptionsDefault", `forms { f { o : options default "x"; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidDefault}, nil, false},
-	{"F7-SelfReference", `forms { f { a : integer present[.a == 1]; } } stages { d { } }`,
+	{"SelfReference", `forms { f { a : integer present[.a == 1]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeSelfReference}, nil, false},
-	{"F7-CyclicConditions", `forms { f { a : integer present[.b == 1]; b : integer present[.a == 2]; } } stages { d { } }`,
+	{"CyclicConditions", `forms { f { a : integer present[.b == 1]; b : integer present[.a == 2]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeCyclicCondition}, nil, false},
-	{"F7-ConditionIntoOwnSubtree", `forms { f { g { x : string; } g2 : string present[.g.x == "v"]; } } stages { d { } }`,
+	{"ConditionIntoOwnSubtree", `forms { f { g { x : string; } g2 : string present[.g.x == "v"]; } } stages { d { } }`,
 		nil, nil, true}, // sibling subtree is not a descendant: legal
-	{"F7-GroupConditionIntoItsOwnMember", `forms { f { g present[.g.x == "v"] { x : string; } } } stages { d { } }`,
+	{"GroupConditionIntoItsOwnMember", `forms { f { g present[.g.x == "v"] { x : string; } } } stages { d { } }`,
 		[]schema.Code{schema.CodeSelfReference}, nil, false},
 
-	// §5.4 — signature references (S1–S3).
-	{"S1-SignatureInGroup", `roles { R { allow view f; } } forms { f { g { s : signature(R); } } } stages { d { } }`,
+	// Signature references.
+	{"SignatureInGroup", `roles { R { allow view f; } } forms { f { g { s : signature(R); } } } stages { d { } }`,
 		[]schema.Code{schema.CodeSignatureInGroup}, nil, false},
-	{"S2-SignatureBareLowerName", `roles { Manager { allow view f; } } forms { f { reviewer : Manager; s : signature(reviewer); } } stages { d { } }`,
+	{"SignatureBareLowerName", `roles { Manager { allow view f; } } forms { f { reviewer : Manager; s : signature(reviewer); } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidSignatureRef}, nil, false},
-	{"S2-SignatureCrossFormField", `roles { Manager { allow view f; } } forms { f { reviewer : Manager; } g { s : signature(f.reviewer); } } stages { d { } }`,
+	{"SignatureCrossFormField", `roles { Manager { allow view f; } } forms { f { reviewer : Manager; } g { s : signature(f.reviewer); } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidSignatureRef}, nil, false},
-	{"S2-SignatureLiteral", `forms { f { s : signature("x"); } } stages { d { } }`,
+	{"SignatureLiteral", `forms { f { s : signature("x"); } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidSignatureRef}, nil, false},
-	{"S2-SignatureSelf", `roles { R { allow view f; } } forms { f { who : R; s : signature(.s); } } stages { d { } }`,
+	{"SignatureSelf", `roles { R { allow view f; } } forms { f { who : R; s : signature(.s); } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidSignatureRef}, nil, false},
-	{"S2-SignatureNonRoleField", `forms { f { who : string; s : signature(.who); } } stages { d { } }`,
+	{"SignatureNonRoleField", `forms { f { who : string; s : signature(.who); } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidSignatureRef}, nil, false},
-	{"S2-SignatureUnknownRole", `forms { f { s : signature(Nobody); } } stages { d { } }`,
+	{"SignatureUnknownRole", `forms { f { s : signature(Nobody); } } stages { d { } }`,
 		[]schema.Code{schema.CodeUnknownRole}, nil, false},
-	{"S2-SignatureEnumTagIsNotRole", `forms { f { k : enum(PERSON); s : signature(PERSON); } } stages { d { } }`,
+	{"SignatureEnumTagIsNotRole", `forms { f { k : enum(PERSON); s : signature(PERSON); } } stages { d { } }`,
 		[]schema.Code{schema.CodeUnknownRole}, nil, false},
 
-	// §5.5-P1 — grant statement shapes.
-	{"P1-AcceptInRoleBlock", `roles { R { allow view, accept f; } } forms { f { } } stages { d { } }`,
+	// Grant statement shapes.
+	{"AcceptInRoleBlock", `roles { R { allow view, accept f; } } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidGrant}, nil, false},
-	{"P1-RoleGrantWithoutTargets", `roles { R { allow view; } } forms { f { } } stages { d { } }`,
+	{"RoleGrantWithoutTargets", `roles { R { allow view; } } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidGrant}, nil, false},
-	{"P1-TransitionMixedWithOthers", `roles { R { allow view f; } } forms { f { } } stages { d { allow R view, accept; } }`,
+	{"TransitionMixedWithOthers", `roles { R { allow view f; } } forms { f { } } stages { d { allow R view, accept; } }`,
 		[]schema.Code{schema.CodeInvalidGrant}, nil, false},
-	{"P1-TransitionWithTargets", `roles { R { allow view f; } } forms { f { } } stages { d { allow R accept, reject f; } }`,
+	{"TransitionWithTargets", `roles { R { allow view f; } } forms { f { } } stages { d { allow R accept, reject f; } }`,
 		[]schema.Code{schema.CodeInvalidGrant}, nil, false},
-	{"P1-StageGrantWithoutTargets", `roles { R { allow view f; } } forms { f { } } stages { d { allow R view; } }`,
+	{"StageGrantWithoutTargets", `roles { R { allow view f; } } forms { f { } } stages { d { allow R view; } }`,
 		[]schema.Code{schema.CodeInvalidGrant}, nil, false},
 
-	// §5.5-P2 — grant target resolution.
-	{"P2-RelativeGrantTargetUnparsable", `roles { R { allow view .f; } } forms { f { } } stages { d { } }`,
+	// Grant target resolution.
+	{"RelativeGrantTargetUnparsable", `roles { R { allow view .f; } } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeUnexpectedToken}, nil, false},
-	{"P2-UnknownGrantTarget", `roles { R { allow view f.nope; } } forms { f { } } stages { d { } }`,
+	{"UnknownGrantTarget", `roles { R { allow view f.nope; } } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeUnknownTarget}, nil, false},
-	{"P2-TargetNamingAStage", `roles { R { allow view nope; } } forms { f { } } stages { d { } }`,
+	{"TargetNamingAStage", `roles { R { allow view nope; } } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeUnknownTarget}, nil, false},
 
-	// §5.5-P3 — permission/target compatibility.
-	{"P3-ReviewNonVerifiable", `roles { R { allow review f; } } forms { f { } } stages { d { } }`,
+	// Permission/target compatibility.
+	{"ReviewNonVerifiable", `roles { R { allow review f; } } forms { f { } } stages { d { } }`,
 		[]schema.Code{schema.CodeIncompatiblePermission}, nil, false},
-	{"P3-SignNonSignature", `roles { R { allow sign f; } } forms { f verifiable { } } stages { d { } }`,
+	{"SignNonSignature", `roles { R { allow sign f; } } forms { f verifiable { } } stages { d { } }`,
 		[]schema.Code{schema.CodeIncompatiblePermission}, nil, false},
-	{"P3-SubmitNonForm", `roles { R { allow submit f.a; } } forms { f { a : string; } } stages { d { } }`,
+	{"SubmitNonForm", `roles { R { allow submit f.a; } } forms { f { a : string; } } stages { d { } }`,
 		[]schema.Code{schema.CodeIncompatiblePermission}, nil, false},
-	{"P3-EditSignatureField", `roles { R { allow edit f.s; sign f.s; } } forms { f { s : signature(Applicant); } } stages { d { } }`,
+	{"EditSignatureField", `roles { R { allow edit f.s; sign f.s; } } forms { f { s : signature(Applicant); } } stages { d { } }`,
 		[]schema.Code{schema.CodeIncompatiblePermission}, nil, false},
 
-	// §5.5-P4/P5 — role usage and contradictions.
-	{"P4-StageGrantUnknownRole", `forms { f { } } stages { d { allow Nobody view f; } }`,
+	// Role usage and contradictions.
+	{"StageGrantUnknownRole", `forms { f { } } stages { d { allow Nobody view f; } }`,
 		[]schema.Code{schema.CodeUnknownRole}, nil, false},
-	{"P5-UnusedDeclarations", `types { unused : string; } roles { Ghost { allow view f; } } forms { f { a : string; } } stages { d { } orphan { } }`,
+	{"UnusedDeclarations", `types { unused : string; } roles { Ghost { allow view f; } } forms { f { a : string; } } stages { d { } orphan { } }`,
 		nil, []schema.Code{schema.CodeUnusedRole, schema.CodeUnusedType, schema.CodeUnreachableStage}, false},
-	{"P5-OwnBlockGrantsDontCount", `roles { Lone { allow view all; } } forms { f { a : string; } } stages { d { } }`,
+	{"OwnBlockGrantsDontCount", `roles { Lone { allow view all; } } forms { f { a : string; } } stages { d { } }`,
 		nil, []schema.Code{schema.CodeUnusedRole}, false},
-	{"P5-ContradictoryGrants", `roles { R { allow view f; deny view f; } } forms { f { a : string; } } stages { d { } }`,
+	{"ContradictoryGrants", `roles { R { allow view f; deny view f; } } forms { f { a : string; } } stages { d { } }`,
 		nil, []schema.Code{schema.CodeContradictoryGrants}, false},
 
-	// §5.6 — stages and transitions.
-	{"ST2-UnknownTransitionDestination", `roles { R { allow view f; } } forms { f { } } stages { d { accept nowhere; } }`,
+	// Stages and transitions.
+	{"UnknownTransitionDestination", `roles { R { allow view f; } } forms { f { } } stages { d { accept nowhere; } }`,
 		[]schema.Code{schema.CodeUnknownStage}, nil, false},
-	{"ST2-UnknownRequiredForm", `forms { f { } } stages { d { require nope; } }`,
+	{"UnknownRequiredForm", `forms { f { } } stages { d { require nope; } }`,
 		[]schema.Code{schema.CodeUnknownForm}, nil, false},
-	{"ST3-SelfTransition", `roles { R { allow view f; } } forms { f { } } stages { d { accept d; } }`,
+	{"SelfTransition", `roles { R { allow view f; } } forms { f { } } stages { d { accept d; } }`,
 		[]schema.Code{schema.CodeSelfTransition}, nil, false},
-	{"ST3-DuplicateTransition", `roles { R { allow view f; } } forms { f { } } stages { d { accept e; reject e; } e { } }`,
+	{"DuplicateTransition", `roles { R { allow view f; } } forms { f { } } stages { d { accept e; reject e; } e { } }`,
 		[]schema.Code{schema.CodeDuplicateTransition}, nil, false},
-	{"ST4-RequireGroup", `forms { f { g { x : string; } } } stages { d { require g; } }`,
+	{"RequireGroup", `forms { f { g { x : string; } } } stages { d { require g; } }`,
 		[]schema.Code{schema.CodeUnknownForm}, nil, false},
-	{"ST6-RelativePathInTransition", `roles { R { allow view f; } } forms { f { k : enum(A); } } stages { d { accept[.k == A] e; } e { } }`,
+	{"RelativePathInTransition", `roles { R { allow view f; } } forms { f { k : enum(A); } } stages { d { accept[.k == A] e; } e { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
-	{"ST6-ConstantCondition", `roles { R { allow view f; } } forms { f { a : string; } } stages { d { accept[1 == 1] e; } e { } }`,
+	{"ConstantCondition", `roles { R { allow view f; } } forms { f { a : string; } } stages { d { accept[1 == 1] e; } e { } }`,
 		nil, []schema.Code{schema.CodeConstantCondition}, false},
 
-	// §5.7-E1 — name-shaped operand classification.
-	{"E1-UnknownEnumTag", `types { e : enum(PERSON); } forms { f { a : e present[.a == NOPE]; } } stages { d { } }`,
+	// Name-shaped operand classification.
+	{"UnknownEnumTag", `types { e : enum(PERSON); } forms { f { a : e present[.a == NOPE]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
-	{"E1-RoleIsNotAValue", `roles { R { allow view f; } } forms { f { a : string present[.a == R]; } } stages { d { } }`,
+	{"RoleIsNotAValue", `roles { R { allow view f; } } forms { f { a : string present[.a == R]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
-	{"E1-BareFormReference", `forms { f { a : string present[f]; } } stages { d { } }`,
+	{"BareFormReference", `forms { f { a : string present[f]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
-	{"E1-UppercaseRootPath", `roles { R { allow view f; } } forms { f { a : string present[R.x == 1]; } } stages { d { } }`,
+	{"UppercaseRootPath", `roles { R { allow view f; } } forms { f { a : string present[R.x == 1]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
 
-	// §5.7-E2 — operand shapes that hold no single value.
-	{"E2-MultipleFieldOperand", `forms { f { m : string multiple; b : boolean; c : string present[.b && .m == "x"]; } } stages { d { } }`,
+	// Operand shapes that hold no single value.
+	{"MultipleFieldOperand", `forms { f { m : string multiple; b : boolean; c : string present[.b && .m == "x"]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
-	{"E2-MultipleTraversal", `forms { f { g multiple { x : string; } b : string present[.g.x == "y"]; } } stages { d { } }`,
+	{"MultipleTraversal", `forms { f { g multiple { x : string; } b : string present[.g.x == "y"]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
-	{"E2-GroupOperand", `forms { f { g { x : string; } b : string present[.g == .g]; } } stages { d { } }`,
+	{"GroupOperand", `forms { f { g { x : string; } b : string present[.g == .g]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
-	{"E2-OptionsOperand", `forms { f { a : options; b : string present[.a == .a]; } } stages { d { } }`,
+	{"OptionsOperand", `forms { f { a : options; b : string present[.a == .a]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
-	{"E2-BinaryOperand", `forms { f { b : binary; s : boolean; c : string present[.s && .b == .b]; } } stages { d { } }`,
+	{"BinaryOperand", `forms { f { b : binary; s : boolean; c : string present[.s && .b == .b]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
-	{"E2-RoleTypedFieldOperand", `roles { R { allow view f; } } forms { f { who : R; a : string present[.who == .who]; } } stages { d { } }`,
+	{"RoleTypedFieldOperand", `roles { R { allow view f; } } forms { f { who : R; a : string present[.who == .who]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidOperand}, nil, false},
-	{"E2-UnknownAbsolutePath", `forms { f { a : string; b : string present[g.a == "x"]; } } stages { d { } }`,
+	{"UnknownAbsolutePath", `forms { f { a : string; b : string present[g.a == "x"]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeUnknownTarget}, nil, false},
 
-	// §5.7-E3 — comparison typing.
-	{"E3-CrossEnumTags", `types { e1 : enum(PERSON); e2 : enum(RED); } forms { f { a : e1 present[PERSON == RED]; } } stages { d { } }`,
+	// Comparison typing.
+	{"CrossEnumTags", `types { e1 : enum(PERSON); e2 : enum(RED); } forms { f { a : e1 present[PERSON == RED]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeTypeMismatch}, nil, false},
-	{"E3-OrderOnBoolean", `forms { f { a : boolean; b : boolean; c : string present[.a < .b]; } } stages { d { } }`,
+	{"OrderOnBoolean", `forms { f { a : boolean; b : boolean; c : string present[.a < .b]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeTypeMismatch}, nil, false},
-	{"E3-OrderOnEnum", `types { e1 : enum(PERSON); } forms { f { a : e1 present[.a > .a]; } } stages { d { } }`,
+	{"OrderOnEnum", `types { e1 : enum(PERSON); } forms { f { a : e1 present[.a > .a]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeSelfReference, schema.CodeTypeMismatch}, nil, false},
-	{"E3-StringLiteralVsInteger", `forms { f { n : integer present[.n == "x"]; } } stages { d { } }`,
+	{"StringLiteralVsInteger", `forms { f { n : integer present[.n == "x"]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeTypeMismatch}, nil, false},
-	{"E3-BoolLiteralVsString", `forms { f { a : string present[true == "y"]; } } stages { d { } }`,
+	{"BoolLiteralVsString", `forms { f { a : string present[true == "y"]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeTypeMismatch}, nil, false},
-	{"E3-IntegerLiteralOverflow", `forms { f { n : integer present[.n == 99999999999999999999]; } } stages { d { } }`,
+	{"IntegerLiteralOverflow", `forms { f { n : integer present[.n == 99999999999999999999]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeTypeMismatch}, nil, false},
-	{"E3-BadDateLiteralCompare", `forms { f { d : date present[.d == "yesterday"]; } } stages { d { } }`,
+	{"BadDateLiteralCompare", `forms { f { d : date present[.d == "yesterday"]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeTypeMismatch}, nil, false},
 
-	// §5.7-E4 — boolean expression requirements.
-	{"E4-StandaloneNumber", `forms { f { a : string present[42]; } } stages { d { } }`,
+	// Boolean expression requirements.
+	{"StandaloneNumber", `forms { f { a : string present[42]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeNotBoolean}, nil, false},
-	{"E4-StandaloneTag", `types { e1 : enum(PERSON); } forms { f { a : e1 present[PERSON]; } } stages { d { } }`,
+	{"StandaloneTag", `types { e1 : enum(PERSON); } forms { f { a : e1 present[PERSON]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeNotBoolean}, nil, false},
-	{"E4-NonBoolPath", `forms { f { a : string; b : string present[.a]; } } stages { d { } }`,
+	{"NonBoolPath", `forms { f { a : string; b : string present[.a]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeNotBoolean}, nil, false},
-	{"E4-NegatedNonBool", `forms { f { a : string present[!.a]; } } stages { d { } }`,
+	{"NegatedNonBool", `forms { f { a : string present[!.a]; } } stages { d { } }`,
 		[]schema.Code{schema.CodeNotBoolean}, nil, false},
 
-	// §3.1 — top-level block structure.
+	// Top-level block structure.
 	{"Blocks-OutOfOrder", `stages { d { } } forms { f { } }`,
 		[]schema.Code{schema.CodeBlockOrder}, nil, false},
 	{"Blocks-DuplicateForms", `forms { f { } } forms { g { } } stages { d { } }`,
@@ -243,7 +242,7 @@ var ruleCases = []ruleCase{
 	{"Blocks-EmptyForms", `forms { } stages { d { } }`,
 		[]schema.Code{schema.CodeEmptyBlock}, nil, false},
 
-	// §4 — attribute validity matrix.
+	// Attribute validity matrix.
 	{"Attr-RequiredOnForm", `forms { f required { } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidAttribute}, nil, false},
 	{"Attr-MultipleOnForm", `forms { f multiple { } } stages { d { } }`,
@@ -257,7 +256,7 @@ var ruleCases = []ruleCase{
 	{"Attr-SignatureRestrictions", `roles { R { allow view f; } } forms { f { s : signature(R) verifiable multiple default "x"; } } stages { d { } }`,
 		[]schema.Code{schema.CodeInvalidAttribute}, nil, false},
 
-	// §2/§3 — lexical and parse failures.
+	// Lexical and parse failures.
 	{"Lex-BadCharacter", "forms { f { a : string; } } stages { d { } }\n# extra",
 		[]schema.Code{schema.CodeInvalidCharacter}, nil, false},
 	{"Lex-InvalidEscape", `forms { f { a : string default "x\q"; } } stages { d { } }`,
@@ -331,7 +330,7 @@ func TestRuleTable(t *testing.T) {
 				}
 			}
 			// Isolation: a case that expects no error codes must be
-			// error-free — warnings alone never invalidate (SYNTAX.md §5).
+			// error-free — warnings alone never invalidate.
 			if len(tc.errs) == 0 && len(s.Errors) != 0 {
 				t.Errorf("warning-only case has errors: [%s]", render(s.Errors))
 			}

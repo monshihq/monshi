@@ -1,6 +1,6 @@
 package monshi_test
 
-// Review seen from outside the module (DESIGN §6.4; RUNTIME §5.9): what a host
+// Review seen from outside the module: what a host
 // observes when somebody decides about a `verifiable` declaration — which
 // refusal arrives with which category, what the view says about the decision,
 // who is told about it, and what erases it.
@@ -9,11 +9,7 @@ package monshi_test
 // allocation, the shape of the history entry, and the merge filter that keeps a
 // decision out of a rebase.
 //
-// The fixture splits the actors the way a registry splits them, because most of
-// these claims are about two people holding one case: the Applicant may type and
-// may not decide, the Registrar may decide at both units and may not type, and
-// the Auditor's single grant sits at a declaration F3 takes the power to decide
-// away from.
+// The fixture splits the actors the way a registry splits them.
 
 import (
 	"strings"
@@ -120,7 +116,7 @@ func typed(t *testing.T, dana monshi.Case) uint64 {
 // view, send the batch, keep the new one. A test that tracked working revisions
 // by hand would be asserting its own arithmetic, and a rebase or a decision
 // moves the number out from under it — which several claims below depend on.
-// draft is the way a host actually edits: sync first (DESIGN §6.5 — the case may
+// draft is the way a host actually edits: sync first (the case may
 // have moved, and a decision moves it even when no content does), read the copy's
 // number off the view, send the batch. A test that tracked working revisions by
 // hand would be asserting its own arithmetic.
@@ -142,10 +138,8 @@ func draft(t *testing.T, c monshi.Case, edits ...monshi.Edit) uint64 {
 	return ed.Working
 }
 
-// added is a row a test actually commits: §5.2 keeps an instance with no data
-// out of the effective state, so `Add` alone is a row only the actor who made
-// it can still see. The address comes back as its own batch reported it, which
-// is the only source a host has for §5.1's instance IDs.
+// added is a row a test actually commits. The address comes back as its own
+// batch reported it, which is the only source a host has for the instance IDs.
 func added(t *testing.T, c monshi.Case, coll, field string,
 	val monshi.Value) string {
 	t.Helper()
@@ -187,7 +181,7 @@ func committed(t *testing.T, c monshi.Case, form string) uint64 {
 	return res.Revision
 }
 
-// TestReviewStateIsPendingUntilSomebodyDecides is §6.1's verification state at
+// TestReviewStateIsPendingUntilSomebodyDecides is the verification state at
 // its plainest: a case nobody has reviewed has a state to report, it is reported
 // on the governing unit rather than the path a caller typed, and a node under no
 // `verifiable` declaration reports nothing at all.
@@ -210,9 +204,8 @@ func TestReviewStateIsPendingUntilSomebodyDecides(t *testing.T) {
 	if !app.Reviewable {
 		t.Error("the reviewer is told he may not decide at a unit he may")
 	}
-	// F3 read from the other side: a `verifiable` field and a `verifiable` group
-	// inside a verifiable form are governed by the form, so they report the
-	// form's verdict and neither is a node a decision can be made at.
+	// A nested annotation does not create another review unit. Both descendants
+	// report the form's verdict.
 	off := node(t, v, "application.signed_off")
 	if off.Review.Unit != "application" || off.Reviewable {
 		t.Errorf("the nested field reports unit %q reviewable=%v, want the form"+
@@ -224,7 +217,7 @@ func TestReviewStateIsPendingUntilSomebodyDecides(t *testing.T) {
 			" not decidable", group.Review.Unit, group.Reviewable)
 	}
 	// A second unit is a second answer, and it starts pending on its own: no
-	// form's decision stands in for another's (§4.2's "not inherited").
+	// form's decision stands in for another's.
 	if arch := node(t, v, "archive"); arch.Review.Unit != "archive" ||
 		arch.Review.State != monshi.ReviewPending || !arch.Reviewable {
 		t.Errorf("the archive reports %q/%q reviewable=%v, want its own unit"+
@@ -232,7 +225,7 @@ func TestReviewStateIsPendingUntilSomebodyDecides(t *testing.T) {
 			arch.Reviewable)
 	}
 	// And a node under no `verifiable` declaration has no unit to report, which
-	// is a zero value and not an empty wrapper (§5.7's rule about absence).
+	// is a zero value and not an empty wrapper (the rule about absence).
 	body := node(t, v, "memo.body")
 	if body.Review != (monshi.ReviewInfo{}) {
 		t.Errorf("a plain field reports %+v, want no review at all",
@@ -240,7 +233,7 @@ func TestReviewStateIsPendingUntilSomebodyDecides(t *testing.T) {
 	}
 }
 
-// TestOnlyTheUnitIsReviewable is §4.3's promise that a view carries the
+// TestOnlyTheUnitIsReviewable is the promise that a view carries the
 // operations its actor may perform, tested on the hardest shape in the language:
 // an actor with a real `review` grant at a declaration the engine will not take
 // a decision for.
@@ -308,7 +301,7 @@ func TestADecisionCommitsAndIsReadBack(t *testing.T) {
 	// `At` is the revision this decision's own commit produced, which is the
 	// number the view above reports as current. A mark that quoted the revision
 	// of the content approved would read as a statement about a case that no
-	// longer exists the moment the approval lands — and §4.2's reset, not a
+	// longer exists the moment the approval lands — and the reset, not a
 	// comparison of two numbers, is what decides when a decision stops applying.
 	if app.Review.At != res.Revision || app.Review.At != v.Revision {
 		t.Errorf("the decision quotes revision %d, want the commit's own %d (case at %d)",
@@ -327,7 +320,7 @@ func TestADecisionCommitsAndIsReadBack(t *testing.T) {
 	}
 }
 
-// TestARejectedUnitTellsTheApplicantWhy covers §4.2's two rules that belong to
+// TestARejectedUnitTellsTheApplicantWhy covers the two rules that belong to
 // each other: a rejection must say why, and the reason exists for the person who
 // may not decide.
 func TestARejectedUnitTellsTheApplicantWhy(t *testing.T) {
@@ -343,9 +336,7 @@ func TestARejectedUnitTellsTheApplicantWhy(t *testing.T) {
 		t.Errorf("the refused rejection left the case at %d (%v), want %d",
 			again, err, rev)
 	}
-	// A note beside an approval is kept rather than dropped: §6.1 asks for "who,
-	// when, which decision, comment", and a host that wants a note field on its
-	// approve button should not have to file it somewhere else.
+	// A note beside an approval is kept rather than dropped.
 	if _, err := elliot.Review(ctx(), "application", monshi.ReviewApprove, rev,
 		"checked against the register"); err != nil {
 		t.Fatalf("Review: %v", err)
@@ -368,8 +359,7 @@ func TestARejectedUnitTellsTheApplicantWhy(t *testing.T) {
 		t.Fatalf("Review: %v", err)
 	}
 	// The applicant, who may not decide and may not even see the archive, reads
-	// the decision about the form he wrote. Invariant 7 withholds what is not
-	// viewable; a rejection nobody could read would be a wall instead.
+	// the decision about the form he wrote.
 	v, err = dana.View(ctx())
 	if err != nil {
 		t.Fatalf("View: %v", err)
@@ -386,15 +376,14 @@ func TestARejectedUnitTellsTheApplicantWhy(t *testing.T) {
 	if find(v.Roots, "archive") != nil {
 		t.Error("the applicant's view holds the archive he may not view")
 	}
-	// The unit's reviewer is not disclosed either: the applicant sees that the
-	// form was rejected by whom, and §4.3 gives him no flag to act on.
+	// The unit's reviewer is not disclosed either.
 	if got := app.Review; got.By != "elliot" {
 		t.Errorf("the applicant reads the decision by %q, want elliot: the"+
 			" author of a rejection is who he has to go and talk to", got.By)
 	}
 }
 
-// TestRepeatingADecisionCommitsNothing is §6.3's no-meaningless-commit rule
+// TestRepeatingADecisionCommitsNothing is the no-meaningless-commit rule
 // stated for a decision, including the boundary the rule must not swallow: a
 // note the first call did not carry is a different request.
 func TestRepeatingADecisionCommitsNothing(t *testing.T) {
@@ -498,7 +487,7 @@ func TestAnotherReviewerIsACommit(t *testing.T) {
 			got.State, got.By)
 	}
 	// And now the first reviewer cannot revoke it, which is the same fact seen
-	// from the other side: §4.2's restriction follows the decision and not the
+	// from the other side: the restriction follows the decision and not the
 	// role.
 	if _, err := elliot.Review(ctx(), "application", monshi.ReviewRevoke,
 		res.Revision, ""); !monshi.Failed(err, monshi.AccessDenied) {
@@ -507,7 +496,7 @@ func TestAnotherReviewerIsACommit(t *testing.T) {
 	}
 }
 
-// TestRevocationIsTheAuthorsAlone is §4.2's restriction, including the two ways
+// TestRevocationIsTheAuthorsAlone is the restriction, including the two ways
 // it declines to explain itself.
 func TestRevocationIsTheAuthorsAlone(t *testing.T) {
 	rt, dana, elliot := registry(t)
@@ -575,15 +564,14 @@ func TestRevocationIsTheAuthorsAlone(t *testing.T) {
 	}
 }
 
-// TestAStaleObservationIsRefusedWithTheNumber is §6.4's guard, and the one place
+// TestAStaleObservationIsRefusedWithTheNumber is the guard, and the one place
 // a refusal comes back with a result worth reading: the caller is behind, and the
 // case's number is the whole content of the answer.
 func TestAStaleObservationIsRefusedWithTheNumber(t *testing.T) {
 	rt, dana, elliot := registry(t)
 	rev := typed(t, dana)
 	// A second registrar moves the case over an unrelated form while elliot is
-	// reading: §6.4 refuses even then, because what the reviewer assessed was
-	// the whole case.
+	// reading.
 	kate, err := rt.Open(ctx(), dana.ID(), monshi.Actor{User: "kate",
 		PrimaryRole: "Registrar"})
 	if err != nil {
@@ -632,7 +620,7 @@ func TestAStaleObservationIsRefusedWithTheNumber(t *testing.T) {
 	}
 }
 
-// TestContentErasesTheDecision is §4.2's reset as a host sees it: an approval
+// TestContentErasesTheDecision is the reset as a host sees it: an approval
 // does not acquire a "stale" flag, it goes away, because the state the case
 // reports is the one the rule defines.
 func TestContentErasesTheDecision(t *testing.T) {
@@ -659,11 +647,7 @@ func TestContentErasesTheDecision(t *testing.T) {
 	// about anybody's draft.
 	draft(t, dana, monshi.Set("application.full_name",
 		monshi.Text("Grace")))
-	// The decision moved the case's number, so §5.4's descent guard refuses this
-	// draft until it syncs: a review is a commit like any other, and the copy
-	// descends from a revision that is no longer current even though no content
-	// moved. §5.8 has nothing to merge over a decision-only window, so the sync
-	// costs nothing and the submit then lands.
+	// The decision moved the case's number.
 	res := committed(t, dana, "application")
 	v, err := elliot.View(ctx())
 	if err != nil {
@@ -683,9 +667,8 @@ func TestContentErasesTheDecision(t *testing.T) {
 		t.Errorf("another unit's decision reads %q, want the one the commit"+
 			" did not touch to stand", arch.State)
 	}
-	// A row under a `verifiable multiple` is content as much as a value is: F4
-	// says the reviewer approved the collection as a whole, and the whole got
-	// bigger.
+	// A row under a `verifiable multiple` is content as much as a value is: the
+	// reviewer approved the collection as a whole, and the whole got bigger.
 	if _, err := elliot.Review(ctx(), "application", monshi.ReviewApprove,
 		res, ""); err != nil {
 		t.Fatalf("Review: %v", err)
@@ -721,9 +704,6 @@ func TestContentErasesTheDecision(t *testing.T) {
 	}
 }
 
-// TestAPathIsNotFoundOrRefused keeps invariant 7 honest on the door a decision
-// uses, and states F4's refusal: the case's shape is not a thing a caller may
-// probe by presenting numbers he does not have.
 func TestAPathIsNotFoundOrRefused(t *testing.T) {
 	_, dana, elliot := registry(t)
 	rev := typed(t, dana)
@@ -747,12 +727,10 @@ func TestAPathIsNotFoundOrRefused(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "\"application\" governs") {
 		t.Errorf("the refusal says %q, want the unit named", err)
 	}
-	// A path through a row addresses one instance, and F4 reviews a collection
-	// as a whole: a host that believed it had approved one holder would be wrong
-	// in a way no later answer corrects.
+	// A path through a row addresses one instance.
 	//
 	// The row's address as its own batch reported it, which is the shape a host
-	// has to work with: nothing else in the API hands out §5.1's instance IDs.
+	// has to work with: nothing else in the API hands out the instance IDs.
 	row := added(t, dana, "application.audit", "note",
 		monshi.Text("a holder"))
 	now := committed(t, dana, "application")
@@ -780,10 +758,8 @@ func TestAPathIsNotFoundOrRefused(t *testing.T) {
 		t.Fatalf("a decision at a unit that is not a form = %v, want success",
 			err)
 	}
-	// The reviewer's copy is the one §5.7 splits: his view answers with the
-	// case's decisions and with his own content, so seeing a row the applicant
-	// committed means syncing to it first. His handle was opened before that
-	// commit, and a working copy is a copy, not a window.
+	// His handle was opened before that commit, and a working copy is a copy,
+	// not a window.
 	if _, err := elliot.Rebase(ctx()); err != nil {
 		t.Fatalf("Rebase: %v", err)
 	}
@@ -798,9 +774,8 @@ func TestAPathIsNotFoundOrRefused(t *testing.T) {
 			" APPROVED decision", coll.Review.Unit, coll.Review.State,
 			coll.Reviewable)
 	}
-	// Every instance answers with the unit's verdict and none of them is a place
-	// to decide: F4's "reviewed as a whole, not per member" in the shape a form
-	// renders, and the reason a host cannot mistake the two.
+	// Every instance answers with the unit's verdict and none of them is a
+	// place to decide.
 	inst := node(t, v, deep)
 	if inst.Review.Unit != "memo.rows" || inst.Review.State !=
 		monshi.ReviewApproved || inst.Reviewable {
@@ -810,9 +785,8 @@ func TestAPathIsNotFoundOrRefused(t *testing.T) {
 	}
 }
 
-// TestTheStageWaitsForTheDecision is §5.5's conjunct and SYNTAX §7's own reading
-// of the conformance example: `require application` asks for an approval as well
-// as for values, and the refusal says which of the two the caller is short of.
+// Requiring a verifiable form means checking approval as well as field values.
+// The refusal should identify which requirement is unmet.
 func TestTheStageWaitsForTheDecision(t *testing.T) {
 	_, dana, elliot := registry(t)
 	rev := typed(t, dana)
@@ -854,7 +828,7 @@ func TestTheStageWaitsForTheDecision(t *testing.T) {
 		t.Errorf("the refusal wants %v, want the archive alone", res.Missing)
 	}
 	// Both, and the move lands. The decisions carry across it, because a stage
-	// change moves no content and §4.2's reset has nothing to reset — a move that
+	// change moves no content and the reset has nothing to reset — a move that
 	// lost the approvals it had just asked for would make the destination
 	// unmeetable by the act of meeting it.
 	last, err := elliot.Review(ctx(), "archive", monshi.ReviewApprove,
@@ -906,7 +880,7 @@ func TestAReviewIsNotSomethingADraftCanHold(t *testing.T) {
 		t.Fatalf("Review: %v", err)
 	}
 	// The draft keeps its own value and reads the case's verdict: the two are
-	// about different content, and §5.7's split is what lets both be true in one
+	// about different content, and the split is what lets both be true in one
 	// node.
 	v, err := dana.View(ctx())
 	if err != nil {
@@ -928,7 +902,7 @@ func TestAReviewIsNotSomethingADraftCanHold(t *testing.T) {
 			err)
 	}
 	// The copy is synced to a revision it did not descend from by editing
-	// anything: the decision moved the case, and §5.8's lineage follows that
+	// anything: the decision moved the case, and the lineage follows that
 	// number, which is what makes the submit below a merge over nothing.
 	if len(merged.Conflicts) != 0 {
 		t.Errorf("rebasing over a decision reports %v, want no conflict",

@@ -1,23 +1,21 @@
 package engine
 
-// Synchronization's machinery, seen from inside the module (RUNTIME §5.8;
-// DESIGN §6.5). `rebase_test.go` holds what a host can observe: which values a
-// draft ends up holding, which revisions a following call accepts, which codes
-// come back. What is here is the four things that file cannot reach —
+// Synchronization's machinery, seen from inside the module. `rebase_test.go`
+// holds what a host can observe: which values a draft ends up holding, which
+// revisions a following call accepts, which codes come back. What is here is
+// the four things that file cannot reach —
 //
-//   - the third version every comparison needs, and the history walk that
-//     reconstructs it, because "what the copy descended from" is not stored
-//     anywhere and a merge that guessed it wrong would report conflicts that
-//     never happened;
-//   - the row-list comparison, including the branch a definition cannot reach
-//     on its own and the order of the passes, which decides which values a
-//     draft still has a claim on;
-//   - the two store guards a rebase leans on, whose out-of-range cases no
-//     exported call can reach — §10's rule that a runtime defect is not
-//     laundered into a refusal about the case is only honest if the guard is
-//     tested where it is reachable at all;
-//   - the address keys the merge indexes by, since a nested instance path is a
-//     slice and every map here is keyed by a rendering of one.
+// - the third version every comparison needs, and the history walk that
+// reconstructs it, because "what the copy descended from" is not stored
+// anywhere and a merge that guessed it wrong would report conflicts that never
+// happened; - the row-list comparison, including the branch a definition cannot
+// reach on its own and the order of the passes, which decides which values a
+// draft still has a claim on; - the two store guards a rebase leans on, whose
+// out-of-range cases no exported call can reach — the rule that a runtime
+// defect is not laundered into a refusal about the case is only honest if the
+// guard is tested where it is reachable at all; - the address keys the merge
+// indexes by, since a nested instance path is a slice and every map here is
+// keyed by a rendering of one.
 //
 // The fixture is the shape the external file uses, spelled for what the walk
 // asks: a defaulted decimal, so "never written" and "written as its default"
@@ -201,9 +199,7 @@ func setAt(t *testing.T, s *state, slot program.NodeID, path instPath, v program
 }
 
 // valueChange and rowsChange are the two entry kinds, spelled as the store
-// spells them, and each answers for a revision of its own: a rebase's walk is
-// over records, and two records claiming one revision describe a history §5.4
-// cannot write.
+// spells them.
 func valueChange(rev uint64, slot program.NodeID, path instPath,
 	v program.Cell) commitRecord {
 	return commitRecord{revision: rev, changes: []commitChange{
@@ -293,7 +289,7 @@ func TestPathKeyIsPrefixFree(t *testing.T) {
 }
 
 func TestRowListsCompareInOrderAndMissingKeepsTheBase(t *testing.T) {
-	// Order is part of the comparison, because it is part of §5.6's diff: a
+	// Order is part of the comparison, because it is part of the diff: a
 	// list that only moved is a list the merge has no policy for, and a set
 	// compared as a bag would call that agreement.
 	if sameIDs([]instanceID{1, 2}, []instanceID{2, 1}) {
@@ -308,9 +304,9 @@ func TestRowListsCompareInOrderAndMissingKeepsTheBase(t *testing.T) {
 	}
 
 	// `missing` answers which rows this draft removed. It walks the base list
-	// rather than the other, which is what makes a report repeatable: §7.3's
-	// rule that a list a caller reads is ordered by the definition and not by
-	// a map applies to the rows named in a clash sentence too.
+	// rather than the other, which is what makes a report repeatable: the rule
+	// that a list a caller reads is ordered by the definition and not by a map
+	// applies to the rows named in a clash sentence too.
 	got := missing([]instanceID{3, 1, 4, 1}, []instanceID{1})
 	if len(got) != 2 || got[0] != 3 || got[1] != 4 {
 		t.Errorf("missing = %v, want [3 4]: base order, first occurrence once",
@@ -329,7 +325,7 @@ func TestACopyOfARowDoesNotFollowItsOriginal(t *testing.T) {
 	// `apply` moves a committed row into a draft that never held it by
 	// copying and not by aliasing: the source is the committed snapshot, and a
 	// later edit of an adopted row would otherwise be a write to the case
-	// (§5.6's replace-never-mutate rule, arriving from the other side).
+	// (the replace-never-mutate rule, arriving from the other side).
 	f := aMerge(t)
 	src := newState(f.img)
 	src.applyDefaults()
@@ -354,9 +350,8 @@ func TestACopyOfARowDoesNotFollowItsOriginal(t *testing.T) {
 			cp.id, holder)
 	}
 
-	// The nested set came with it, or an adopted holder would be a holder
-	// whose homes were silently deleted — the half of §6.5 a shallow copy of
-	// the row's own view gets wrong.
+	// The nested set came with it, or an adopted holder would be a holder whose
+	// homes were silently deleted.
 	if len(cp.nest) != 1 || cp.nest[0].count() != 1 {
 		t.Fatalf("the copy carries %d nested sets with %d rows in the first",
 			len(cp.nest), cp.nest[0].count())
@@ -390,12 +385,11 @@ func TestACopyOfARowDoesNotFollowItsOriginal(t *testing.T) {
 }
 
 func TestResolveReadsTheNewestEntryAtOrBeforeTheBase(t *testing.T) {
-	// The whole of the reconstruction. History holds forward diffs (§5.1's
-	// "new values, never old"), so the third version is what the *latest*
-	// entry at or below the copy's base says, and not the first entry that
-	// mentions the cell. A scan that stopped at the first hit would hand the
-	// merge a base from ten commits of editing ago and report a conflict at
-	// every field anybody had ever touched.
+	// The whole of the reconstruction. History holds forward diffs, so the
+	// third version is what the *latest* entry at or below the copy's base
+	// says, and not the first entry that mentions the cell. A scan that stopped
+	// at the first hit would hand the merge a base from ten commits of editing
+	// ago and report a conflict at every field anybody had ever touched.
 	f := aMerge(t)
 	m := f.rebaser(t, []commitRecord{
 		valueChange(1, f.ns.name, nil, txt("first")),
@@ -634,7 +628,7 @@ func TestApplyWritesNothingForAListWhoseHostIsNotData(t *testing.T) {
 	// into rows, and it asks for the set with `ensure`, because a list the
 	// case moved and the draft never had needs a place to live — but the
 	// address of a row that is not in the draft is not data at all, and
-	// §5.8's rule there is to write nothing rather than to invent a holder to
+	// the rule there is to write nothing rather than to invent a holder to
 	// hang the case's rows on. A merge that ignored the answer would leave
 	// the draft holding a row nobody committed, at an ID the case may issue
 	// next week.
@@ -709,10 +703,7 @@ func TestMergeSetAppliesACommittedListTheDraftDidNotMove(t *testing.T) {
 	}
 
 	// The row this draft made and named keeps its own content through the
-	// rebuild: §6.5's "the draft's edits are preserved" says nothing about a
-	// row its actor never touched, but a merge that rebuilt a set by copying
-	// every row from the snapshot would overwrite the actor's value with the
-	// case's and still report nothing.
+	// rebuild.
 	f2 := aMerge(t)
 	m = f2.rebaser(t,
 		[]commitRecord{rowsChange(1, f2.ns.holders, nil, 1, 2)},
@@ -731,12 +722,7 @@ func TestMergeSetAppliesACommittedListTheDraftDidNotMove(t *testing.T) {
 }
 
 func TestMergeSetKeepsBothListsWhenBothSidesMovedRows(t *testing.T) {
-	// The draft made two rows, the case made one. Nothing in §6.5 says which
-	// order the user should see, so the collection is named and left alone —
-	// and the entries that would have written into that set are dropped
-	// instead of half-applied, because a row list the merge refused to decide
-	// with a committed value poured into one of its rows is a state no caller
-	// asked for and no report describes.
+	// The draft made two rows, the case made one.
 	f := aMerge(t)
 	m := f.rebaser(t, nil, []commitRecord{oneCommit(1,
 		rows(f.ns.holders, nil, 4),
@@ -812,10 +798,10 @@ func TestCommitsThatCancelOutLeaveTheDraftAlone(t *testing.T) {
 func TestARebaseInheritsTheCaseAllocatorBeforeItMerges(t *testing.T) {
 	// `run` is the only place the three states and the two passes meet, and
 	// this is the one claim it makes that no comparison can test: a draft that
-	// adopted the case's rows must not hand those numbers out again, because
-	// §5.1's IDs are never reused within a case. The commit ladder makes the
-	// same reconciliation going the other way (§5.4), and a rebase that forgot
-	// it would issue a second row 1 into a case that had already published one.
+	// adopted the case's rows must not hand those numbers out again. The commit
+	// ladder makes the same reconciliation going the other way, and a rebase
+	// that forgot it would issue a second row 1 into a case that had already
+	// published one.
 	f := aMerge(t)
 	current := newState(f.img)
 	current.applyDefaults()
@@ -966,7 +952,7 @@ func TestALostRowSuppressesItsMembersAndTheirChildren(t *testing.T) {
 
 func TestSaveWorkingMovesALineageOnlyInsideTheCase(t *testing.T) {
 	// `onto` is the one number a caller does not get to choose, and the reason
-	// §5.8's merged draft can descend from a revision the case already
+	// the merged draft can descend from a revision the case already
 	// reached. Both bounds are reachable only from inside the package — an
 	// exported rebase hands over a revision it read from the record under the
 	// same lock — which is why this is here and not in the external file, and
@@ -995,7 +981,7 @@ func TestSaveWorkingMovesALineageOnlyInsideTheCase(t *testing.T) {
 		workingState{s: w.s}, 1); err == nil {
 		t.Errorf("saving onto revision 1 of a case at 0 = {%d, nil}, want"+
 			" the refusal: a lineage a caller could invent is one that skips"+
-			" a commit and jumps §5.4's guard", at)
+			" a commit and jumps the guard", at)
 	} else if !Failed(err, SchemaMismatch) {
 		t.Errorf("saving past the case's revision = %v, want SCHEMA_MISMATCH",
 			err)
@@ -1022,12 +1008,10 @@ func TestSaveWorkingMovesALineageOnlyInsideTheCase(t *testing.T) {
 
 	// `discard` answers the same two shapes apart: an actor with no copy is
 	// already where a discard aims, so 0 is the honest success — and any other
-	// number is a caller that believes it holds edits the store never heard
-	// of. The actor who does hold a copy hears the guard instead, because
-	// invariant 4 makes both the draft and its refusal per-user.
+	// number is a caller that believes it holds edits the store never heard of.
+	// The actor who does hold a copy hears the guard instead.
 	if err := st.discard(ctx(), refuse, "nima", 0); err != nil {
-		t.Errorf("discarding a copy that was never there = %v, want the"+
-			" success §6.5's next-access rule makes it", err)
+		t.Errorf("discarding a copy that was never there = %v, want success", err)
 	}
 	if err := st.discard(ctx(), refuse, "nima", 4); !Failed(err, InvalidOp) {
 		t.Errorf("discarding a number the store never issued = %v, want"+
@@ -1053,7 +1037,7 @@ func TestSaveWorkingMovesALineageOnlyInsideTheCase(t *testing.T) {
 	// stamped here: the claim is about the guard and not about how the number
 	// got there. A lineage that could be rewound is one that lets the same
 	// commit merge into the same draft twice — the copy would descend from 2
-	// again after having been brought to 4, and §5.4's submit guard would
+	// again after having been brought to 4, and the submit guard would
 	// re-admit history the draft has already absorbed.
 	st.mu.Lock()
 	rec := st.cases[id]
@@ -1137,7 +1121,7 @@ func TestReportNamesVeiledClashesByFormAndCollapsesThem(t *testing.T) {
 	// Two fields this actor may not see, one they may: the veiled ones are
 	// named by the form and nothing under it, because an instance ID inside a
 	// hidden collection is case data, and so is the fact that this particular
-	// field moved (§5.7's container rule, applied where the package next turns
+	// field moved (the container rule, applied where the package next turns
 	// an address into text).
 	m := &rebaser{img: f.img, vis: vis, out: newState(f.img)}
 	m.clash(f.ns.who, f.holderIs(5))

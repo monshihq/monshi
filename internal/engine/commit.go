@@ -10,7 +10,7 @@ import (
 // committedBy is what a committing operation tells the store about itself and
 // the content it is publishing: who acted, which operation, and the forward
 // diff that says what the commit changed. The store supplies the timestamp and
-// the revision (§3.1's split, applied to history: the caller's words are data,
+// the revision (the split, applied to history: the caller's words are data,
 // the numbering is the store's).
 type committedBy struct {
 	by      UserID
@@ -18,7 +18,7 @@ type committedBy struct {
 	changes []commitChange
 }
 
-// commitEffect is §5.6's rule about what a commit *erases*, stated once as a
+// commitEffect is the rule about what a commit *erases*, stated once as a
 // shape: something a commit's diff removes from the tables that sit beside the
 // content, because the content they speak about moved. The language has two —
 // the verification reset review.go writes and the signature invalidation
@@ -28,12 +28,10 @@ type committedBy struct {
 // `reach` asks what one diff entry removes, in this effect's terms: it maps the
 // entry to the slots whose fact it erases and adds those not already counted,
 // consulting the state as the effects have left it so far. Answering it is one
-// or two array reads and no walk, which is the whole reason §3.2's lowering
-// stamps `verif` and the owning `form` onto the slot: "what stops being true
-// when this moved" is a question the definition can answer before any case
-// exists. An effect that says nothing about an entry says nothing about the
-// commit, and a commit that reaches nothing copies nothing — the property §8
-// prices, and the reason `reach` is told whether the fact is standing at all.
+// or two array reads and no walk, which is the whole reason the lowering stamps
+// `verif` and the owning `form` onto the slot: "what stops being true when this
+// moved" is a question the definition can answer before any case exists. An
+// effect that says nothing about an entry says nothing about the commit.
 //
 // `open` then makes the table the removals write into, and `erase` removes one
 // fact by naming its slot. The pair is separated on purpose: copying is a
@@ -51,8 +49,8 @@ type commitEffect interface {
 // and not one per operation is the point: a `Submit` that erased verifications
 // but not signatures would leave a case whose attestation outlived the content
 // it attested to, and no read of the state could tell that had happened. The
-// store runs the list and no caller hands it one, which is what makes §5.6's
-// rules a rule rather than a convention; the driver below takes the list as a
+// store runs the list and no caller hands it one, which is what makes the rules
+// a rule rather than a convention; the driver below takes the list as a
 // parameter so that a test can ask one effect to do one thing.
 var commitEffects = []commitEffect{verifReset{}, sigReset{}}
 
@@ -62,12 +60,12 @@ var commitEffects = []commitEffect{verifReset{}, sigReset{}}
 // is kept by `open`, which hands back a fresh table and never edits the stored
 // one.
 //
-// It answers with everything it erased. §5.6's effects remove facts the diff
-// does not record — a reset writes no entry beside the content that caused it —
-// and §5.3's walk is what turns those removals into paths a client can re-ask
-// about, so the caller of a content commit needs the list even though history
-// does not. The two effects' targets can name the same slot only by the
-// caller's seed doing it twice, which is what a mark array is for.
+// It answers with everything it erased. The effects remove facts the diff does
+// not record — a reset writes no entry beside the content that caused it — and
+// the walk is what turns those removals into paths a client can re-ask about,
+// so the caller of a content commit needs the list even though history does
+// not. The two effects' targets can name the same slot only by the caller's
+// seed doing it twice, which is what a mark array is for.
 func applyCommitEffects(img *program.Program, next *committedState,
 	changes []commitChange, effects []commitEffect) []program.NodeID {
 	var erased []program.NodeID
@@ -75,15 +73,8 @@ func applyCommitEffects(img *program.Program, next *committedState,
 		var hits []program.NodeID
 		for _, ch := range changes {
 			if ch.kind != chgValue && ch.kind != chgRows {
-				// Not content. §5.1 counts a decision and a signature among
-				// the semantic committed changes, and both are recorded, but
-				// neither is the kind of change §5.6's rules are stated about:
-				// a commit whose changes are verdicts erases no verdict.
-				// Asking the kinds positively here is what lets an effect skip
-				// the question, and what makes a kind history learns to record
-				// later safe — an effect asked about a kind it does not
-				// understand would be erasing a fact from an entry about
-				// something else.
+				// Only content changes invalidate verdicts. Recording a review
+				// or signature must not erase the verdict it just installed.
 				continue
 			}
 			hits = e.reach(img, next, ch, hits)
@@ -114,9 +105,9 @@ func addHit(hits []program.NodeID, n program.NodeID) []program.NodeID {
 
 // committed is what a successful commit hands back: the entry the store
 // appended and the snapshot it installed, both by value. The operations need
-// the pair because §5.6's effects run here and not in the caller — a submit
+// the pair because the effects run here and not in the caller — a submit
 // cannot know from its own `next` whether the commit erased a decision — and
-// §6's observer contract says the notification carries *that* state, the one
+// the observer contract says the notification carries *that* state, the one
 // the commit left, at the number the commit produced. Handing values out is
 // safe for the standing reason (the store aliases, never mutates): `post`'s
 // state and tables are replaced by the next commit and never written through
@@ -126,11 +117,11 @@ type committed struct {
 	post committedState
 	copy uint64 // the committer's own copy number, as this commit left it
 
-	// erased is what §5.6's effects removed on the way in: the units whose
+	// erased is what the effects removed on the way in: the units whose
 	// decisions the commit invalidated and the fields whose attestations it
 	// undid. No entry says any of it — the state keeps only what stands, and
 	// the trail is the account of what stood — so the commit result's
-	// affected set (§5.3, §5.4) is where a caller learns of it.
+	// affected set is where a caller learns of it.
 	erased []program.NodeID
 }
 

@@ -1,12 +1,12 @@
 package monshi_test
 
-// External tests for the exported storage contract (DESIGN §8, RUNTIME
-// §10): that a runtime built on `Storage` behaves exactly like the default
-// one, that durable state crosses runtimes while definitions stay local,
-// and that a host's refusals arrive in the engine's own words. What the
-// adapter does *inside* — which sentinel becomes which sentence, what the
-// commit encodes in which order — is in storage_store_test.go; what lives
-// here is only what a host can see: results, renders, errors and receipts.
+// External tests for the exported storage contract: that a runtime built on
+// `Storage` behaves exactly like the default one, that durable state crosses
+// runtimes while definitions stay local, and that a host's refusals arrive in
+// the engine's own words. What the adapter does *inside* — which sentinel
+// becomes which sentence, what the commit encodes in which order — is in
+// storage_store_test.go; what lives here is only what a host can see: results,
+// renders, errors and receipts.
 
 import (
 	"context"
@@ -27,7 +27,7 @@ import (
 // wall-clock stamps — commit `At` is the store's moment and the two runs
 // never share one — and no case ID beyond the first line, which both
 // stores issue as 1 from their own counters. A transcript that matches
-// line for line is DESIGN §8's promise ("the operations' shapes do not
+// line for line is the promise ("the operations' shapes do not
 // change") stated as data.
 func contractScript(t *testing.T, rt *monshi.Runtime) string {
 	t.Helper()
@@ -149,8 +149,8 @@ func contractScript(t *testing.T, rt *monshi.Runtime) string {
 	// 6.5: the two answers a *late* copy gives. An edit after a discard
 	// initializes at the head it met, so the rebase of a draft already
 	// at the head reports that base — revision zero would merge a trail
-	// the copy never was behind (§5.7's rule, kept by the store's init).
-	// And a rebase asked with no copy at all is §6.5's refusal, not a
+	// the copy never was behind (the rule, kept by the store's init).
+	// And a rebase asked with no copy at all is the refusal, not a
 	// no-op: `Draft` finds, and finding nothing is the answer.
 	if _, err := dana.Update(ctx(), 0, monshi.Set("application.full_name",
 		monshi.Text("Ada"))); err == nil {
@@ -179,7 +179,7 @@ func renderNode(sb *strings.Builder, n *monshi.ViewNode) {
 }
 
 // valueText renders a value by the class `Kind` reports, through the
-// getter that class designates — the getter-switch discipline §5.1's read
+// getter that class designates — the getter-switch discipline the read
 // follows, so a transcript that matches is matching real data and not one
 // getter's accident.
 func valueText(v monshi.Value) string {
@@ -221,7 +221,7 @@ func renderCommit(sb *strings.Builder, c monshi.Commit) {
 	}
 }
 
-// TestTheContractPathAnswersLikeTheDefaultOne is DESIGN §8's claim that
+// TestTheContractPathAnswersLikeTheDefaultOne is the claim that
 // handing case state to a host's `Storage` changes nothing a caller can
 // observe: the same lifecycle script run on `NewRuntime` and on
 // `NewRuntimeWithStorage(NewMemStorage())` must write identical
@@ -255,7 +255,7 @@ func TestTheContractPathAnswersLikeTheDefaultOne(t *testing.T) {
 // contract read from the second runtime's side: a case a host committed
 // through one runtime opens, renders and continues through another built
 // on the same `Storage`, because case state crossed and only the registry
-// stayed local (DESIGN §8's shape, §3's reload rule). The second runtime
+// stayed local (the shape, the reload rule). The second runtime
 // that has *not* registered the case's definition gets the same
 // SCHEMA_MISMATCH sentence the default path gives — the pairing is the
 // handle's problem in both worlds.
@@ -480,7 +480,7 @@ func (s downStore) History(c context.Context, id monshi.CaseID, cursor uint64,
 
 // TestEveryVerbReportsTheOutage runs each exported operation over a
 // backend whose every call fails, and requires the same answer from all
-// of them: DESIGN §9's one category reserved for somebody else's
+// of them: the one category reserved for somebody else's
 // explanation, with `errors.Is` still reaching the backend's own error
 // through Cause. The translation table has no gaps a host could trip
 // into.
@@ -559,7 +559,7 @@ func TestEveryVerbReportsTheOutage(t *testing.T) {
 // fails its own first look could not have stored anything — and every
 // later read is garbage. The adapter must say *this package* cannot
 // read them, as a store failure, and never panic and never render:
-// §8's promise about the field ("produced and read only by this
+// the promise about the field ("produced and read only by this
 // package") read from the host's seat.
 type rottenStore struct {
 	monshi.Storage
@@ -657,7 +657,7 @@ func TestAForeignTrailEntryIsAlsoAStoreFailure(t *testing.T) {
 	// And a *Rebase* asks the same seam for the unseen window: a host
 	// that rewrote its trail must be refused there too, not merged from
 	// what it cannot mean. The draft has to be behind the head for the
-	// question to be asked at all — §5.8's current draft needs no window.
+	// question to be asked at all — the current draft needs no window.
 	registrar := mustTrailOpen(t, rt, dana.ID(), trailRuler)
 	head, _ := registrar.Revision(ctx())
 	if _, err := registrar.Transition(ctx(), "filed", head); err != nil {
@@ -859,11 +859,8 @@ func TestMemStorageKeepsTheContractsArithmetic(t *testing.T) {
 	}
 }
 
-// blobStore is the "separate binary abstraction" DESIGN §8 sketches by
-// name, implemented the way a host would: content the case record does
-// not carry, reached by an opaque reference. The engine never calls it;
-// the test exists so that the interface is proven implementable, which is
-// all §8 promises for it today.
+// The engine never calls it; the test exists so that the interface is proven
+// implementable.
 type blobStore struct{ keep map[string][]byte }
 
 func (b blobStore) Put(_ context.Context, r io.Reader) (monshi.BinaryRef,

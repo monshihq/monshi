@@ -1,6 +1,6 @@
 package monshi_test
 
-// External tests for the host-facing seam (RUNTIME §1): everything here
+// External tests for the host-facing seam: everything here
 // sees only exported names, which is the point. The image below Load is
 // asserted in-package, because it is not a host's business.
 
@@ -43,10 +43,9 @@ func TestLoadBuildsDefinitionFromSource(t *testing.T) {
 }
 
 // A definition that does not compile is the author's problem, not the
-// runtime's: the codes and positions come back through the boundary
-// unchanged, and nothing was lowered (§1). The code literals below are
-// spelled as strings on purpose: this file imports no `schema`, which is
-// what §10 claims about the seam.
+// runtime's: the codes and positions come back through the boundary unchanged,
+// and nothing was lowered. The code literals below are spelled as strings on
+// purpose: this file imports no `schema`.
 func TestLoadRefusesSourceThatDoesNotCompile(t *testing.T) {
 	const bad = tinyDef + `
 forms {
@@ -110,7 +109,7 @@ func containsCode(cs []monshi.Code, want monshi.Code) bool {
 	return false
 }
 
-// Warnings never invalidate a definition (SYNTAX §5.8), and the handle is
+// Warnings never invalidate a definition, and the handle is
 // where the author finds out about them: Load succeeds and reports.
 func TestLoadKeepsWarningsWithoutRefusing(t *testing.T) {
 	const unusedRole = `
@@ -177,7 +176,7 @@ func TestLoadPropagatesSourceFailure(t *testing.T) {
 }
 
 // An unnamed definition can never be selected by Create, so the seam
-// refuses it rather than storing something unreachable (DESIGN §3).
+// refuses it rather than storing something unreachable.
 func TestLoadNeedsAnID(t *testing.T) {
 	if _, err := monshi.Load("", strings.NewReader(tinyDef)); err == nil {
 		t.Fatal("Load accepted an empty definition id")
@@ -196,8 +195,8 @@ func TestDefinitionsAreIndependent(t *testing.T) {
 	if a == b {
 		t.Fatal("two Loads of one source returned the same handle")
 	}
-	// DESIGN §3: duplicate IDs are the host's registry's problem, and the
-	// runtime's answer is an equally valid, independent definition.
+	// duplicate IDs are the host's registry's problem, and the runtime's answer
+	// is an equally valid, independent definition.
 	if a.ID() != b.ID() {
 		t.Errorf("IDs %q and %q differ", a.ID(), b.ID())
 	}

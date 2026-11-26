@@ -1,14 +1,14 @@
 package engine
 
 // In-package tests for the trail a case leaves and the state the fold derives
-// from it (RUNTIME §5.11, §4.2's replay; DESIGN §5.1's instance addresses). What
-// a host observes — the page, the cursor, the mask, the refusals — is asserted
-// externally in history_test.go. This file asserts the five claims no host call
-// reaches: that folding the entries forward lands on the snapshot the store kept
-// at every revision of a scripted case, that an erasure derives without being
-// recorded, that a removal neither resurrects a row nor erases a surviving one,
-// that the window a reader asks for is a slice of the trail and not a copy of it,
-// and that the two things a replay cannot recover are tests rather than promises.
+// from it. What a host observes — the page, the cursor, the mask, the refusals
+// — is asserted externally in history_test.go. This file asserts the five
+// claims no host call reaches: that folding the entries forward lands on the
+// snapshot the store kept at every revision of a scripted case, that an erasure
+// derives without being recorded, that a removal neither resurrects a row nor
+// erases a surviving one, that the window a reader asks for is a slice of the
+// trail and not a copy of it, and that the two things a replay cannot recover
+// are tests rather than promises.
 //
 // The fixture is the interesting part. A trail that never held a retraction, a
 // removed row, a row inside a row and a stage move would let a fold that ignores
@@ -139,7 +139,7 @@ func histSetup(t testing.TB) *hist {
 
 // save is a batch in the actor's own copy: the rebase first, because a script
 // that commits through three hands is a script whose drafts fall behind, and then
-// the `Update` whose token §6.2's guard presents to a commit. It answers with the
+// the `Update` whose token the guard presents to a commit. It answers with the
 // whole result, because a fixture that guessed an instance ID would be asserting
 // about a row the case may not hold.
 func (h *hist) save(t testing.TB, who Case, edits ...Edit) ChangeResult {
@@ -159,7 +159,7 @@ func (h *hist) save(t testing.TB, who Case, edits ...Edit) ChangeResult {
 	return res
 }
 
-// commit is a batch saved and then committed as one form, in the two steps §6.3's
+// commit is a batch saved and then committed as one form, in the two steps the
 // diff requires. It checks that the revision the case reached is the one the
 // script expected, so that a claim about "revision 7" means the seventh commit.
 func (h *hist) commit(t testing.TB, who Case, form string,
@@ -269,7 +269,7 @@ func histTrail(t testing.TB) (*hist, []commitRecord, []committedState) {
 	want = append(want, h.snap(t))
 
 	// 7: a stage move, whose commit carries no entry at all, into the stage that
-	// asks for §5.5's three conjuncts: the content, the decision, the attestation.
+	// asks for the three conjuncts: the content, the decision, the attestation.
 	if _, err := h.elliot.Transition(ctx(), "filed", h.head(t)); err != nil {
 		t.Fatalf("Transition: %v", err)
 	}
@@ -312,14 +312,11 @@ func histTrail(t testing.TB) (*hist, []commitRecord, []committedState) {
 	return h, hist, want
 }
 
-// TestReplayLandsOnTheStoredSnapshot is the claim §4.2, §5.6, §5.9 and §5.10 have
-// all rested on and none of them priced: that a case's state at revision *i* is
-// derivable from the entries between there and here. It is checked at every
-// revision of a case that holds content, defaults, nested rows, a decision, a
-// retraction, an attestation, a stage move, an erasure and a removal — because a
-// fold that dropped any one of those kinds would pass a trail that only had
-// values, and because one comparison at the head would pass on errors that happen
-// to cancel.
+// It is checked at every revision of a case that holds content, defaults,
+// nested rows, a decision, a retraction, an attestation, a stage move, an
+// erasure and a removal — because a fold that dropped any one of those kinds
+// would pass a trail that only had values, and because one comparison at the
+// head would pass on errors that happen to cancel.
 func TestReplayLandsOnTheStoredSnapshot(t *testing.T) {
 	_, hist, want := histTrail(t)
 	img := mustLowerSource(t, histSrc)
@@ -338,12 +335,9 @@ func TestReplayLandsOnTheStoredSnapshot(t *testing.T) {
 // per collection at each place it has rows, and one verdict per slot the
 // definition says carries one.
 //
-// The list is deliberately not the struct. Two states can differ in capacity, in
-// whether an untouched collection's set is nil or empty, and in a map nobody has
-// looked through, and none of that is a fact the language reports. The claims §4.2
-// and §5.11 make are about answers, so this is the comparison a representation
-// accident cannot satisfy — and cannot hide a real difference either, because
-// every value a view renders is one of these lines.
+// The list is deliberately not the struct. Two states can differ in capacity,
+// in whether an untouched collection's set is nil or empty, and in a map nobody
+// has looked through, and none of that is a fact the language reports.
 func answers(t *testing.T, img *program.Program, cs committedState) map[string]string {
 	t.Helper()
 	out := map[string]string{
@@ -355,11 +349,8 @@ func answers(t *testing.T, img *program.Program, cs committedState) map[string]s
 		n := program.NodeID(i)
 		switch {
 		case sl.Coll != 0:
-			// A collection's answer is the list its instances left behind, in
-			// creation order, and a set nobody has added to is the empty list.
-			// §5.1's repeated fields are not in this fixture and are asserted
-			// about by §5.1's own tests; `pathsOf` is the walker that handles
-			// them, and a fold that needed one more case would fail there first.
+			// Compare rows by stable ID in creation order, including empty
+			// sets.
 			for _, host := range cs.s.hostsOf(n) {
 				var ids []string
 				for _, r := range cs.s.rowsFor(n, host).list() {
@@ -380,7 +371,7 @@ func answers(t *testing.T, img *program.Program, cs committedState) map[string]s
 		}
 		if sl.Sig != 0 {
 			g := sigAt(cs.sigs, n)
-			// A standing signature has no state word: §5.10's reason the state
+			// A standing signature has no state word: the reason the state
 			// stores no flag is that standing is `at != 0` and nothing else.
 			out["sign "+img.Path(n)] = verdictLine(sigWord(g), g.by, g.at,
 				g.ref)
@@ -399,7 +390,7 @@ func sigWord(g sigState) string {
 }
 
 // verdictLine is a verdict's account in one line, and the quoting keeps an empty
-// comment apart from no comment at all: §5.9's rule that a retraction carries no
+// comment apart from no comment at all: the rule that a retraction carries no
 // note is worth asserting, and a renderer that printed the two alike would make
 // the equivalence test blind to the one difference a payload has.
 func verdictLine(state string, by UserID, at uint64, note string) string {
@@ -430,11 +421,11 @@ func diffAnswers(got, want map[string]string) []string {
 	return out
 }
 
-// TestReplayDerivesWhatNoEntryRecords is §4.2's whole argument for why a reset
-// costs nothing: the erasure of a decision and of an attestation follows from the
-// content commit that caused it, while a retraction — which somebody chose — is an
-// entry. Four verdicts come and go across the script and only three records speak,
-// which is the difference §5.9 draws between a reset and a revoke.
+// TestReplayDerivesWhatNoEntryRecords is the whole argument for why a reset
+// costs nothing: the erasure of a decision and of an attestation follows from
+// the content commit that caused it, while a retraction — which somebody chose
+// — is an entry. Four verdicts come and go across the script and only three
+// records speak.
 func TestReplayDerivesWhatNoEntryRecords(t *testing.T) {
 	_, hist, want := histTrail(t)
 	img := mustLowerSource(t, histSrc)
@@ -443,7 +434,7 @@ func TestReplayDerivesWhatNoEntryRecords(t *testing.T) {
 
 	// 5 decided, 6 attested, 8 retracted by an act that *is* recorded, 9 decided
 	// again, and 10 erased both by content. The attestation outlives the
-	// retraction, which is §5.10's independence claim stated as a table.
+	// retraction, which is the independence claim stated as a table.
 	for _, tc := range []struct {
 		rev              uint64
 		approved, signed bool
@@ -472,7 +463,7 @@ func TestReplayDerivesWhatNoEntryRecords(t *testing.T) {
 	}
 	if n := countKind(hist, chgSign); n != 1 {
 		t.Errorf("the trail holds %d attestation entries, want 1: the erasure is "+
-			"derived, and a retraction of a signature is not a thing §4.2 has", n)
+			"derived, and a retraction of a signature is not supported", n)
 	}
 	// The head's blank answers are the derivation's and not a table the store
 	// rebuilt from the entries: the two agree because one driver ran on both.
@@ -518,7 +509,7 @@ func TestReplayKeepsWhatARemovalDoesNotErase(t *testing.T) {
 		}
 	}
 	// The removed page's inner set and rows are gone with it, and no entry has to
-	// say so: §5.1's cascade is a property of where a nested set lives, and the
+	// say so: the cascade is a property of where a nested set lives, and the
 	// fold that rebuilds the outer list drops the subtree that hung off it. The
 	// committed state at revision 9 held those rows, which is what makes the two
 	// absences below a claim rather than a vacuity.
@@ -568,15 +559,13 @@ func TestReplayKeepsWhatARemovalDoesNotErase(t *testing.T) {
 // TestRestoreIgnoresAnAddressThatIsNotData prices the two cases in `restore`'s
 // guard that no scripted trail reaches, and the counter rule that runs before
 // them. A commit cannot list rows under a host that exists but has never had a set
-// of that kind — nothing moved, so §5.1's diff says nothing — so `set == nil` is
+// of that kind — nothing moved, so the diff says nothing — so `set == nil` is
 // reachable only by asking the function directly. Both guards must write nothing
 // and stop nothing: a fold that died here would lose every revision after it, and
 // one that wrote here would invent a row set the case never had.
 //
-// The counter is the third claim and the one a mutant finds easiest: an ID an entry
-// *named* was issued even when its row lived inside a page the same commit removed,
-// and §5.1 forbids reusing one. So `restore` moves `seq` before it decides whether
-// it has anywhere to write.
+// The counter is the third claim and the one a mutant finds easiest. So
+// `restore` moves `seq` before it decides whether it has anywhere to write.
 func TestRestoreIgnoresAnAddressThatIsNotData(t *testing.T) {
 	img := mustLowerSource(t, histSrc)
 	home, away := slotAt(t, img, "application.pages"),
@@ -646,7 +635,7 @@ func TestRestoreIgnoresAnAddressThatIsNotData(t *testing.T) {
 	}
 }
 
-// TestACommittedRowSetListsItsInstances is §5.1's address rule read out of the
+// TestACommittedRowSetListsItsInstances is the address rule read out of the
 // store's own entries rather than out of a rendered page: an inner collection's
 // entry names both IDs, a decision's entry names no instance at all, and the two
 // verdict kinds carry their payload in the cells the record does not duplicate.
@@ -660,8 +649,8 @@ func TestACommittedRowSetListsItsInstances(t *testing.T) {
 			case chgReview:
 				decisions++
 				if len(ch.path) != 0 {
-					t.Errorf("revision %d: a decision hangs at %v, and §5.1's "+
-						"F4 case decides a unit as a whole", rec.revision,
+					t.Errorf("revision %d: a decision hangs at %v, but the "+
+						"decision covers a unit as a whole", rec.revision,
 						ch.path)
 				}
 				if got := addr(img, ch.slot, ch.path); got != "application" {
@@ -669,7 +658,7 @@ func TestACommittedRowSetListsItsInstances(t *testing.T) {
 						got)
 				}
 				if ch.decision == verifPending && ch.note != "" {
-					t.Errorf("a retraction carries the note %q, and §5.9 says "+
+					t.Errorf("a retraction carries the note %q, but "+
 						"it carries no comment", ch.note)
 				}
 			case chgSign:
@@ -682,12 +671,10 @@ func TestACommittedRowSetListsItsInstances(t *testing.T) {
 				if addr := addr(img, ch.slot, ch.path); strings.HasPrefix(addr,
 					"application.pages.") {
 					inner++
-					// §5.1 spells a row inside a row by both IDs, so a nested
-					// set's entry always names its host. The list may be empty:
-					// that is how the trail says a collection went to nothing,
-					// including when the whole host row went with it — which the
-					// removal at revision 10 does, and `restore` reads as "no
-					// host, nothing to write".
+					// The list may be empty: that is how the trail says a
+					// collection went to nothing, including when the whole host
+					// row went with it — which the removal at revision 10 does,
+					// and `restore` reads as "no host, nothing to write".
 					if len(ch.path) == 0 {
 						t.Errorf("the inner set %q has host %v and %d ids: an "+
 							"entry for a row inside a row names both", addr,
@@ -696,7 +683,7 @@ func TestACommittedRowSetListsItsInstances(t *testing.T) {
 					for i, id := range ch.ids {
 						if id == 0 {
 							t.Errorf("the set %q lists instance 0 at %d, and "+
-								"§5.1's allocator starts at 1", addr, i)
+								"the allocator starts at 1", addr, i)
 						}
 					}
 				}
@@ -746,14 +733,13 @@ func TestReplayToZeroIsTheCreatedCase(t *testing.T) {
 }
 
 // TestReplayCannotRecoverAnUnrecordedAddress is the derivation's first known
-// limit, written down as a test rather than as a promise: a draft that added a row
-// and removed it before submitting advanced the case's instance counter without
-// advancing any row set, so §5.1's forward diff has no way to say it happened —
-// there is no old value to record and no row that exists now to name. Replay
-// therefore tracks the largest ID an entry *listed*, which is one less than the
-// counter a case with such a draft carries. Nothing here commits a derived state,
-// so the gap is inert, and it is the second reason §5.11 exports a trail and not a
-// state.
+// limit, written down as a test rather than as a promise: a draft that added a
+// row and removed it before submitting advanced the case's instance counter
+// without advancing any row set, so the forward diff has no way to say it
+// happened — there is no old value to record and no row that exists now to
+// name. Replay therefore tracks the largest ID an entry *listed*, which is one
+// less than the counter a case with such a draft carries. Nothing here commits
+// a derived state.
 func TestReplayCannotRecoverAnUnrecordedAddress(t *testing.T) {
 	h := histSetup(t)
 	h.commit(t, h.dana, "application",
@@ -804,11 +790,9 @@ func TestReplayCannotRecoverAnUnrecordedAddress(t *testing.T) {
 // nobody wrote is data the base materialized, so a *semantic* reload that moved
 // the default makes a replayed state disagree with the snapshot the case actually
 // held — in a case whose ordinal space never moved, which is precisely the change
-// §4's drift check is written to allow.
+// the drift check is written to allow.
 //
-// The comparison is made in-package on purpose: `replayTo` takes the image to fold
-// under, so the limit is priced without the persistence bridge milestone 4 will
-// build.
+// The comparison is made in-package on purpose.
 func TestADefaultMovedByAReloadIsNotRecoverable(t *testing.T) {
 	_, hist, want := histTrail(t)
 	img := mustLowerSource(t, histSrc)
@@ -817,7 +801,7 @@ func TestADefaultMovedByAReloadIsNotRecoverable(t *testing.T) {
 		`stamp     : string default "reissued";`, 1))
 	if reloaded.SlotCount() != img.SlotCount() {
 		t.Fatal("the fixture's reload changed the slot count, so it is the " +
-			"drift §4 refuses rather than the drift it permits")
+			"an incompatible layout change")
 	}
 	// Revision 9 is the head's last verdict and the first row removal: a state
 	// where every entry has landed and only the base can disagree.
@@ -830,7 +814,7 @@ func TestADefaultMovedByAReloadIsNotRecoverable(t *testing.T) {
 	// And the gap is exactly that one cell: every entry the trail holds was
 	// written under the moved declaration too, so a fold over a semantic reload
 	// differs from the stored snapshot only where the base answers. A change that
-	// moved more than that would be §4's refusal, not this limit.
+	// moved more than that would be the refusal, not this limit.
 	for _, line := range diffAnswers(derived, kept) {
 		if !strings.HasPrefix(line, "value application.stamp:") {
 			t.Errorf("the reload moved more than the default: %s", line)
@@ -838,7 +822,7 @@ func TestADefaultMovedByAReloadIsNotRecoverable(t *testing.T) {
 	}
 }
 
-// TestTheWindowIsTheSliceItWasAskedFor is §5.11's cost claim about the read,
+// TestTheWindowIsTheSliceItWasAskedFor is the cost claim about the read,
 // stated where the store can be inspected: a page is a slice of the stored trail
 // and not a copy of it, so a reader who asked for three commits of a long trail
 // pays for three — and the whole-trail form the derivation uses is the opposite
@@ -883,7 +867,7 @@ func TestTheWindowIsTheSliceItWasAskedFor(t *testing.T) {
 	// what the cost claim rests on: `window` is arithmetic on a dense index, not a
 	// search and not a copy. The seam hands out the same array for the same
 	// reason `load` hands out a copied struct: the entries themselves are
-	// immutable (invariant 3), so reading what revision 7 changed costs an
+	// immutable, so reading what revision 7 changed costs an
 	// index and a field, and nothing about a reader needs the bytes to be
 	// private.
 	short := rec.window(2, 3)
@@ -899,11 +883,8 @@ func TestTheWindowIsTheSliceItWasAskedFor(t *testing.T) {
 		t.Error("`history` copied the trail it was asked to page: the seam " +
 			"answers with the stored array, whose entries no reader writes")
 	}
-	// And what a reader may not do is what the hand-out rule says rather
-	// than what Go would catch: an entry a caller mutates is a caller
-	// breaking §5's own claim about history, and no amount of copying in a
-	// paging read buys that back. The test reads one entry's diff and
-	// leaves the trail as the store made it.
+	// Native history readers may share the immutable entries. Mutating an
+	// internal record would invalidate all readers of that revision.
 	if n := len(hist[0].changes); n != len(rec.window(1, 1)[0].changes) {
 		t.Errorf("the store's own first record holds %d entries and the "+
 			"read handed out %d", len(rec.window(1, 1)[0].changes), n)
@@ -946,9 +927,7 @@ func countKind(hist []commitRecord, kind uint8) int {
 }
 
 // show is a value as one line. It exists to keep the equivalence test about
-// meaning: §5.1 counts a committed `Empty` as a change, and a renderer that
-// printed an empty text and no value alike would be blind to the one difference
-// that matters in a removal entry.
+// meaning.
 func show(v Value) string {
 	switch v.Kind() {
 	case KindNone:

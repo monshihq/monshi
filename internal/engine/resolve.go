@@ -12,8 +12,7 @@ import (
 // refusal about it is asked of; cell is the value it holds in the state the
 // path was read from, and hasValue is false when the declaration has no single
 // value there — a form or group (structure, not data), a collection (which has
-// rows), or a member of a collection named without saying which instance
-// (§5.1).
+// rows), or a member of a collection named without saying which instance.
 //
 // The instance path lives in an array of the lowering's own depth bound, which
 // is what keeps resolution free of allocation: an answer is one value, copied
@@ -32,18 +31,18 @@ type resolved struct {
 func (r *resolved) path() instPath { return r.steps[:r.depth] }
 
 // resolve walks one caller path through the image's own tree, which *is* the
-// index (§3.9): names are compared against the current container's children in
+// index: names are compared against the current container's children in
 // declaration order, and a numeric segment inside a collection is a stable
 // instance ID that must address a row that exists. Nothing is copied —
 // path[i:j] on a Go string is a header — and the instance path is backed by a
 // local array, so an ordinary path allocates nothing.
 //
 // An unmatched or mistyped path answers false. There is no near miss and no
-// partial answer to interpret: that is DESIGN §9's unknown-path error, decided
+// partial answer to interpret: that is the unknown-path error, decided
 // here rather than deep inside an operation.
 //
 // A false answer still reports how far the walk got in `slot`, because the
-// view (§6.1) has to decide which of two refusals a failed path deserves and
+// view has to decide which of two refusals a failed path deserves and
 // the two differ by whether case data was consulted. A segment that is not a
 // name fails against the definition alone, and a numeric segment that is not a
 // row fails against somebody's draft — so the refusal is only safe to spell
@@ -51,7 +50,7 @@ func (r *resolved) path() instPath { return r.steps[:r.depth] }
 // checks the flag first and ignores the value, as it always has.
 func (s *state) resolve(path string) (resolved, bool) {
 	img := s.img
-	cur := program.NodeID(0) // the case root: every path is absolute (§3.6)
+	cur := program.NodeID(0) // the case root: every path is absolute
 	var out resolved
 
 	for i := 0; ; {
@@ -139,7 +138,7 @@ func (s *state) rowsFor(coll program.NodeID, ip instPath) *instances {
 
 // parseInstanceID reads a stable instance ID: decimal, and canonical. A
 // leading zero is refused rather than silently re-addressed, and 0 was never
-// issued, because the allocator starts at 1 (§5.1).
+// issued, because the allocator starts at 1.
 func parseInstanceID(seg string) (instanceID, bool) {
 	if seg == "" || (len(seg) > 1 && seg[0] == '0') {
 		return 0, false

@@ -8,7 +8,7 @@ import (
 
 // cellKey and setKey are the two things a rebase compares: one value at one
 // instance address, and one collection's rows at one place in the data. They
-// are structs of ordinals rather than rendered paths because §7.2's rule that
+// are structs of ordinals rather than rendered paths because the rule that
 // nothing keys off letters a caller typed holds at the merge as it does at
 // resolution, and an instance path is a slice, which Go will not let a map key
 // be.
@@ -61,7 +61,7 @@ type mergedSet struct {
 // carried rather than filtered because the clash still has to *happen* — a
 // rebase that silently moved a copy's base past an edit the actor made blind
 // would be the engine resolving a conflict it was told to report — and only
-// the name changes (§5.7's reading of what a container may disclose).
+// the name changes (the reading of what a container may disclose).
 type clash struct {
 	slot   program.NodeID
 	path   instPath
@@ -122,10 +122,8 @@ func (m *rebaser) run(current *state, seen, window []commitRecord,
 	m.ours = &w.s
 	m.cur = current
 	m.out = w.s.clone()
-	// A draft that adopted rows the case issued must not hand those numbers
-	// out again: §5.1's IDs are never reused within a case, so the merged copy
-	// inherits the case's allocator along with its content, which is the same
-	// reconciliation §5.4's commit makes on the way the other way.
+	// A draft that adopted rows the case issued must not hand those numbers out
+	// again.
 	if m.out.seq < m.cur.seq {
 		m.out.seq = m.cur.seq
 	}
@@ -146,7 +144,7 @@ func (m *rebaser) run(current *state, seen, window []commitRecord,
 
 // mergeSet settles one collection's rows: the draft's list, the committed
 // list, and the list as the copy descended from it, compared by IDs in order —
-// the same comparison §5.6's diff makes, and the only thing a set can be
+// the same comparison the diff makes, and the only thing a set can be
 // compared by when the values inside its rows are compared separately.
 func (m *rebaser) mergeSet(s *mergedSet) {
 	ours := rowIDs(m.ours.rowsFor(s.coll, s.host).list())
@@ -163,12 +161,7 @@ func (m *rebaser) mergeSet(s *mergedSet) {
 		// Both sides arrived at the same list by themselves: there is nothing
 		// left to decide, and saying so is not a conflict.
 	default:
-		// Both sides moved the rows differently. Reconciling two lists is the
-		// deferred half of §6.5 — an `Add` on each side is two facts about
-		// order and one about which user is looking at the screen — so the
-		// draft keeps its own rows, they are marked unresolved, and the
-		// entries that write into that set are dropped rather than
-		// half-applied.
+		// Both sides moved the rows differently.
 		m.dropped[m.setKey(s)] = true
 		m.clash(s.coll, s.host)
 	}
@@ -176,11 +169,7 @@ func (m *rebaser) mergeSet(s *mergedSet) {
 
 // detectLost reports the one deletion a set comparison cannot see: a row this
 // draft removed while the unseen commits changed what was inside it. Neither
-// side's list says anything about the other's intent, and letting the
-// deletion win quietly would swallow a committed edit with no word — the loss
-// §6.5 exists to prevent — so the row is marked resolved-away, its own
-// members' clashes are suppressed as the same decision, and the collection is
-// named once.
+// side's list says anything about the other's intent.
 //
 // A row the *commits* removed is excluded by the list they left: this draft's
 // deletion of a row the case also deleted is agreement, not a clash, and
@@ -208,7 +197,7 @@ func (m *rebaser) detectLost(s *mergedSet, ours []instanceID) {
 // collection; a per-field list beside it would name the same deleted row sixty
 // times, and a per-collection list would name its nested ones as separate
 // decisions. The walk is outermost first, which is the order instance paths
-// are spelled in (§5.1), and the collections are merged and probed in that
+// are spelled in, and the collections are merged and probed in that
 // order too, so an outer row is always marked before the inner one asks.
 func (m *rebaser) lostAbove(path instPath) bool {
 	for _, st := range path {
@@ -291,10 +280,7 @@ func (m *rebaser) apply(s *mergedSet) {
 }
 
 // pour writes the committed value into the merged cell, when the address is
-// still there. A missing address is not a loss to report: `mergeSet` has
-// already adopted the case's row list, so the only way a cell has no home here
-// is that the commits removed its row and this draft left that row alone —
-// which is exactly the committed change §6.5 says to integrate.
+// still there. A missing address is not a loss to report.
 func (m *rebaser) pour(c *mergedCell) {
 	if at, ok := m.out.cellAt(c.slot, c.path); ok {
 		at.set(c.now)
@@ -302,8 +288,8 @@ func (m *rebaser) pour(c *mergedCell) {
 }
 
 func (m *rebaser) clash(n program.NodeID, p instPath) {
-	// The mask is asked at the node and never at its parent, which is §5.7's
-	// rule for the same question in `viewable` — one fold, two callers.
+	// The mask is asked at the node and never at its parent, which is the rule
+	// for the same question in `viewable` — one fold, two callers.
 	m.clashes = append(m.clashes,
 		clash{slot: n, path: p, veiled: !m.vis[n]})
 }
@@ -359,7 +345,7 @@ func missing(was, now []instanceID) []instanceID {
 // copyRow brings a committed instance into the merged draft with its own
 // identity, content, and nested rows — the last because a rebase that dropped
 // the rows *inside* an outer row it was bringing in would be deleting content
-// nobody had a chance to refuse, which is the thing §6.5 exists to prevent.
+// nobody had a chance to refuse.
 func copyRow(r instRow) instRow {
 	out := instRow{id: r.id, row: append(program.Row(nil), r.row...)}
 	for _, in := range r.nest {

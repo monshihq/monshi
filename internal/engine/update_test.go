@@ -3,12 +3,11 @@ package engine
 // The edit operation's other half: what a batch did to the *data*.
 //
 // `edit_test.go` covers what a host can observe — the refusals, the working
-// revision, the paths a batch created. What it cannot observe is a value,
-// because the exported read of a case is milestone 3's `View`. So the claims
-// below are the ones only this package can make, and they are the
+// revision, the paths a batch created. What it cannot observe is a value. So
+// the claims below are the ones only this package can make, and they are the
 // load-bearing ones: which copy a write lands in, what a cleared field *is*,
-// that a not-present subtree kept what was written to it, that a
-// normalization ran and what it produced, and that an edit conferred nothing.
+// that a not-present subtree kept what was written to it, that a normalization
+// ran and what it produced, and that an edit conferred nothing.
 
 import (
 	"context"
@@ -120,7 +119,7 @@ func draftValue(t *testing.T, c Case, img *program.Program, path string) program
 
 // mustUpdate applies a batch and fails the test if it is refused, returning
 // the revision the copy moved to so the next batch presents the right number.
-// Threading it explicitly is part of what these tests check: §6.2's guard
+// Threading it explicitly is part of what these tests check: the guard
 // means a host that keeps its own count gets refused, and a helper that
 // ignored the number would hide that in every test but one.
 func mustUpdate(t *testing.T, c Case, base uint64, edits ...Edit) uint64 {
@@ -142,10 +141,7 @@ func TestUpdateWritesTheWorkingCopyAndNotTheCase(t *testing.T) {
 		t.Errorf("draft holds %+v, want the value the batch wrote", got)
 	}
 
-	// The committed snapshot does not. An edit is not a commit (invariant 2),
-	// and the split is what §6.3's Submit diff is computed against, so if
-	// this assertion ever fails the symptom is a commit reporting an empty
-	// diff on content a user typed an hour ago.
+	// The committed snapshot does not. An edit is not a commit.
 	rec, err := c.w.cases.load(ctx(), newRefuser("open", c.id))
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -160,7 +156,7 @@ func TestUpdateWritesTheWorkingCopyAndNotTheCase(t *testing.T) {
 	}
 
 	// And the copy's base is the committed revision it diverged from, not a
-	// number the caller asserted: §6.5's rebase compares that pair, and §3.1's
+	// number the caller asserted: the rebase compares that pair, and the
 	// division says the store does the numbering.
 	w, err := c.w.cases.working(ctx(), newRefuser("open", c.id), c.actor.User, img)
 	if err != nil {
@@ -186,11 +182,10 @@ func TestEmptyClearsTheValueAndKeepsTheField(t *testing.T) {
 	s := draftState(t, c, img)
 	v := draftValue(t, c, img, row+".who")
 
-	// `Empty` is §5.1's "clear an existing field's value, preserving the
-	// field": the value is gone and the field is not. The row already has an
-	// exact spelling for a slot with no value, so that is what a cleared one
-	// is — and the preserved half is that the field stays in the structure,
-	// still reachable, so its `required` is asked and answered.
+	// The row already has an exact spelling for a slot with no value, so that
+	// is what a cleared one is — and the preserved half is that the field stays
+	// in the structure, still reachable, so its `required` is asked and
+	// answered.
 	if v.Set {
 		t.Errorf("a cleared field still holds %+v", v)
 	}
@@ -198,17 +193,14 @@ func TestEmptyClearsTheValueAndKeepsTheField(t *testing.T) {
 	if !s.reached(n) {
 		t.Error("a member of an existing instance is unreachable: `Empty` " +
 			"preserves the field, and presence-driven pruning is a different " +
-			"thing (DESIGN §5.1)")
+			"thing")
 	}
 	if s.satisfied(n, v) {
 		t.Error("a required field cleared to empty satisfied its rule")
 	}
 
-	// What `Empty` is *for*, then: a default nobody re-applies. §5.1 says a
-	// field a host cleared stays cleared, because defaults materialize when
-	// data is created and nothing rewrites what a case holds (invariant 8). A
-	// default reappearing under a cleared field is the engine undoing a user's
-	// edit, which is the shape of bug this assertion exists to catch.
+	// A default reappearing under a cleared field is the engine undoing a
+	// user's edit, which is the shape of bug this assertion exists to catch.
 	base = mustUpdate(t, c, base, Empty("application.fee"))
 	if back := draftValue(t, c, img, "application.fee"); back.Set ||
 		!back.Decimal.Equal(decimal.Zero) {
@@ -232,11 +224,10 @@ func TestAddMaterializesDefaultsAndNeverReusesAnID(t *testing.T) {
 	}
 	first := res.Created[0]
 
-	// A row `Add` created holds the defaults its declaration names and no
-	// other content: §5.1's `Add` takes no value, so anything in a new row is
-	// the definition's doing. `who` has no default, so it is genuinely absent
-	// — which is also why a fresh instance with a `required` member is an
-	// invalid draft rather than an empty one (§6.2).
+	// A row `Add` created holds the defaults its declaration names and no other
+	// content. `who` has no default, so it is genuinely absent — which is also
+	// why a fresh instance with a `required` member is an invalid draft rather
+	// than an empty one.
 	day := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	if since := draftValue(t, c, img, first+".since"); !since.Set ||
 		!since.Time.Equal(day) {
@@ -250,8 +241,7 @@ func TestAddMaterializesDefaultsAndNeverReusesAnID(t *testing.T) {
 
 	// Dropping an instance never hands its number to the next one: the
 	// allocator is part of the case's data and does not move backwards, which
-	// is what lets a host cache a path and a stored diff name a row forever
-	// (§5.1).
+	// is what lets a host cache a path and a stored diff name a row forever.
 	base := mustUpdate(t, c, res.Working, Remove(first))
 	second, err := c.Update(ctx(), base, Add("application.holders"))
 	if err != nil {
@@ -275,13 +265,7 @@ func TestAddMaterializesDefaultsAndNeverReusesAnID(t *testing.T) {
 }
 
 func TestPresenceDoesNotGateAWrite(t *testing.T) {
-	// `internal` is gated on `.kind == COMPANY` and nothing is set, so the
-	// subtree is not part of the effective state. §5.2 says pruning is
-	// *derived, never stored*, so the write is accepted and its data waits in
-	// the row: refusing it would turn the engine's own dependency order into
-	// the caller's problem, and §6.2's "changes such as province and city are
-	// evaluated together" is precisely the batch that both opens a subtree and
-	// fills it in.
+	// `internal` is gated on `.kind == COMPANY` and nothing is set.
 	_, img, c := editCase(t, danaManager)
 	base := mustUpdate(t, c, 0, Set("application.internal.risk", Int(7)))
 
@@ -295,7 +279,7 @@ func TestPresenceDoesNotGateAWrite(t *testing.T) {
 	// Retained, and not shown: the guard's answer is what a view prunes by,
 	// and it is still false.
 	if before := draftState(t, c, img); before.reached(n) {
-		t.Error("a subtree whose guard does not hold is reached: §5.2's " +
+		t.Error("a subtree whose guard does not hold is reached: the " +
 			"pruning is derived, and here it was not applied")
 	}
 
@@ -308,7 +292,7 @@ func TestPresenceDoesNotGateAWrite(t *testing.T) {
 	}
 
 	// And clearing the guard again hides it, with the data still in the row:
-	// presence is an answer about the *view*, never a deletion (§4.1).
+	// presence is an answer about the *view*, never a deletion.
 	mustUpdate(t, c, base, Empty("application.kind"))
 	s := draftState(t, c, img)
 	if s.reached(n) {
@@ -324,13 +308,9 @@ func TestPresenceDoesNotGateAWrite(t *testing.T) {
 }
 
 func TestAnEditConfersNothingUntilItIsCommitted(t *testing.T) {
-	// SYNTAX §5.2-T4 and DESIGN §4.3: a role-typed field's value confers the
-	// role, and the state that says so is the committed one. dana writes
-	// herself into `Manager` and asks, in the same batch, for what Manager
-	// owns — and is refused. Asserting it as one batch is the point: the
-	// assignment is in the candidate the edit is about to write, so an
-	// operation that folded roles from the candidate would grant itself the
-	// second edit here.
+	// Asserting it as one batch is the point: the assignment is in the
+	// candidate the edit is about to write, so an operation that folded roles
+	// from the candidate would grant itself the second edit here.
 	_, img, c := editCase(t, danaEdit)
 	_, err := c.Update(ctx(), 0,
 		Set("application.reviewer", User("dana")),
@@ -353,9 +333,7 @@ func TestAnEditConfersNothingUntilItIsCommitted(t *testing.T) {
 		return rolesHeld(img, Actor{User: "dana"}, s)
 	}
 
-	// Two folds of the same actor against two snapshots, and the pair is what
-	// §4.3 means: the draft's value is a fact about the data that a later read
-	// of the draft sees, and it is not a source of authority.
+	// Two folds of the same actor against two snapshots.
 	if got := held(commit); len(got) != 0 {
 		t.Errorf("committed roles = %v, want none: the assignment is a draft",
 			got)
@@ -384,7 +362,7 @@ func TestAnEditConfersNothingUntilItIsCommitted(t *testing.T) {
 
 // An `Edit` the engine did not build is a defect in whatever produced it, and
 // the answer is a refusal, not a no-op. A zero `Value` gets the same treatment
-// for the same reason: an argument nobody constructed is a mistake, and §5.1's
+// for the same reason: an argument nobody constructed is a mistake, but the
 // four verbs are the only instructions there are.
 func TestAVerblessEditIsRefusedRatherThanIgnored(t *testing.T) {
 	_, img, c := editCase(t, danaEdit)
@@ -400,7 +378,7 @@ func TestAVerblessEditIsRefusedRatherThanIgnored(t *testing.T) {
 
 	// Refused as a whole batch: the earlier edit in it landed nowhere, the
 	// field still holds what create materialized, and the same base is still
-	// the current one — which is the claim §9's no-persistent-effect sentence
+	// the current one — which is the claim the no-persistent-effect sentence
 	// makes, checked against an edit that cannot even be described.
 	if got := draftValue(t, c, img, "application.name"); got.Text != "new" {
 		t.Errorf("a batch refused for its verb wrote %q", got.Text)
@@ -411,12 +389,11 @@ func TestAVerblessEditIsRefusedRatherThanIgnored(t *testing.T) {
 	}
 }
 
-// The normalization seam, which is the part of §6 a host cannot exercise
-// until `CaseContext` is exported.
+// The normalization seam.
 func TestValidateNormalizesTheValueItIsGiven(t *testing.T) {
 	rt, img, c := editCase(t, danaEdit)
 
-	// A custom type's binding is the type's declared name (§6's lookup rule,
+	// A custom type's binding is the type's declared name (the lookup rule,
 	// interned at lowering from `money`), and what the hook returns is what
 	// the row holds.
 	var given Value
@@ -438,10 +415,9 @@ func TestValidateNormalizesTheValueItIsGiven(t *testing.T) {
 			"normalizing is not re-reading the row", given.d.String())
 	}
 
-	// A hook that refuses is HOOK_FAILURE, and its own error stays reachable
-	// (§9 keeps a hook's or a backend's cause for the host to find). The
-	// refusal also names the binding, because a host knows its function only
-	// by the words its definition wrote.
+	// A hook that refuses is HOOK_FAILURE, and its own error stays reachable.
+	// The refusal also names the binding, because a host knows its function
+	// only by the words its definition wrote.
 	sentinel := errors.New("that amount is not a payable one")
 	rt.RegisterValidate("money", func(_ context.Context, _ CaseContext,
 		_ string, v Value) (Value, error) {
@@ -475,12 +451,8 @@ func TestValidateNormalizesTheValueItIsGiven(t *testing.T) {
 		t.Errorf("a refused batch left the copy at %d, want %d", w.rev, base)
 	}
 
-	// A hook that returns something the field's type cannot hold is *also*
-	// HOOK_FAILURE, and not INVALID_OPERATION, because the mistake is the
-	// function's rather than the caller's. This is what makes hooks safe to
-	// have at all: a normalizer cannot put a value in a row that §3.3's own
-	// bounds test would refuse, so the type is the last word about a payload
-	// whoever produced it.
+	// A normalizer that returns a value the declared type cannot hold is a
+	// broken hook, not an invalid edit by the caller.
 	rt.RegisterValidate("money", func(_ context.Context, _ CaseContext,
 		_ string, v Value) (Value, error) {
 		return Text("not a decimal"), nil
@@ -503,7 +475,7 @@ func TestAHookBindingIsKeyedByKindAndName(t *testing.T) {
 	rt, img, c := editCase(t, danaEdit)
 	hook := img.Type(img.Slot(slotByPath(t, img, "application.fee")).Type).Hook
 	if hook == 0 {
-		t.Fatal("a custom type carried no Validate binding, so §6's lookup " +
+		t.Fatal("a custom type carried no Validate binding, so the lookup " +
 			"is untested")
 	}
 	// What a host registers against, and what a refusal about a hook quotes:
@@ -584,10 +556,7 @@ func TestUpdateRefusesACaseItCannotInterpret(t *testing.T) {
 	base := mustUpdate(t, c, 0, Set("application.name", Text("x")))
 
 	// And the draft that outlived the reload is read under the definition the
-	// case resolves to *now*, which is §3's reinterpretation applied to
-	// uncommitted bytes: the same value, a new pair of eyes. §3.3 makes the
-	// changed default a fact about *future* data, so the field still holds
-	// what create put in it until an edit says otherwise.
+	// case resolves to *now*.
 	w, err := rt.w.cases.working(ctx(), newRefuser("open", c.id), "dana",
 		compat.img)
 	if err != nil {

@@ -1,18 +1,16 @@
 package engine
 
-// In-package tests for the wire format (codec.go, DESIGN §5's "the exact
-// Go representation"). Three claims, one per test. The scripted case:
-// every snapshot, draft and history entry a real eleven-commit run
-// produced must survive bytes — the fold's fixture is the broadest
-// state this package can build without inventing one. The hand-built
-// cell: every class and every shape a getter reads must survive as its
-// own value, because the scripted fixture leaves the rarer payloads
-// (negative numbers, empty text, a nil binary) to chance. And the
-// hostile buffer: truncated, versioned-wrong or trailed bytes must
-// refuse as one error, never panic and never half-decode — a store
-// that returns corrupt bytes is a fact of life (§8's failure modes),
-// and this is the code standing between it and a state whose
-// conditions would then run against invented slots.
+// In-package tests for the wire format. Three claims, one per test. The
+// scripted case: every snapshot, draft and history entry a real eleven-commit
+// run produced must survive bytes — the fold's fixture is the broadest state
+// this package can build without inventing one. The hand-built cell: every
+// class and every shape a getter reads must survive as its own value, because
+// the scripted fixture leaves the rarer payloads (negative numbers, empty text,
+// a nil binary) to chance. And the hostile buffer: truncated, versioned-wrong
+// or trailed bytes must refuse as one error, never panic and never half-decode
+// — a store that returns corrupt bytes is a fact of life (the failure modes),
+// and this is the code standing between it and a state whose conditions would
+// then run against invented slots.
 
 import (
 	"bytes"
@@ -202,7 +200,7 @@ func TestCodecEveryClass(t *testing.T) {
 
 	// One shape the fixture never holds: a *set* cell whose binary
 	// handle is nil — present, and naming no content at all. It must
-	// survive as present, because §5.2's emptiness test asks length
+	// survive as present, because the emptiness test asks length
 	// and the length must not have been confused with absence.
 	fn := slotByPath(t, img, "box.file")
 	cf, _ := st.cellOf(fn)

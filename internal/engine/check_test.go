@@ -1,7 +1,5 @@
 package engine
 
-// The §5.4 completeness walk, asserted where the walk itself is visible.
-//
 // `submit_test.go` covers what a host can observe about a refused submit.
 // What is here is the five claims only this package can make: that an
 // unreachable subtree is *not asked* rather than asked and excused, that a
@@ -12,7 +10,7 @@ package engine
 //
 // The last is the one that turns a report into something a client can act
 // on, and it is the one a change to the numbering would break silently —
-// §5.1's instance IDs and §3.2's preorder are both load-bearing for it, and
+// the instance IDs and the preorder are both load-bearing for it, and
 // neither is visible from a refusal's text alone.
 
 import (
@@ -105,7 +103,7 @@ func TestIncompleteAsksOnlyWhatIsRequired(t *testing.T) {
 	// Nothing entered: the required field, and the required collection with
 	// no instances. `gate` is not reported because nothing requires it, and
 	// `deep.risk` is not reported because its group is not part of the
-	// effective state — F5's licence, and the difference between a form that
+	// effective state — the licence, and the difference between a form that
 	// asks for an answer and one that asks for an answer to a question its
 	// own definition withdrew.
 	wantGaps(t, s.incomplete(f), "f.name", "f.holders")
@@ -116,7 +114,7 @@ func TestIncompleteAsksOnlyWhatIsRequired(t *testing.T) {
 	wantGaps(t, s.incomplete(f), "f.name", "f.deep.risk", "f.holders")
 
 	// A filled field stops being reported, and one that was filled and then
-	// cleared starts again: §5.2's emptiness-not-existence, seen through the
+	// cleared starts again: the emptiness-not-existence, seen through the
 	// walk that has to render it. Presence is untouched either way — the
 	// cleared field is still part of the structure.
 	write(t, &s, "f.name", "Monshi Ltd")
@@ -149,7 +147,7 @@ func TestIncompleteAsksEveryInstance(t *testing.T) {
 		"f.holders.1.homes", "f.holders.2.homes")
 
 	// Filling one row's member leaves the other's reported, at its own
-	// address. This is the per-instance half of §5.2's second line, and the
+	// address. This is the per-instance half of the second line, and the
 	// reason a completeness report cannot be a list of declarations.
 	write(t, &s, "f.holders.1.who", "Ada")
 	wantGaps(t, s.incomplete(f),
@@ -178,11 +176,10 @@ func TestIncompleteAsksANestedCollectionPerOuterInstance(t *testing.T) {
 		"f.holders.1.who", "f.holders.2.who",
 		"f.holders.1.homes", "f.holders.2.homes")
 
-	// A member two collections deep is not reported while *its* collection
-	// has no rows: there is no place to put the value, so there is no answer
-	// to ask for (F5's rule one level further out). Adding a home per holder
-	// makes `city` real, and its address carries both instance IDs — the
-	// reason §5.1 requires stable IDs rather than ordinals.
+	// A member two collections deep is not reported while *its* collection has
+	// no rows: there is no place to put the value, so there is no answer to ask
+	// for (the rule one level further out). Adding a home per holder makes
+	// `city` real.
 	for _, id := range []instanceID{1, 2} {
 		if _, _, ok := s.addAt(homes, instPath{{holders, id}}); !ok {
 			t.Fatalf("Add refused the nested collection at holder %d", id)
@@ -198,7 +195,7 @@ func TestIncompleteAsksARepeatedFieldPerHost(t *testing.T) {
 	// answer to "does this have instances": its own rows hold its values, so
 	// the place to ask is the host that holds the set. Asking the set itself
 	// reports nothing while a required repeated field is unfilled, which is
-	// §5.4's completeness question failing to be asked at all.
+	// the completeness question failing to be asked at all.
 	const src = `
 roles {
     A { allow view, edit, submit f; }
@@ -221,7 +218,7 @@ stages {
 	notes := slotByPath(t, img, "f.holders.notes")
 
 	// No holders: nothing to ask, because a required member of a collection
-	// that has no rows has no place to hold a value (F5).
+	// that has no rows has no place to hold a value.
 	if got := s.incomplete(f); len(got) != 0 {
 		t.Fatalf("gaps = %q, want none with no instances to ask about",
 			gapStrings(got))
@@ -244,7 +241,7 @@ stages {
 }
 
 func TestEveryGapAddressResolvesBackToWhatItNames(t *testing.T) {
-	// The claim is DESIGN §6.3's remedy in one sentence: a report whose paths
+	// The claim is the remedy in one sentence: a report whose paths
 	// cannot be sent back to `Update` is a screenshot rather than a result.
 	// Each address is resolved against the same state it was produced from,
 	// and must reach the declaration it was spelled from and a cell that can
@@ -315,12 +312,8 @@ func withoutIDs(path string) string {
 }
 
 func TestConditionalRequirednessIsAskedOnlyWhenTheGuardHolds(t *testing.T) {
-	// The SYNTAX §7 example is the conformance baseline, and its
-	// `shareholders required[.kind == COMPANY]` is the shape §5.2's second
-	// line is about: no demand while the condition does not hold, one demand
-	// per place the collection lives once it does. Inverting this test's
-	// expectation is the commonest way to break it, so the two cases are
-	// asserted back to back.
+	// Inverting this test's expectation is the commonest way to break it, so
+	// the two cases are asserted back to back.
 	img := lowerExample(t)
 	s := newState(img)
 	s.applyDefaults()
@@ -333,8 +326,6 @@ func TestConditionalRequirednessIsAskedOnlyWhenTheGuardHolds(t *testing.T) {
 		t.Fatal("application.kind has no cell")
 	}
 
-	// No kind entered at all: E6 leaves the guard unsatisfied, so the
-	// collection is not demanded, and `internal` is pruned with its member.
 	wantGaps(t, s.incomplete(application),
 		"application.kind", "application.full_name")
 

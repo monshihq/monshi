@@ -9,10 +9,8 @@ import (
 
 // HistoryResult is one page of one case's trail.
 type HistoryResult struct {
-	// Commits holds the page, oldest first: the order a replay consumes, and the
-	// order DESIGN §5's "ordered, immutable commits" states. A host that wants the
-	// newest acts first reverses it, and a page of one is its own answer either
-	// way.
+	// Commits holds the page, oldest first. A host that wants the newest acts
+	// first reverses it, and a page of one is its own answer either way.
 	Commits []Commit
 
 	// Next is the cursor to ask again with, or 0 when the trail is done. It is the
@@ -29,7 +27,7 @@ type HistoryResult struct {
 
 	// Withheld counts the entries on this page the actor's mask did not reach. It
 	// is a count and not a list: what it discloses is that the page is not the
-	// whole story, which §5.9's reasoning about an unreadable rejection says a
+	// whole story, which the reasoning about an unreadable rejection says a
 	// caller is owed, and not which declaration moved or to what.
 	Withheld int
 }
@@ -58,17 +56,15 @@ type Commit struct {
 	// present are how a reader follows a case along its edges.
 	Stage string
 
-	// Changes are the entries the commit wrote, in the order §5.1's diff built
+	// Changes are the entries the commit wrote, in the order the diff built
 	// them: the case's declarations in preorder, a collection's rows after its own
 	// set changed. Empty for a transition, and for a commit whose every entry sat
 	// behind a branch this actor may not see.
 	Changes []CommitChange
 }
 
-// CommitOp names which operation produced a commit. The four are the four that move
-// a case's revision, and the distinction is the one DESIGN §5's `Commit` exists
-// for: a history that says "the data moved" without saying that somebody decided,
-// attested or moved the case along an edge is not an audit.
+// CommitOp names which operation produced a commit. The four are the four that
+// move a case's revision.
 type CommitOp string
 
 const (
@@ -97,11 +93,11 @@ func (o commitOp) name() CommitOp {
 }
 
 // ChangeKind says what one entry of a commit is about, and which of
-// `CommitChange`'s payloads it fills. The four are §5.1's semantic committed
+// `CommitChange`'s payloads it fills. The four are the semantic committed
 // changes: a field's value, a collection's rows, a decision, an attestation.
 //
 // A host branches on the kind rather than on which payload is set, and that is the
-// rule the store already follows internally: §5.6's effects, §5.8's merge and this
+// rule the store already follows internally: the effects, the merge and this
 // read all ask the kind, because an unset payload means two different things
 // depending on it — nothing at all for a value (a removal) and an empty collection
 // for a rows entry.
@@ -121,80 +117,69 @@ const (
 // for a value, the field at the instance it lives in, spelled
 // "application.shareholders.42.who"; for a collection, the collection at the
 // instance whose rows these are, "application.shareholders"; and for a verdict,
-// the declaration it is about with no instance in it, because F4 decides a
-// `verifiable multiple` as a whole and S1 puts a signature field in a form.
+// the declaration it is about with no instance in it.
 //
 // The declaration half of that `Path` always resolves, and it is a consequence
 // of the refusal this read makes before rendering anything: entries are keyed by
-// slot ordinal (§3.2's numbering), and §4's drift check refuses a definition
+// slot ordinal (the numbering), and the drift check refuses a definition
 // whose slot paths moved rather than reinterpret committed history into
 // nonsense — so a path from an old commit cannot name a *different* field
 // today. That refusal is the one place in the package where it does real work: a
 // view addresses what the caller named, and a trail addresses what a past call
 // recorded. The instance half may name a row that has since been removed, or a
-// unit whose instance is gone, and that is §5.1's rule about dead addresses
+// unit whose instance is gone, and that is the rule about dead addresses
 // rather than an entry that failed to render.
 type CommitChange struct {
 	Kind ChangeKind
 	Path string
 
-	// Value is what the field holds after this commit, as the entry recorded it.
-	// `Value.Kind() == KindNone` is the removal — §5.1 counts a committed `Empty`
-	// as a change, and the same test that reads a view's blank box reads one here.
-	// It is rendered through the definition the case is read under *now*, which is
-	// DESIGN §3's reinterpretation and the reason a semantic reload does not
-	// corrupt a trail rather than an argument that the trail is frozen.
+	// Value is what the field holds after this commit, as the entry recorded
+	// it. `Value.Kind() == KindNone` is the removal. It is rendered through the
+	// definition the case is read under *now*, which is the reinterpretation
+	// and the reason a semantic reload does not corrupt a trail rather than an
+	// argument that the trail is frozen.
 	Value Value
 
-	// Rows are the instances the collection held after this commit, in creation
-	// order, each at the address §5.1 gives it. The list is the count spelled far
-	// enough to be used: a removed row cannot be named by what follows it, and
-	// §5.8's merge compares sets rather than sizes for exactly that reason.
+	// Rows lists the collection's stable row paths in creation order after this
+	// change. An empty list means the collection was cleared.
 	Rows []string
 
-	// Review and Signature are the verdict an entry records, in the shapes the
-	// view reports them — a decision's unit, state, author, revision and
-	// comment, a signature's hand, revision and reference. They are the same
-	// facts as a standing verdict's because they are the same record read at a
-	// different time, and reusing the two types is the check that §5.9's and
-	// §5.10's shapes were big enough.
+	// Review and Signature use the same shapes as View, but describe the
+	// verdict at the time of this commit. Later edits can invalidate the
+	// standing verdict without changing this entry.
 	//
-	// A revoked decision arrives as PENDING with no author: the state table
-	// answers who stands behind a *standing* verdict, and the hand that revoked is
-	// in the record's envelope beside it (`Commit.By`, `Commit.Revision`), which is
-	// what §5.9's rule that a record carries no second copy of an author means
-	// once somebody reads it.
+	// A revoked review has state PENDING and no standing reviewer. Commit.By
+	// and Commit.Revision identify who revoked it and when.
 	Review    ReviewInfo
 	Signature SignatureInfo
 }
 
-// History reads the trail a case left (DESIGN §6).
+// History reads the trail a case left.
 //
 // `cursor` is the first revision to read, and 0 means the beginning; `limit` is
-// how many entries to
-// answer with, and 0 means everything remaining. The page is oldest first and
-// `Next` says where it stopped. A cursor past the head answers with an empty
-// page rather than a refusal: the trail is dense, so "there is nothing at
-// revision 900" and "there was nothing left to read" are the same fact, and a
-// paging loop that stops on an empty page is the shape a host will write anyway.
-// What the actor may not see is not on the page, and `Withheld` says that it is
-// not. The record of an act survives its content, and a caller with no grant
-// anywhere in the case still reads the case's trail of acts — which is not a
-// disclosure past what `View` already makes: the head revision and the current
-// stage are in every view result, and the trail's length *is* the head revision
-// (§5.6), so filtering envelopes would hide nothing while destroying the audit.
+// how many entries to answer with, and 0 means everything remaining. The page
+// is oldest first and `Next` says where it stopped. A cursor past the head
+// answers with an empty page rather than a refusal: the trail is dense, so
+// "there is nothing at revision 900" and "there was nothing left to read" are
+// the same fact, and a paging loop that stops on an empty page is the shape a
+// host will write anyway. What the actor may not see is not on the page, and
+// `Withheld` says that it is not. The record of an act survives its content,
+// and a caller with no grant anywhere in the case still reads the case's trail
+// of acts — which is not a disclosure past what `View` already makes: the head
+// revision and the current stage are in every view result, and the trail's
+// length *is* the head revision, so filtering envelopes would hide nothing
+// while destroying the audit.
 //
 // The refusals are three, and none of them is about history being empty:
 //
-//   - a negative `limit` is INVALID_OPERATION, because a caller that meant
-//     "everything" can say 0 and one that meant "the newest ten" is about to get
-//     an answer it did not ask for;
-//   - a definition whose slot paths moved since this case's data was written is
-//     SCHEMA_MISMATCH, before a single entry is rendered (§4's drift check, the
-//     same one `View` and `Update` pay), because an entry's address is an ordinal
-//     and reading it through a relabelled definition would launder the relabel
-//     as history;
-//   - an unreadable case is NOT_FOUND, as every operation says it.
+// - a negative `limit` is INVALID_OPERATION, because a caller that meant
+// "everything" can say 0 and one that meant "the newest ten" is about to get an
+// answer it did not ask for; - a definition whose slot paths moved since this
+// case's data was written is SCHEMA_MISMATCH, before a single entry is rendered
+// (the drift check, the same one `View` and `Update` pay), because an entry's
+// address is an ordinal and reading it through a relabelled definition would
+// launder the relabel as history; - an unreadable case is NOT_FOUND, as every
+// operation says it.
 func (c Case) History(ctx context.Context, cursor uint64,
 	limit int) (HistoryResult, error) {
 	refuse := c.refusing("history")
@@ -210,7 +195,7 @@ func (c Case) History(ctx context.Context, cursor uint64,
 	res := HistoryResult{Revision: rec.revision}
 
 	// One fold of the mask for the whole page, at the roles the committed state
-	// carries and the stage the case sits at — §5.7's read and not a new one, which
+	// carries and the stage the case sits at — the read and not a new one, which
 	// is what makes the two agree. The cost is bounded by the definition and not by
 	// the trail, so a case with a long history and a short page pays for the slots,
 	// the entries it answers with, and nothing in between.
@@ -233,11 +218,11 @@ func (c Case) History(ctx context.Context, cursor uint64,
 	return res, nil
 }
 
-// commitView renders one stored entry as §5.11's exported `Commit` under a
+// commitView renders one stored entry as the exported `Commit` under a
 // reader's mask, and counts the entries it withheld. `History` pages it per
 // trail, and hooks.go's `notify` runs it once per commit: the same function for
 // both, so a notification and a later read of the same entry cannot drift
-// about what one commit said — the pair is §5.11's whole argument for making
+// about what one commit said — the pair is the whole argument for making
 // the renderer an export-shaped function rather than a loop body.
 func commitView(img *program.Program, com commitRecord, roles []program.RoleID,
 	stage program.StageID, vis []bool) (Commit, int) {
@@ -263,7 +248,7 @@ func commitView(img *program.Program, com commitRecord, roles []program.RoleID,
 // view's shape: whether this actor's grant reaches what one stored entry carries.
 //
 // For a row set it is `viewable`'s answer, because a container's instances are how
-// a granted child is addressable at all and §5.7's view discloses the same names to
+// a granted child is addressable at all and the view discloses the same names to
 // the same actors. For everything else it is the grant at the node itself: a
 // field's value, a decision *about* a unit, an attestation on a field.
 //
@@ -285,11 +270,11 @@ func disclosed(img *program.Program, roles []program.RoleID, stage program.Stage
 	return img.Effective(roles, stage, ch.slot)&program.PermView != 0
 }
 
-// entryOf renders one stored entry as the shape a host addresses. The payloads come
-// from the seams the rest of the package already uses: the same path spine `View`
-// and §5.4's gap reports write, the same value loader, and the two verdict
-// derivations replay uses — so a trail and a state answer a question about one act
-// the same way, which is the property §5.11 exists to establish.
+// entryOf renders one stored entry as the shape a host addresses. The payloads
+// come from the seams the rest of the package already uses: the same path spine
+// `View` and the gap reports write, the same value loader, and the two verdict
+// derivations replay uses — so a trail and a state answer a question about one
+// act the same way.
 func entryOf(img *program.Program, com commitRecord, ch commitChange) CommitChange {
 	out := CommitChange{Path: addr(img, ch.slot, ch.path)}
 	switch ch.kind {
@@ -314,14 +299,8 @@ func entryOf(img *program.Program, com commitRecord, ch commitChange) CommitChan
 
 // rowPaths spells a committed row set as the addresses that name it: the
 // collection's own path at the instance it lives in, then one more step per
-// instance in creation order. DESIGN §5.1 is the whole rule — an instance is
-// addressed by its stable ID, spelled after the collection it belongs to, with
-// no bracket syntax for a host to learn — and each result is a path `Update`'s
-// `Remove` and `Set` accept back.  The IDs come from the entry and not from the
-// case: a row this list names may be gone, and an address that stops resolving
-// because the instance was removed is the truth about a past commit — the same
-// rule §5.9 states for a decision whose unit no longer exists, reached here for
-// a row. The renderer consults no data (image.go), which is what lets a trail
+// instance in creation order. The IDs come from the entry and not from the
+// case. The renderer consults no data (image.go), which is what lets a trail
 // name a dead instance at all.
 func rowPaths(img *program.Program, coll program.NodeID, host instPath,
 	ids []instanceID) []string {

@@ -1,19 +1,11 @@
 package engine
 
-// The §5.4 validation pass, and the four ways a hook can be involved in a
-// commit.
-//
-// These are in package because binding a `Validate` hook still needs the
-// seam RUNTIME §6 keeps unexported, and because the claims are about a
-// function the host wrote: whether Submit asks it again at commit time, what
-// it does when the answer has changed since the value was written, which
-// cells it declines to ask about, and which half of the case it never
-// mentions. `submit_test.go` covers what a host can see without any of that.
+// `submit_test.go` covers what a host can see without any of that.
 //
 // One distinction runs through all of it and is the reason the pass exists in
 // two shapes. A hook that *refuses* a value has answered a question about the
 // content, so the answer belongs in the field-level list beside a missing
-// field (§9). A hook that returns something its type cannot hold, or that
+// field. A hook that returns something its type cannot hold, or that
 // rewrites what the row already says, has broken the contract this package
 // stores on, and that is HOOK_FAILURE with no list at all: there is no field
 // for the actor to go and fix.
@@ -128,9 +120,7 @@ func TestSubmitAsksTheRulesAsTheyAreToday(t *testing.T) {
 
 	// The host changes its mind: no new definition, no `Replace`, one function
 	// with a stricter body. The value in the row was legal when it arrived and
-	// is not now, which is DESIGN §3's "old content becomes invalid, not
-	// incompatible" — and Submit is the only operation that acts on it, since
-	// §5.2's `required` cannot see a value that is present and merely wrong.
+	// is not now.
 	refuses(rt, 10)
 	res, err := c.Submit(ctx(), "application", base)
 	if !Failed(err, InvalidOp) {
@@ -147,7 +137,7 @@ func TestSubmitAsksTheRulesAsTheyAreToday(t *testing.T) {
 	}
 	// The host's own sentence comes through, and so does the binding it was
 	// declared against, because a host knows its function only by the words
-	// its definition wrote (§6's reason a refusal quotes a name).
+	// its definition wrote (the reason a refusal quotes a name).
 	if !strings.Contains(p.Msg, `"money"`) ||
 		!strings.Contains(p.Msg, floor.Error()) {
 		t.Errorf("the problem says %q, want the binding and the hook's own "+
@@ -165,9 +155,8 @@ func TestSubmitAsksTheRulesAsTheyAreToday(t *testing.T) {
 		t.Errorf("an invalid submit reached revision %d, want 0",
 			res.Revision)
 	}
-	// Nothing durable happened: no commit, and the draft exactly as it was
-	// presented — a refused submit does not normalize, clear or re-validate
-	// its way into the copy (§9's no persistent effect).
+	// Refusing a submit must preserve both the head and the draft, even when
+	// validation would normalize the value.
 	hist, err := c.w.cases.history(ctx(), newRefuser("open", c.id), 1, 0)
 	if err != nil || len(hist) != 0 {
 		t.Errorf("the refused submit left %d history entries (%v), want 0",
@@ -200,10 +189,8 @@ func TestSubmitNeverAsksAHookAboutNothing(t *testing.T) {
 	base := mustUpdate(t, c, 0,
 		Set("application.fee", Decimal(decimal.NewFromInt(3))))
 
-	// Clearing the field is a change to make deliberately, and §5.2 counts it
-	// as empty rather than absent-but-known. The walk has an answer for it
-	// already; the hook does not, because E6 makes a question about no value
-	// unsatisfied rather than invalid.
+	// Clearing the field is a change to make deliberately. The walk has an
+	// answer for it already; the hook does not.
 	mustUpdate(t, c, base, Empty("application.fee"))
 	seen = 0
 
@@ -266,7 +253,7 @@ func TestSubmitRefusesAHookThatReturnedAnotherType(t *testing.T) {
 	base := wholeDraft(t, c)
 
 	// The other misbehaviour: a value the field's type cannot hold at all.
-	// The row would have to store something §3.3's bounds test would refuse,
+	// The row would have to store something the bounds test would refuse,
 	// so the type is the last word about a payload whoever produced it — and
 	// the blame is the host's rather than the caller's, which is why this is
 	// HOOK_FAILURE and not the INVALID_OPERATION a refused value gets.
@@ -310,11 +297,8 @@ func TestSubmitAsksTheSubmittedFormAndNothingElse(t *testing.T) {
 	// The rules as they are now.
 	refuses(rt, 100)
 
-	// §6.3's scope is one form's subtree, and this is where it costs
-	// something to get wrong: a pass over the whole working state would
-	// refuse a submit of `application` because of a draft the actor was
-	// committing nothing, and would report a field its own definition has
-	// stopped asking about.
+	// Validate only the submitted form. A problem in another form must not
+	// block this submit or disclose its field path.
 	res, err := c.Submit(ctx(), "application", base)
 	if !Failed(err, InvalidOp) {
 		t.Fatalf("a submit of refused values = %v, want INVALID_OPERATION",
@@ -341,7 +325,7 @@ func TestSubmitAsksTheSubmittedFormAndNothingElse(t *testing.T) {
 
 	// And the pruned cell is still there, unasked about and unwritten: the
 	// pass neither refused it nor repaired it, because a guard's answer is
-	// not a delete (§5.1's reason data behind a false guard survives).
+	// not a delete (the reason data behind a false guard survives).
 	if got := draftValue(t, c, img, "application.deep.owed"); !got.Decimal.Equal(
 		decimal.NewFromInt(7)) {
 		t.Errorf("the subtree outside the submitted form holds %s, want the "+

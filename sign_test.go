@@ -1,6 +1,6 @@
 package monshi_test
 
-// Signature seen from outside the module (DESIGN §4.2, §6.4; RUNTIME §5.10):
+// Signature seen from outside the module:
 // what a host observes when an authorized hand attests to content the case
 // already holds — which refusal arrives with which category, what the view says
 // about the attestation, what erases it, and what a stage asks of it.
@@ -126,7 +126,7 @@ func content(t *testing.T, dana monshi.Case) uint64 {
 }
 
 // approved is what a signature on this form attests to: content the case holds
-// and a judgement somebody made about it. §4.2's readiness test asks both, so a
+// and a judgement somebody made about it. The readiness test asks both, so a
 // test that wants to reach the interesting part of `Sign` builds the whole of
 // it, and a test that is about the readiness gate stops before this.
 func approved(t *testing.T, dana, elliot monshi.Case) uint64 {
@@ -188,7 +188,7 @@ func TestSignAttestsToCommittedContent(t *testing.T) {
 			got.At, got.Evidence, res.Revision)
 	}
 	// `At` is the revision the signature's own commit produced, so the content
-	// it attests to is the version before it: §5.9's convention for a decision,
+	// it attests to is the version before it: the convention for a decision,
 	// restated for an attestation, because a host that read the number as the
 	// version it vouched for would show a signature one revision late.
 	v, err := dana.View(ctx())
@@ -200,8 +200,7 @@ func TestSignAttestsToCommittedContent(t *testing.T) {
 			got.At)
 	}
 	// A field nobody attested to reports the zero value rather than an error or
-	// an absent node — the same answer as one whose attestation was erased,
-	// which §5.10 states as a rule about what "stale" is not.
+	// an absent node — the same answer as one whose attestation was erased.
 	if z := shown(t, dana, "application.approved_by"); z !=
 		(monshi.SignatureInfo{}) {
 		t.Errorf("an unsigned field reports %+v, want the zero value", z)
@@ -217,12 +216,9 @@ func TestSignAttestsToCommittedContent(t *testing.T) {
 
 func TestSignIsRefusedUntilTheFormIsDecided(t *testing.T) {
 	_, dana, elliot, _, _, _ := signing(t)
-	// Content the case holds, and no judgement yet. This form verifies itself,
-	// so §4.2's "approved applicable verification units" is the conjunct that
-	// stops an attestation about a form the registrar has not read, and the
-	// path it names is the unit rather than the field — which is what makes the
-	// refusal actionable. The attestation this call would write is not among
-	// them, because signing is how this call answers that question.
+	// Content the case holds, and no judgement yet. The attestation this call
+	// would write is not among them, because signing is how this call answers
+	// that question.
 	rev := content(t, dana)
 	res, err := dana.Sign(ctx(), "application.submitted", rev, "now")
 	if !monshi.Failed(err, monshi.InvalidOp) {
@@ -259,13 +255,9 @@ func TestSignIsRefusedUntilTheFormIsDecided(t *testing.T) {
 
 func TestSignIsRefusedWhileRequiredContentIsMissing(t *testing.T) {
 	_, dana, _, _, _, _ := signing(t)
-	// The draft is not the case. §4.2 binds a signature to committed content, so
-	// an actor who has typed both required fields and not submitted them is
-	// attesting to a form the case does not hold, and the refusal says so about
-	// the *committed* state — every required field, not the one still blank on
-	// the screen. A `Sign` that read the caller's own draft would let a hand
-	// vouch for bytes nobody published, and each actor's signature would be
-	// about a different form.
+	// A `Sign` that read the caller's own draft would let a hand vouch for
+	// bytes nobody published, and each actor's signature would be about a
+	// different form.
 	draft(t, dana,
 		monshi.Set("application.kind", monshi.Tag("PERSON")),
 		monshi.Set("application.full_name", monshi.Text("Ada")))
@@ -314,10 +306,10 @@ func TestAContentCommitErasesTheAttestation(t *testing.T) {
 		"envelope-7"); err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-	// §4.2's other half, observed as a host would: the form's content moves and
+	// The other half, observed as a host would: the form's content moves and
 	// the attestation that bound the previous version is gone from the view.
-	// Not flagged, not stale, not kept beside a note that it no longer applies —
-	// gone, which is what makes "is this signed" have one answer.
+	// Not flagged, not stale, not kept beside a note that it no longer applies
+	// — gone, which is what makes "is this signed" have one answer.
 	draft(t, dana, monshi.Set("application.full_name", monshi.Text("Ada L")))
 	after := committed(t, dana, "application")
 	if got := shown(t, dana, "application.submitted"); got !=
@@ -347,7 +339,7 @@ func TestAContentCommitErasesTheAttestation(t *testing.T) {
 			"refusal", err)
 	}
 	// Two erasures arrive on one list, in the order a client can work through
-	// them: the decision §5.6's other effect reset, then the attestation this
+	// them: the decision the other effect reset, then the attestation this
 	// one cleared. A destination that asked only the second would move to a
 	// stage whose form the registrar has not read.
 	if len(res.Missing) != 2 || res.Missing[0] != "application" ||
@@ -363,12 +355,7 @@ func TestAContentCommitErasesTheAttestation(t *testing.T) {
 
 func TestSubmitTreatsARequiredSignatureAsNoGap(t *testing.T) {
 	_, dana, _, _, _, _ := signing(t)
-	// §4.2's "excluding signature fields", seen from the one operation that
-	// would otherwise deadlock on it: only `Sign` writes an attestation, `Sign`
-	// requires the form to be complete first, and so a required signature
-	// counted as a field with no value would make a form nobody could ever
-	// submit and therefore nobody could ever sign. This fixture's
-	// `countersigned` is `required` and unsigned throughout.
+	// This fixture's `countersigned` is `required` and unsigned throughout.
 	w := draft(t, dana,
 		monshi.Set("application.kind", monshi.Tag("PERSON")),
 		monshi.Set("application.full_name", monshi.Text("Ada")))
@@ -418,11 +405,8 @@ func updateFails(t *testing.T, c monshi.Case, path string) error {
 
 func TestTransitionRefusesForWantOfARequiredSignature(t *testing.T) {
 	_, dana, elliot, _, _, _ := signing(t)
-	// The conjunct §5.5 has stated since milestone 3 and paid for with
-	// milestone 5's currency: content complete, the unit approved, and the
-	// destination still refuses, because the form's required attestation does
-	// not stand. The gap arrives on the same list the fields and the units
-	// arrive on, last, in the order a client can act on it.
+	// The gap arrives on the same list the fields and the units arrive on,
+	// last, in the order a client can act on it.
 	at := approved(t, dana, elliot)
 	res, err := elliot.Transition(ctx(), "filed", at)
 	if !monshi.Failed(err, monshi.InvalidOp) {
@@ -465,9 +449,7 @@ func TestTransitionAsksNothingOfAnInvalidatedSignature(t *testing.T) {
 	}
 	// The destination asked, got, and now the content moves under the
 	// attestation. A transition that read the number in the table as permission
-	// would let a signature outlive the content it bound, which is the failure
-	// mode §4.2 names, and this is the only test of it from the stage machine's
-	// side.
+	// would let a signature outlive the content it bound.
 	draft(t, dana, monshi.Set("application.full_name", monshi.Text("Ada Two")))
 	rev := committed(t, dana, "application")
 	if z := shown(t, dana, "application.countersigned"); z !=
@@ -480,7 +462,7 @@ func TestTransitionAsksNothingOfAnInvalidatedSignature(t *testing.T) {
 			err)
 	}
 	// Both verdicts the commit erased are asked for, in the order a client can
-	// act on them: the decision §5.6's other effect reset, then this one. The
+	// act on them: the decision the other effect reset, then this one. The
 	// destination does not know or care which rule cleared which.
 	if len(res.Missing) != 2 || res.Missing[0] != "application" ||
 		res.Missing[1] != "application.countersigned" {
@@ -520,12 +502,9 @@ func TestASignatureIsAQuorumOfOne(t *testing.T) {
 		"first"); err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-	// A field open to a role is open to whoever holds it, so a second applicant
-	// is not a second signature: §4.2's "at most one effective signature per
-	// content version" is a statement about the state, and the state's answer
-	// after both hands is one name. Refusing the second hand would lock the
-	// field to whoever asked first, and there is no revocation for a signature
-	// to undo that.
+	// A field open to a role is open to whoever holds it. Refusing the second
+	// hand would lock the field to whoever asked first, and there is no
+	// revocation for a signature to undo that.
 	zoe, err := rt.Open(ctx(), dana.ID(), sealAgain)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -557,9 +536,9 @@ func TestTheSameHandSigningAgainCommitsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-	// §6.3's rule that a commit must say something, applied to a verdict: the
-	// same hand attesting to the same content with the same reference is already
-	// the case's answer, so the call succeeds and the number does not move. A
+	// The rule that a commit must say something, applied to a verdict: the same
+	// hand attesting to the same content with the same reference is already the
+	// case's answer, so the call succeeds and the number does not move. A
 	// double-click is why this matters, and a revision that counted it would be
 	// a count of clicks.
 	again, err := dana.Sign(ctx(), "application.submitted", res.Revision,
@@ -571,10 +550,7 @@ func TestTheSameHandSigningAgainCommitsNothing(t *testing.T) {
 		t.Errorf("the repeat reached revision %d, want the unchanged %d",
 			again.Revision, res.Revision)
 	}
-	// A different reference is a different statement — it is what the host says
-	// the ceremony produced — so it commits, at the same hand and the same
-	// content. §5.9 says the same about a decision repeated with a different
-	// comment.
+	// A different reference is a different statement.
 	diff, err := dana.Sign(ctx(), "application.submitted", res.Revision,
 		"envelope-copy")
 	if err != nil {
@@ -609,10 +585,7 @@ func TestAGrantIsNotAnIdentity(t *testing.T) {
 		t.Errorf("the refusal says %q, want the role the field is open to",
 			err)
 	}
-	// The grant's absence is the other refusal, and the two are told apart the
-	// way §5.7 tells a withheld path from a refused one: the registrar holds no
-	// grant on the applicant's field, and is told that rather than that it does
-	// not exist.
+	// The grant's absence is the other refusal.
 	if _, err := elliot.Sign(ctx(), "application.submitted", at,
 		""); !monshi.Failed(err, monshi.AccessDenied) {
 		t.Errorf("a registrar with no grant on this field = %v, want "+
@@ -668,9 +641,9 @@ func TestAnAssignedSignatureFollowsTheNamedUser(t *testing.T) {
 		t.Errorf("an unnamed manager signing = %v, want ACCESS_DENIED", err)
 	}
 	// Reassigning the reviewer is a content commit, so it erases the attestation
-	// by §4.2's rule and moves the authority by the same content: the signature
+	// by the rule and moves the authority by the same content: the signature
 	// the first reviewer's identity authorized is gone, and the second may now
-	// give it. This is not a rule about signatures — it is §4.2's rule applied to
+	// give it. This is not a rule about signatures — it is the rule applied to
 	// a form whose content includes who is in charge of it.
 	//
 	// The commit erases the decision too, and one diff entry is what both effects
@@ -708,17 +681,15 @@ func TestAnAssignedSignatureFollowsTheNamedUser(t *testing.T) {
 
 func TestSignRefusesTheWrongShapeOfPath(t *testing.T) {
 	_, dana, _, _, _, cal := signing(t)
-	// Three refusals, in the order §5.4 and §5.5 state them: definition
-	// questions first, then the caller's freshness of view, then the case's own
-	// answers. `cal` holds `allow sign all`, so the grant is never what refuses
-	// him, and what does is a question about the shape of what he named.
+	// `cal` holds `allow sign all`, so the grant is never what refuses him, and
+	// what does is a question about the shape of what he named.
 	if _, err := cal.Sign(ctx(), "nowhere.at.all", 0,
 		""); !monshi.Failed(err, monshi.NotFound) {
 		t.Errorf("a path the case does not have, for an actor granted `sign "+
 			"all` = %v, want NOT_FOUND", err)
 	}
 	// The same absent path for an actor with no grant there answers
-	// ACCESS_DENIED, which is §5.7's rule that a refusal the caller is not
+	// ACCESS_DENIED, which is the rule that a refusal the caller is not
 	// entitled to make must not leak the shape of the case.
 	if _, err := dana.Sign(ctx(), "application.nope", 0,
 		""); !monshi.Failed(err, monshi.AccessDenied) {
@@ -811,9 +782,8 @@ func TestTheViewReportsWhatMayBeSignedAndWhatWas(t *testing.T) {
 	}
 
 	// The attestation itself is read from the committed case while the values
-	// beside it come from the caller's draft, which is the split §6.1 states: a
-	// hand vouches for what is published, and somebody may be editing what is
-	// not. Neither statement is wrong, because they are about different content.
+	// beside it come from the caller's draft. Neither statement is wrong,
+	// because they are about different content.
 	at := approved(t, dana, elliot)
 	if _, err := dana.Sign(ctx(), "application.submitted", at,
 		"envelope-7"); err != nil {

@@ -42,59 +42,47 @@ const (
 	classUser = program.BaseSignature + 1
 )
 
-// Text carries a `string` field's value. An empty string is a value: it is
-// what a host stores with `Set(path, Text(""))`, which is not what `Empty`
-// does. The two differ in whether the field *has* a value at all — a
-// comparison over an empty string is answered and satisfied, one over an
-// absent value is neither (SYNTAX E6) — and §5.2's `required` fails them the
-// same way, which is why the distinction is a host's to make deliberately.
+// Text carries a `string` field's value. An empty string is a value: it is what
+// a host stores with `Set(path, Text(""))`, which is not what `Empty` does. The
+// two differ in whether the field *has* a value at all.
 func Text(s string) Value { return Value{class: classText, s: s} }
 
-// Int carries an `integer` field's value. There is no float at the boundary:
-// T2 makes scale explicit in `decimal`, so a number with fractions arrives
-// as one or not at all.
+// Int carries an `integer` field's value. There is no float at the boundary.
 func Int(i int64) Value { return Value{class: classInt, i: i} }
 
-// Decimal carries a `decimal` field's value. Whether it fits the precision
-// and scale the definition declared is checked at assignment — §3.3's
-// `fits`, built once per type — because a value the type forbids is not a
-// value the row may hold.
+// Decimal carries a `decimal` field's value. Whether it fits the precision and
+// scale the definition declared is checked at assignment.
 func Decimal(d decimal.Decimal) Value { return Value{class: classDec, d: d} }
 
 // Bool carries a `boolean` field's value.
 func Bool(b bool) Value { return Value{class: classBool, i: b2i(b)} }
 
 // Date carries a `date` field's value. What the instant's zone means is not
-// this package's question: §5.8 settled the literal form of a date at
-// compile time and the row stores the time it compiled to.
+// this package's question.
 func Date(t time.Time) Value { return Value{class: classDate, t: t} }
 
 // DateTime carries a `datetime` field's value.
 func DateTime(t time.Time) Value { return Value{class: classDT, t: t} }
 
-// Tag names one member of an `enum` field's set by its declared name, which
-// is the language's only spelling for an enum value. Which enum owns the
-// name is checked against the field's type, so a tag from a different enum
-// is refused rather than stored as an ordinal that means something else —
-// the runtime echo of the pairing E3 makes at compile time.
+// Tag names one member of an `enum` field's set by its declared name, which is
+// the language's only spelling for an enum value. Which enum owns the name is
+// checked against the field's type.
 func Tag(name string) Value { return Value{class: classTag, s: name} }
 
 // Binary carries a `binary` field's content handle. Nothing in this package
-// reads or resolves one: DESIGN §5.2's store of content is milestone 4's,
-// and §5.1's row reserves the field now so a value never changes shape when
-// it arrives.
+// reads or resolves one.
 func Binary(ref program.BinaryRef) Value { return Value{class: classBin, bin: slices.Clone(ref)} }
 
 // User carries the value of a role-typed field, which *is* an actor's
-// identity (SYNTAX §5.2-T4) rather than a role name. Assigning one is how a
+// identity rather than a role name. Assigning one is how a
 // definition hands out a role; whether the assignee holds it is a committed
-// question, and authority reads the committed snapshot (DESIGN §4.3).
+// question, and authority reads the committed snapshot.
 func User(id UserID) Value { return Value{class: classUser, s: string(id)} }
 
 // ValueKind names the class a `Value` carries. The words are the boundary's
 // — the classes a host chose constructors from — and one is missing from the
 // list on purpose: `options`. An options field's value is the chosen option's
-// *text* (§3.3), so it reads as `KindText`; what distinguishes it from a
+// *text*, so it reads as `KindText`; what distinguishes it from a
 // string field is the view's `Options` list, not its value's class.
 type ValueKind string
 
@@ -142,7 +130,7 @@ func (v Value) Kind() ValueKind {
 }
 
 // Text reads a `Text` value; it is also how an options field's stored choice
-// reads, since that is the class `load` gives it (§3.3).
+// reads, since that is the class `load` gives it.
 func (v Value) Text() string {
 	if v.class == classText {
 		return v.s
@@ -189,7 +177,7 @@ func (v Value) DateTime() time.Time {
 	return time.Time{}
 }
 
-// Binary reads a `Binary` handle. Nothing resolves it yet (DESIGN §5.2); the
+// Binary reads a `Binary` handle. Nothing resolves it yet; the
 // value is opaque content identity, which is all the language says it is.
 func (v Value) Binary() program.BinaryRef {
 	if v.class == classBin {
@@ -199,7 +187,7 @@ func (v Value) Binary() program.BinaryRef {
 }
 
 // Tag reads a `Tag` value's declared name — the enum member's text, which is
-// what both sides of the seam agree on (§5.2's E3 pairing).
+// what both sides of the seam agree on.
 func (v Value) Tag() string {
 	if v.class == classTag {
 		return v.s
@@ -215,10 +203,8 @@ func (v Value) User() UserID {
 	return ""
 }
 
-// b2i is the boolean class's storage convention: the payload lives in the
-// row's integer field, 1 or 0, which is what `nonEmpty`'s default branch and
-// §3.4's `boolCmp` already assume — a stored false is a value, not an
-// absence.
+// b2i is the boolean class's storage convention: the payload lives in the row's
+// integer field, 1 or 0.
 func b2i(b bool) int64 {
 	if b {
 		return 1
@@ -255,12 +241,7 @@ func carries(want, got uint8) bool {
 // case and needs only the words for the refusal.
 //
 // The rest is two questions and no more: which class this field takes, and
-// whether this value is one. What is *not* checked here is content — a
-// `required` field cleared to empty, a length, a business rule — because
-// §5.2 and §5.4 answer those when the case is read and submitted. DESIGN
-// §6.2's split is the reason for the line: a wrong class is a structural
-// error that rejects the whole update, an invalid value is ordinary feedback
-// that stays with the draft.
+// whether this value is one. What is *not* checked here is content.
 func store(img *program.Program, n program.NodeID, v Value) (program.Cell, string) {
 	sl := img.Slot(n)
 	if sl.Kind != program.KindField {
@@ -275,13 +256,12 @@ func store(img *program.Program, n program.NodeID, v Value) (program.Cell, strin
 	}
 	info := img.Type(sl.Type)
 	if info.Base == program.BaseSignature {
-		// A signature is not a value a caller assigns. It is the record of
-		// a `Sign` that checked authority, content and the observed revision
-		// (DESIGN §6.4), so accepting one here would be the engine letting a
-		// host forge it — which is why this answers before the class test:
-		// "you cannot write a signature" is the truth about *any* value here,
-		// and "that is not a signature" invites a host to try a different
-		// class.
+		// A signature is not a value a caller assigns. It is the record of a
+		// `Sign` that checked authority, content and the observed revision, so
+		// accepting one here would be the engine letting a host forge it —
+		// which is why this answers before the class test: "you cannot write a
+		// signature" is the truth about *any* value here, and "that is not a
+		// signature" invites a host to try a different class.
 		return program.Cell{}, quote(img.Path(n)) +
 			" is a signature field, and only sign writes one"
 	}
@@ -296,10 +276,8 @@ func store(img *program.Program, n program.NodeID, v Value) (program.Cell, strin
 	case program.BaseInteger:
 		out.Int = v.i
 	case program.BaseDecimal:
-		// T2 made precision and scale legal at declaration and §3.3 turned
-		// them into a closure, so the bounds are `fits`'s business and the
-		// numbers themselves are not in the image to quote. What a host
-		// needs is which field and which value, which is both.
+		// Check the compiled decimal predicate. Report the rejected value and
+		// its field so the host can locate the invalid edit.
 		if info.Fits != nil && !info.Fits(v.d) {
 			return program.Cell{}, quote(img.Path(n)) +
 				"'s decimal type does not hold " + decText(v.d)
@@ -339,20 +317,20 @@ func decText(d decimal.Decimal) string {
 
 // storeRole handles the one field shape with no type. The identity is not
 // resolved against anything: there is no directory here, and the field's own
-// declaration says which role a value confers (T4), so the only thing that
+// declaration says which role a value confers, so the only thing that
 // can be wrong about the text is that it names nobody.
 //
 // An empty identity is refused rather than stored. A role field cleared with
-// `Empty` is *unset*, which is the state §5.1's verb produces and the state
+// `Empty` is *unset*, which is the state the verb produces and the state
 // `rolesHeld` cannot match, so a stored "" would be a third answer — a field
 // that looks assigned, confers nothing, and matches an actor with no
 // identity if the guard in authority.go were ever relaxed. `UserID`'s doc
 // gives the same reason from the other side: nobody is not somebody.
 //
 // The role the field confers is deliberately not in the payload either. It is
-// the *definition*'s answer about that declaration — §7's metadata — and the
+// the *definition*'s answer about that declaration — the metadata — and the
 // row holds only who was named, which is what keeps a recompiled definition's
-// role rename from being a data change (§3).
+// role rename from being a data change.
 func storeRole(img *program.Program, n program.NodeID, v Value) (program.Cell, string) {
 	if v.class != classUser {
 		return program.Cell{}, quote(img.Path(n)) + " holds " + valueName(classUser) +
@@ -367,18 +345,17 @@ func storeRole(img *program.Program, n program.NodeID, v Value) (program.Cell, s
 
 // load is store's other direction: the payload a row holds, back in the
 // boundary's class. It exists because a `Validate` hook speaks `Value` and
-// Submit asks the current hook about a value that is already stored (DESIGN
-// §6.3, RUNTIME §6), so the row's bytes have to become the host's type again
-// — and because a view shows what a case holds rather than what somebody
-// last sent.
+// Submit asks the current hook about a value that is already stored, so the
+// row's bytes have to become the host's type again — and because a view shows
+// what a case holds rather than what somebody last sent.
 //
 // An unset payload loads as the zero Value, which no constructor makes:
 // every one of them sets a class, so "this field has no value" stays
-// tellable apart from a value that happens to be empty (SYNTAX E6) — the
+// tellable apart from a value that happens to be empty — the
 // same distinction `Set` and `Empty` draw at the other end of the seam.
 //
 // A signature slot has nothing to load. Its content is a `sigEntry`'s answer
-// about who signed what, `Sign`'s to render (§3.6), and inventing a
+// about who signed what, `Sign`'s to render, and inventing a
 // class for it here would be the engine guessing at a type the language does
 // not have.
 func load(img *program.Program, n program.NodeID, v program.Cell) Value {
@@ -392,7 +369,7 @@ func load(img *program.Program, n program.NodeID, v program.Cell) Value {
 	case program.BaseString:
 		return Text(v.Text)
 	case program.BaseOptions:
-		// An options value is the chosen option's text (§3.3), and `Text` is
+		// An options value is the chosen option's text, and `Text` is
 		// the only spelling text has at the boundary — the same soft spot
 		// `carries` allows in the other direction.
 		return Text(v.Text)

@@ -55,9 +55,8 @@ stages {
 	// done.requires report: true
 }
 
-// FuzzParse guards the lexer/parser contract: any input terminates
-// without a panic, I/O failure is the only Go error, and the schema
-// invariants of SYNTAX.md §5.6-ST1 hold for every reachable output.
+// FuzzParse checks that arbitrary input terminates without a panic and that the
+// first declared stage, if present, is initial.
 func FuzzParse(f *testing.F) {
 	seeds := []string{
 		minimalSrc,
@@ -85,7 +84,7 @@ func FuzzParse(f *testing.F) {
 			t.Fatal("nil schema without Go error")
 		}
 		if len(s.Stages) > 0 && s.Initial != s.Stages[0] {
-			t.Fatal("Initial must be the first declared stage (ST1)")
+			t.Fatal("Initial must be the first declared stage")
 		}
 		if len(s.Stages) == 0 && s.Initial != nil {
 			t.Fatal("Initial set without any stage")

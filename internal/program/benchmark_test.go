@@ -28,24 +28,24 @@ func lowerOnly(b *testing.B, id string, s *schema.Schema) *Program {
 	return img
 }
 
-// BenchmarkLowerSpecExample is DESIGN §3's whole load: text in, image
-// out, for the definition the language document is written around.
-func BenchmarkLowerSpecExample(b *testing.B) {
-	src := specExample(b)
+// BenchmarkLowerRegistrationExample measures the full path from source text to
+// a compiled program.
+func BenchmarkLowerRegistrationExample(b *testing.B) {
+	src := registrationExample(b)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		img := mustLower(b, "bench", src)
 		if img.SlotCount() != 20 {
-			b.Fatalf("image has %d slots, want the §7 example's 20",
+			b.Fatalf("image has %d slots, want the registration example's 20",
 				img.SlotCount())
 		}
 	}
 }
 
-// BenchmarkLoweringOnly separates §9's serialization argument from the
+// BenchmarkLoweringOnly separates the serialization argument from the
 // front end it would save: this is the rebuild cost alone.
 func BenchmarkLoweringOnly(b *testing.B) {
-	s := testfixture.Parse(b, specExample(b))
+	s := testfixture.Parse(b, registrationExample(b))
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		img := lowerOnly(b, "bench", s)
@@ -66,7 +66,7 @@ func BenchmarkLoweringWide(b *testing.B) {
 	b.ReportMetric(float64(slots), "slots/op")
 }
 
-// BenchmarkLoweringWideOnly is §9's serialization argument on the corpus
+// BenchmarkLoweringWideOnly is the serialization argument on the corpus
 // it describes: the 51-slot image rebuilds in microseconds, so shipping
 // images instead of source buys nothing measurable.
 func BenchmarkLoweringWideOnly(b *testing.B) {

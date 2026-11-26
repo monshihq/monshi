@@ -1,26 +1,22 @@
 package engine
 
-// The cost of the exported contract (DESIGN §8, RUNTIME §8). Milestone
-// 4F2's claim is that a host's `Storage` costs the *encoding*, not a
-// redesign of the engine's work — and RUNTIME §8's rule about claims of
-// that shape is that they are measured as same-process pairs. The pair
-// here is `BenchmarkSubmit` (the default seam, structs all the way) and
-// `BenchmarkSubmitViaContract` (the same operations over the exported
-// interface, bytes on the way in and out) run in one `go test -bench`
-// invocation; the ratio between the two rows is the contract's price,
-// and no other comparison is offered because two processes are not one
-// machine's moment.
+// The cost of the exported contract. The pair here is `BenchmarkSubmit` (the
+// default seam, structs all the way) and `BenchmarkSubmitViaContract` (the same
+// operations over the exported interface, bytes on the way in and out) run in
+// one `go test -bench` invocation; the ratio between the two rows is the
+// contract's price, and no other comparison is offered because two processes
+// are not one machine's moment.
 
 import "testing"
 
-// benchContractCase is `benchSpecCase` through the contract: the same §7
-// corpus, one case, built the way a host of `NewRuntimeWithStorage`
-// builds it. The registry is deliberately still the runtime's own —
-// definitions were never the store's to hold (DESIGN §3).
+// benchContractCase is `benchRegistrationCase` through the contract: the same
+// registration fixture, one case, built the way a host of
+// `NewRuntimeWithStorage` builds it. The registry is deliberately still the
+// runtime's own — definitions were never the store's to hold.
 func benchContractCase(b *testing.B) Case {
 	b.Helper()
 	rt := NewRuntimeWithStorage(NewMemStorage())
-	d := &Definition{img: mustLower(b, "bench", specExample(b))}
+	d := &Definition{img: mustLower(b, "bench", registrationExample(b))}
 	if err := rt.Register(d); err != nil {
 		b.Fatalf("Register: %v", err)
 	}

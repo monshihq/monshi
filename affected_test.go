@@ -1,6 +1,6 @@
 package monshi_test
 
-// The affected set of an accepted batch (RUNTIME §5.3, DESIGN §6.2), seen from
+// The affected set of an accepted batch, seen from
 // outside the module: what a client is told to refresh. The claims that matter
 // here are the two a host cannot get from anywhere else — that a path it never
 // wrote appears because a guard reads what it did, and that a path it did write
@@ -21,7 +21,7 @@ import (
 // affectedSrc states each claim with one declaration. `region` is a group a
 // guard opens and `district` reads a *member* of it, so an edit to `province`
 // reaches `district` only through the subtree; `channel` has an `Options`
-// binding and its own condition, which is §5.3's named case for a field that
+// binding and its own condition, which is the named case for a field that
 // must be re-fetched rather than re-read; `note` is read by nothing and is the
 // control; `reviewer` confers a role and so is the path whose permission answer
 // a reader might expect to move.
@@ -79,7 +79,7 @@ func affectedFor(t *testing.T, edits ...monshi.Edit) []string {
 
 func TestAffectedNamesWhatAGuardReads(t *testing.T) {
 	// `note` is read by no condition, so the answer is the one field and not
-	// the form around it. Over-reporting is §5.3's stated direction, but a
+	// the form around it. Over-reporting is the stated direction, but a
 	// list that grows with every edit is a client refreshing the screen on
 	// every keystroke, which is the cost this assertion keeps honest.
 	if got := affectedFor(t, monshi.Set("application.note",
@@ -126,14 +126,11 @@ func TestAffectedNamesWhatAGuardReads(t *testing.T) {
 }
 
 func TestAffectedReachesAFieldWhoseOptionsBindingWasTouched(t *testing.T) {
-	// §5.3 counts options in the set beside presence and validation, and
-	// `channel` is the shape it means: a field whose *choices* come from host
-	// code, with a condition of its own on the field this batch writes. The
-	// host cannot know that `kind == COMPANY` decides whether its option list
-	// is even asked for, so the engine has to say so — a client that kept the
-	// dropdown it had would be showing a choice set for a field that is no
-	// longer required, which is exactly the drift §5.2's derived presence is
-	// there to prevent.
+	// The host cannot know that `kind == COMPANY` decides whether its option
+	// list is even asked for, so the engine has to say so — a client that kept
+	// the dropdown it had would be showing a choice set for a field that is no
+	// longer required, which is exactly the drift the derived presence is there
+	// to prevent.
 	//
 	// Note the list is unchanged in shape from any other dependent: an options
 	// field needs no special reporting because "re-fetch the choices" and
@@ -149,9 +146,7 @@ func TestAffectedReachesAFieldWhoseOptionsBindingWasTouched(t *testing.T) {
 func TestAffectedReportsARowAsItsCollection(t *testing.T) {
 	// An instance appearing is a change to the group's rows, which is what a
 	// client re-renders; the ID belongs to `Created`, which addresses the row
-	// so it can be written to next. Two lists, two granularities, and the
-	// pair is why §5.1's `Add` takes no value: the engine knows both what the
-	// row is called and that the view of the group moved.
+	// so it can be written to next.
 	c := openCase(t, affectedSrc, dana)
 	res, err := c.Update(ctx(), 0, monshi.Add("application.holders"))
 	if err != nil {
@@ -198,15 +193,13 @@ func TestAffectedReportsARowAsItsCollection(t *testing.T) {
 
 func TestARoleAssignmentAffectsItsFieldAndNothingElse(t *testing.T) {
 	// The field's value now names somebody, and that somebody holds a role —
-	// but §3.5's masks are a function of stage and role set and of no value at
+	// but the masks are a function of stage and role set and of no value at
 	// all, and an `Update` moves neither input: the stage is the committed one
-	// and the roles fold from committed data (§4.3). So no path's permission
+	// and the roles fold from committed data. So no path's permission
 	// answer changed, and the affected set says exactly that.
 	//
-	// This is the assertion to break first if §4.3 ever stops holding: were
-	// authority to fold from the draft, an edit like this one would have to
-	// report every path the new role reaches, and a client that trusted the
-	// list would keep a screen it should no longer be allowed to see.
+	// Draft assignments cannot change authority. Only submitting the assignment
+	// can change which paths the actor sees.
 	got := affectedFor(t, monshi.Set("application.reviewer",
 		monshi.User("elliot")))
 	if !reflect.DeepEqual(got, []string{"application.reviewer"}) {
@@ -281,7 +274,7 @@ func TestAffectedIsOrderAndPrefixFree(t *testing.T) {
 }
 
 func TestARefusedBatchReportsNoAffectedPaths(t *testing.T) {
-	// §9's no-persistent-effect claim covers the answer as well as the data: a
+	// The no-persistent-effect claim covers the answer as well as the data: a
 	// host that acted on a path list from a refused batch would refresh a
 	// screen the engine left alone.
 	c := openCase(t, affectedSrc, monshi.Actor{User: "elliot"})
@@ -296,16 +289,9 @@ func TestARefusedBatchReportsNoAffectedPaths(t *testing.T) {
 	}
 }
 
-// commitSrc is the commit half of this file's claims (RUNTIME §5.4, §9). The
-// guard pair is the same shape `affectedSrc` walks, so the batch and commit
-// assertions read alike, and three declarations are added that no batch can
-// demonstrate: a `verifiable` group whose approval a content commit erases, a
-// signature field whose attestation one invalidates, and a role-typed field
-// whose conferral moves the committer's own §3.5 fold as the commit lands.
-// The reached form is a second one, not a subtree of the first: a whole-form
-// `view` grant cascades, so visibility a commit can *add* has to live outside
-// what the holder already sees — which is exactly the shape DESIGN §6.5's
-// "host may notify users" paragraph assumes.
+// commitSrc is the commit half of this file's claims. The guard pair is the
+// same shape `affectedSrc` walks. The reached form is a second one, not a
+// subtree of the first.
 const commitSrc = `
 roles {
     Clerk {
@@ -416,10 +402,8 @@ func TestASubmitReachesWhatTheCommitMoved(t *testing.T) {
 }
 
 func TestASubmitNamesTheCollectionNotTheInstance(t *testing.T) {
-	// §5.3's Add/Remove rule at the commit end: the diff holds a row entry
-	// and a member value, the walk answers with the declaration, and no
-	// path in the list carries an instance number — a client refreshes
-	// `application.holders` and re-reads the rows from there.
+	// A row-list change affects the collection declaration. Individual row IDs
+	// belong in the diff, not in Affected.
 	c, _ := commitPair(t)
 	base, err := c.Update(ctx(), 0,
 		monshi.Set("application.kind", monshi.Text("PERSON")),
@@ -448,10 +432,8 @@ func TestASubmitNamesTheCollectionNotTheInstance(t *testing.T) {
 }
 
 func TestASubmitReportsTheDecisionItErased(t *testing.T) {
-	// The asymmetry §5.6 and §5.4 make together: history keeps what stood
-	// and writes nothing about what the commit removed, so the trail of the
-	// act below shows one new value and the result shows the verdict that
-	// died with it.
+	// The history entry records the new value. The affected paths also account
+	// for verdicts invalidated by that value.
 	c, e := commitPair(t)
 	base, err := c.Update(ctx(), 0, monshi.Set("application.notes.claim",
 		monshi.Text("first")))
@@ -468,14 +450,13 @@ func TestASubmitReportsTheDecisionItErased(t *testing.T) {
 		t.Fatalf("Review: %v", err)
 	}
 	// A verdict's own answer is the unit and the subtree it renders — the
-	// walk's collapse of one re-asked group, which is also the §5.9 claim
-	// that approval is a fact about the unit, not the cell.
+	// walk's collapse of one re-asked group.
 	if !reflect.DeepEqual(rv.Affected, []string{"application.notes"}) {
 		t.Fatal(paths(rv.Affected, "application.notes"))
 	}
-	// §5.8's rule stands between the verdict and the edit: the draft descends
-	// from the revision it was opened at, so the client rebases before
-	// writing again, and the rebase's number is the next `Update`'s base.
+	// The rule stands between the verdict and the edit: the draft descends from
+	// the revision it was opened at, so the client rebases before writing
+	// again, and the rebase's number is the next `Update`'s base.
 	rb, err := c.Rebase(ctx())
 	if err != nil {
 		t.Fatalf("Rebase: %v", err)
@@ -530,10 +511,10 @@ func TestASubmitReportsTheDecisionItErased(t *testing.T) {
 }
 
 func TestASubmitReportsTheSignatureItInvalidated(t *testing.T) {
-	// §4.2's second erasure arrives on a commit's list the same way: the
-	// attestation below stands over content, a later commit moves that
-	// content, and the field's path appears beside the moved value with no
-	// entry anywhere saying so.
+	// The second erasure arrives on a commit's list the same way: the
+	// attestation below stands over content, a later commit moves that content,
+	// and the field's path appears beside the moved value with no entry
+	// anywhere saying so.
 	c, e := commitPair(t)
 	base, err := c.Update(ctx(), 0, monshi.Set("application.notes.claim",
 		monshi.Text("first")))
@@ -594,11 +575,7 @@ func TestASubmitReportsTheSignatureItInvalidated(t *testing.T) {
 }
 
 func TestACommitConfersTheViewTheResultNames(t *testing.T) {
-	// §4.3's T4 rule read from the result side: a role-typed field confers
-	// *with* the commit that lands it, so the committer's own fold moves at
-	// dispatch and the list must name the subtree the actor could not see
-	// a revision ago — the one term no adjacency edge reaches, since
-	// §3.5's masks read the role set and no guard's operand does.
+	// Submitting a role assignment can change the committer's own visibility.
 	c, _ := commitPair(t)
 	base, err := c.Update(ctx(), 0, monshi.Set("application.referrer",
 		monshi.User("dana")))

@@ -17,15 +17,14 @@ type Error struct {
 	// a definition with problems never reaches lowering.
 	Problems []Problem
 
-	// Defects lists the §4 invariants lowering found violated. Non-empty
-	// exactly when the front end accepted a definition the runtime could
-	// not compile. Each entry names the slot or declaration at fault.
+	// Defects lists inconsistencies discovered while lowering an otherwise
+	// valid schema. Each entry identifies the slot or declaration involved.
 	Defects []string
 }
 
 // Mismatch reports the internal-defect case: the definition compiled and
 // still did not become an image. Hosts log this as a bug in Monshi rather
-// than showing it to a definition author (DESIGN §9).
+// than showing it to a definition author.
 func (e *Error) Mismatch() bool { return len(e.Defects) != 0 }
 
 func (e *Error) Error() string {

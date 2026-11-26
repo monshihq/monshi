@@ -7,17 +7,16 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Row holds one cell per slot. Interpretation hands a
-// condition either the committed row or the candidate overlay, and nothing
-// else, which is what makes the two evaluations share one code path
-// (RUNTIME §5.1).
+// Row holds one cell per slot. Interpretation hands a condition either the
+// committed row or the candidate overlay, and nothing else, which is what makes
+// the two evaluations share one code path.
 type Row []Cell
 
 // Predicate evaluates one condition against one state view.
 type Predicate func(Row) bool
 
 // always and never are the folded forms of a compile-time constant
-// condition (ST6): identical semantics, zero evaluation. A never guard
+// condition: identical semantics, zero evaluation. A never guard
 // makes its edge deterministically unsatisfiable.
 func always() Predicate { return func(Row) bool { return true } }
 
@@ -61,7 +60,7 @@ func neg(c Predicate) Predicate { return func(v Row) bool { return !c(v) } }
 // in it so that an absent operand cannot be read as satisfaction: the
 // inner condition is unsatisfied without data, and negating an unsatisfied
 // condition would otherwise make structure appear precisely because
-// nothing was entered (RUNTIME §5.2's absence rule).
+// nothing was entered (the absence rule).
 func allSet(slots []NodeID) Predicate {
 	if len(slots) == 1 {
 		n := slots[0]
@@ -98,8 +97,8 @@ func order(op cmpOp, c func(Row) (int, bool)) Predicate {
 	}
 }
 
-// isTrue is the standalone boolean operand E4 allows: present[.urgent].
-// notTrue is its negation, built directly so ! never allocates a wrapper.
+// isTrue tests a standalone boolean operand such as .urgent. notTrue tests its
+// negation without wrapping the closure.
 func isTrue(n NodeID) Predicate {
 	return func(v Row) bool {
 		s := v[n]
@@ -151,13 +150,13 @@ func timeCmp(n NodeID, op cmpOp, want time.Time) Predicate {
 			return 0, false
 		}
 		// Time.Compare orders instants, so two spellings of one moment
-		// with different zones compare equal (SYNTAX Appendix A).
+		// with different zones compare equal (the built-in type set).
 		return s.Time.Compare(want), true
 	})
 }
 
-// tagCmp and boolCmp cover the classes E3 gives ordering to never: only
-// == and != can reach them, which the lowering checks (§4's contract).
+// tagCmp and boolCmp implement equality and inequality. Lowering rejects
+// ordering comparisons for these classes.
 func tagCmp(n NodeID, op cmpOp, want TagID) Predicate {
 	return order(op, func(v Row) (int, bool) {
 		s := v[n]

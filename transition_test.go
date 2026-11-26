@@ -1,6 +1,6 @@
 package monshi_test
 
-// Transition seen from outside the module (DESIGN §6.4; RUNTIME §5.5): what a
+// Transition seen from outside the module: what a
 // host observes when it moves a case along a declared edge — the stage it
 // reached, the paths its own view gained or lost, and which check answered
 // first when the move was refused.
@@ -8,13 +8,6 @@ package monshi_test
 // What a host cannot observe is left to the in-package file: the history entry
 // the commit wrote, the fact that it carries a stage and no diff, and the
 // definition-level walk behind `Affected` (`transition_view_test.go`).
-//
-// The fixture states each claim with one declaration, in the shapes SYNTAX §7
-// uses: two guarded accept edges out of the initial stage, an unconditional
-// reject, a destination that requires a *different* form than the one the
-// applicant owns, a stage-scoped grant that moves one actor's view, and a
-// role-typed field whose committed value is what makes an actor a Reviewer.
-
 import (
 	"fmt"
 	"strings"
@@ -121,10 +114,10 @@ func TestTransitionMovesTheCaseAlongAGuardedEdge(t *testing.T) {
 	rt, dana := transitionCase(t, applicant)
 	at := submittedApplication(t, dana)
 
-	// The reviewer is a different actor, on a different handle, with the
-	// number *the case* reported — not a working copy's. DESIGN §6.4's whole
-	// point about these operations is that they act on committed state, so
-	// there is no draft of elliot's involved here at all.
+	// The reviewer is a different actor, on a different handle, with the number
+	// *the case* reported — not a working copy's. The whole point about these
+	// operations is that they act on committed state, so there is no draft of
+	// elliot's involved here at all.
 	elliot, err := rt.Open(ctx(), dana.ID(), reviewer)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -135,7 +128,7 @@ func TestTransitionMovesTheCaseAlongAGuardedEdge(t *testing.T) {
 	}
 	if res.Revision != at+1 {
 		t.Errorf("the case is at revision %d, want %d: a stage move is a "+
-			"commit (§5.1)", res.Revision, at+1)
+			"commit", res.Revision, at+1)
 	}
 	if res.Stage != "reviewed" {
 		t.Errorf("the case is at stage %q, want reviewed", res.Stage)
@@ -146,7 +139,7 @@ func TestTransitionMovesTheCaseAlongAGuardedEdge(t *testing.T) {
 
 	// `ledger` is granted to the Reviewer only inside `reviewed`, so moving
 	// the case moved this actor's view of that form and of everything in it.
-	// Nothing about the ledger's values changed — §5.5's operation writes no
+	// Nothing about the ledger's values changed — the operation writes no
 	// content — so this is the one commit whose affected set is about masks.
 	if got := strings.Join(res.Affected, " "); got != "ledger" {
 		t.Errorf("Affected = %q, want the one form the stage unlocked", got)
@@ -199,8 +192,7 @@ func TestTransitionMovesTheCaseAlongAGuardedEdge(t *testing.T) {
 	}
 
 	// `closed` is terminal: it declares no edges, so every destination is
-	// undeclared from here. This is the §5.5 answer for a stage that has run
-	// out, and it is a refusal about state rather than about a name.
+	// undeclared from here.
 	if _, err := elliot.Transition(ctx(), "draft", res.Revision); !monshi.
 		Failed(err, monshi.InvalidOp) {
 		t.Errorf("transitioning out of a terminal stage = %v, want "+
@@ -237,7 +229,7 @@ func TestTransitionRefusesAStateTheCaseIsNotIn(t *testing.T) {
 	// is asked about — and the refusal is about the case, not the caller. Which
 	// is why it arrives with the case's position beside it: this caller holds
 	// the grant and named the right revision, so everything the result says is
-	// information he was entitled to before the call (RUNTIME §5.5).
+	// information he was entitled to before the call.
 	res, err := c.Transition(ctx(), "reviewed", 0)
 	if !monshi.Failed(err, monshi.InvalidOp) {
 		t.Fatalf("an edge whose guard no committed content meets = %v", err)
@@ -275,7 +267,7 @@ func TestTransitionAsksPermissionBeforeTheCaseNumber(t *testing.T) {
 	// The same actor, on the edge she does hold: `corrected` is the reject
 	// destination and the Applicant has no reject grant either, while the
 	// reviewer does. Permission is asked of the *edge taken*, not of the
-	// destination (§3.7's masks live on the source stage).
+	// destination (the masks live on the source stage).
 	elliot, err := rt.Open(ctx(), dana.ID(), reviewer)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -301,11 +293,7 @@ func TestTransitionReadsTheCommittedStateAndNotADraft(t *testing.T) {
 	_, c := transitionCase(t, reviewer)
 
 	// The content the edge's guard and the destination's require both want,
-	// written but not submitted. Invariant 1's claim about a draft, asked of
-	// the operation most tempting to answer from the candidate: the reviewer
-	// who is shown revision 0 is looking at a case with no application in it,
-	// and a transition that consulted somebody's unpublished draft would let
-	// that draft decide a stage for every actor.
+	// written but not submitted.
 	mustEdit(t, c, 0,
 		monshi.Set("application.kind", monshi.Tag("PERSON")),
 		monshi.Set("application.name", monshi.Text("Monshi Ltd")))
@@ -315,9 +303,7 @@ func TestTransitionReadsTheCommittedStateAndNotADraft(t *testing.T) {
 			"guard to refuse", err)
 	}
 
-	// The draft is still there and still editable, which is what §6.5 means
-	// by a stale state that remains editable: the refusal is about committing,
-	// not about losing work.
+	// The draft is still there and still editable.
 	if _, err := c.Update(ctx(), 1,
 		monshi.Set("application.name", monshi.Text("Monshi Limited"))); err != nil {
 		t.Fatalf("editing after a refused transition: %v", err)
@@ -349,7 +335,7 @@ func TestTransitionRejectsAnIncompleteCase(t *testing.T) {
 	// `reviewed` requires the application the case does not have — and the
 	// reject here lands in `corrected`, which carries the *same* `require`
 	// block. So the two calls differ in nothing but direction, which is the
-	// only way to state DESIGN §4.4's asymmetry: the destination's
+	// only way to state the asymmetry: the destination's
 	// completeness is asked of an accept and skipped by a reject, because the
 	// case that cannot go forward is exactly the case somebody must be able to
 	// send back. Everything else about a reject is still asked, below.
@@ -387,7 +373,7 @@ func TestTransitionRejectsAnIncompleteCase(t *testing.T) {
 			"INVALID_OPERATION", err)
 	}
 	// ...and the one edge `corrected` does declare is an accept the Applicant
-	// holds no grant for. Skipping completeness is §4.4's licence about the
+	// holds no grant for. Skipping completeness is the licence about the
 	// destination's require, and nothing else: the role question, the edge and
 	// its guard are all still asked of a reject.
 	if _, err := dana.Transition(ctx(), "draft", 1); !monshi.Failed(err,
@@ -409,10 +395,6 @@ func TestTransitionRejectsAnIncompleteCase(t *testing.T) {
 }
 
 func TestACommittedRoleAssignmentConfersTheTransition(t *testing.T) {
-	// T4 and §5.5's first line: the roles that answer for a stage's accept
-	// mask are the primary role plus the *committed* role-typed assignments.
-	// dana is an Applicant, who may not accept anything in this definition,
-	// and `application.boss` names the Reviewer role.
 	rt, dana := transitionCase(t, applicant)
 	base := mustEdit(t, dana, 0,
 		monshi.Set("application.kind", monshi.Tag("PERSON")),
@@ -464,7 +446,7 @@ func TestATransitionAsksForTheCasesNumberAndNotADrafts(t *testing.T) {
 	// The reviewer holds the grant `draft` asks for and the draft this test
 	// presents. `at` is the *working* revision his copy reached: nothing has
 	// been committed, so the case itself still sits at 0. This is the mistake a
-	// host makes by holding the one number it has, and it is what §6.4's second
+	// host makes by holding the one number it has, and it is what the second
 	// sentence is for — these operations act on committed state, so a draft's
 	// own counter says nothing about where the case is.
 	elliot, err := rt.Open(ctx(), dana.ID(), reviewer)
@@ -521,12 +503,8 @@ func TestATransitionAsksForTheCasesNumberAndNotADrafts(t *testing.T) {
 	}
 
 	// Another actor who was looking at revision 0 all along is the one the
-	// stage move leaves behind, and this is §6.4's "even if it changed an
-	// apparently unrelated form" in its strongest shape: the commit that moved
-	// her base wrote no content at all, so there is nothing in the case she
-	// edited that another value overwrote. Nothing is *wrong* with her draft; it
-	// is simply not cleared to publish. Synchronization is `Rebase`'s job
-	// (DESIGN §6.5), which milestone 3 is asked for by name.
+	// stage move leaves behind. Nothing is *wrong* with her draft; it is simply
+	// not cleared to publish. Synchronization is `Rebase`'s job.
 	draft := mustEdit(t, dana, 0,
 		monshi.Set("application.name", monshi.Text("Monshi Limited")))
 	_, err = dana.Submit(ctx(), "application", draft)
@@ -540,8 +518,7 @@ func TestATransitionAsksForTheCasesNumberAndNotADrafts(t *testing.T) {
 			err)
 	}
 
-	// And the draft survives the refusal, value and all, which is the other
-	// half of §6.5's "stale states remain editable".
+	// And the draft survives the refusal, value and all.
 	if _, err := dana.Update(ctx(), draft,
 		monshi.Set("application.kind", monshi.Tag("COMPANY"))); err != nil {
 		t.Fatalf("editing a copy another actor's transition left behind: %v",

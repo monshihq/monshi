@@ -1,8 +1,7 @@
 package schema
 
-// The AST mirrors the EBNF of SYNTAX.md §3 literally: no semantic decisions
-// are made during parsing. Each node keeps its declaration position for
-// diagnostics.
+// The parser records source positions for diagnostics and leaves name
+// resolution to the checker.
 
 type pos struct{ line, col int }
 

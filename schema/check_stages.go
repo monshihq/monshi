@@ -1,7 +1,6 @@
 package schema
 
-// buildStages creates stage objects (ST1 order), resolves grants (P1–P4),
-// requires (ST2/ST4) and transitions (ST2/ST3/ST6 sites).
+// buildStages creates stage objects, resolves grants, requires and transitions.
 func (a *analyzer) buildStages(def *astDef) {
 	var decls []*astStageDecl
 	for _, sb := range def.stages {
@@ -32,7 +31,7 @@ func (a *analyzer) buildStages(def *astDef) {
 			if g.role != "" {
 				r, ok := a.roles[g.role]
 				if !ok {
-					a.errf(g.rolePos, CodeUnknownRole, g.role) // P4
+					a.errf(g.rolePos, CodeUnknownRole, g.role)
 				} else {
 					role = r
 					a.usedRoles[g.role] = true
@@ -44,7 +43,7 @@ func (a *analyzer) buildStages(def *astDef) {
 			for i, name := range rq.forms {
 				fn, ok := a.formNodes[name]
 				if !ok {
-					a.errf(rq.formPos[i], CodeUnknownForm, name) // ST2/ST4
+					a.errf(rq.formPos[i], CodeUnknownForm, name)
 				} else {
 					st.Requires = append(st.Requires, fn)
 				}
@@ -55,11 +54,11 @@ func (a *analyzer) buildStages(def *astDef) {
 			dst, ok := a.stages[tr.dest]
 			switch {
 			case !ok:
-				a.errf(tr.destPos, CodeUnknownStage, tr.dest) // ST2
+				a.errf(tr.destPos, CodeUnknownStage, tr.dest)
 			case tr.dest == sd.name:
-				a.errf(tr.destPos, CodeSelfTransition, tr.dest) // ST3
+				a.errf(tr.destPos, CodeSelfTransition, tr.dest)
 			case destSeen[tr.dest]:
-				a.errf(tr.destPos, CodeDuplicateTransition, tr.dest) // ST3
+				a.errf(tr.destPos, CodeDuplicateTransition, tr.dest)
 			}
 			destSeen[tr.dest] = true
 			st.Edges = append(st.Edges, Edge{Reject: tr.reject, Dest: dst})

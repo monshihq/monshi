@@ -1,14 +1,11 @@
 package engine
 
 // The half of the view that needs a registered hook, and the walk's own
-// mechanics (RUNTIME §5.7, §6; DESIGN §6.1, §7).
+// mechanics.
 //
-// `view_test.go` is the host's view of this operation. What a host cannot
-// reach yet is the registry — binding an `Options` provider or a `Validate`
-// hook still needs the seam §6 keeps unexported until `CaseContext` exists —
-// so every claim about a hook is made here, and so is every claim that needs
-// a narrower grant than a whole form. Both move out the day the seam opens:
-// the split is the registry's, not the tests' preference.
+// `view_test.go` is the host's view of this operation. What a host cannot reach
+// yet is the registry. Both move out the day the seam opens: the split is the
+// registry's, not the tests' preference.
 //
 // The claims worth the most here are the negative ones. A view is allowed to
 // call host code, and a host that watches its own catalogue queried twice for
@@ -137,7 +134,7 @@ func renderNodes(nodes []*ViewNode) string {
 
 // catalogue binds an `Options` provider for one field path: it returns a fixed
 // list, counts the calls, and refuses to answer a question about any other
-// path, because a provider bound by §6's path key has no business being asked
+// path, because a provider bound by the path key has no business being asked
 // about a field it was not registered for.
 func catalogue(rt *Runtime, path string, list []string, calls *int) {
 	rt.RegisterOptions(path, func(_ context.Context, _ CaseContext, asked string) (
@@ -190,11 +187,6 @@ func TestViewCarriesTheOptionsListItsProviderSupplies(t *testing.T) {
 		t.Errorf("the provider was called %d times for one field, want 1",
 			city)
 	}
-	// The two vocabularies §6.1 keeps apart, on one node: the declaration
-	// says what kind of field this is, the value says what the row holds, and
-	// for an options field those are different words — §3.3's options value
-	// *is* the chosen option's text, and the list of choices is not data the
-	// row holds.
 	if n.Kind != "options" {
 		t.Errorf("city is kind %q, want options", n.Kind)
 	}
@@ -252,10 +244,10 @@ func TestViewFetchesOneListForEveryInstance(t *testing.T) {
 func TestViewRefusesAnOptionsFieldWithNoProvider(t *testing.T) {
 	_, _, c := viewHookCase(t, viewOwner)
 
-	// DESIGN §7's asymmetry, and the one place §6's two bindings disagree on
-	// purpose: `Validate` absent is identity, `Options` absent is no answer.
-	// The whole form refuses, because the alternative is a form on screen
-	// with a dropdown that cannot open — the bug the rule exists to prevent.
+	// The asymmetry, and the one place the two bindings disagree on purpose:
+	// `Validate` absent is identity, `Options` absent is no answer. The whole
+	// form refuses, because the alternative is a form on screen with a dropdown
+	// that cannot open — the bug the rule exists to prevent.
 	_, err := c.View(ctx(), "application")
 	if !Failed(err, HookFailure) {
 		t.Fatalf("a view with no provider = %v, want HOOK_FAILURE", err)
@@ -276,10 +268,7 @@ func TestViewRefusesAnOptionsFieldWithNoProvider(t *testing.T) {
 	if _, err := c.View(ctx()); !Failed(err, HookFailure) {
 		t.Errorf("the whole-case view = %v, want HOOK_FAILURE", err)
 	}
-	// A selection that never reaches an options field asks nothing, so a
-	// definition with a broken half still answers about the other: this is
-	// the walk's scope rule rather than §7's, and it is what keeps a view of
-	// one field hostage to a provider it never mentioned.
+	// A selection that never reaches an options field asks nothing.
 	if _, err := c.View(ctx(), "application.kind"); err != nil {
 		t.Errorf("View(application.kind) = %v, want it to answer", err)
 	}
@@ -302,7 +291,7 @@ func TestViewRefusesWhenTheProviderRefuses(t *testing.T) {
 	if !errors.Is(err, broken) {
 		t.Errorf("the provider's own error is lost: %v", err)
 	}
-	// An execution failure is an error and not silent success (DESIGN §7),
+	// An execution failure is an error and not silent success,
 	// and this is the call site where that sentence has teeth.
 	if called != 1 {
 		t.Errorf("the provider was called %d times, want 1", called)
@@ -316,7 +305,7 @@ func TestViewAsksNoProviderForContentThatIsAbsent(t *testing.T) {
 	catalogue(rt, "application.deep.far", []string{"1"}, &far)
 
 	// `deep` is gated on `gate == "y"` and nobody has written `gate`, so the
-	// subtree is not part of the effective state (§5.2) — and a host's
+	// subtree is not part of the effective state — and a host's
 	// catalogue is not consulted about content the caller cannot be shown.
 	res := mustView(t, c, "application")
 	if findNode(res.Roots, "application.deep") != nil {
@@ -330,7 +319,7 @@ func TestViewAsksNoProviderForContentThatIsAbsent(t *testing.T) {
 	// asked earlier, at the door rather than after the walk.
 	if got := mustView(t, c, "application.deep.far"); len(got.Roots) != 0 {
 		t.Errorf("a selection inside a closed gate returned %s, want "+
-			"nothing: §5.2", renderNodes(got.Roots))
+			"nothing", renderNodes(got.Roots))
 	}
 	if far != 0 {
 		t.Errorf("a closed gate fetched %d lists, want none", far)
@@ -387,7 +376,7 @@ func TestViewCarriesValidationProblemsToTheirNodes(t *testing.T) {
 
 	// One visible fee the host will come to refuse, and one in a field this
 	// actor may edit but not see. Binding the rule *after* the write is the
-	// point: §6.3's re-check exists because rules are host code, and the host
+	// point: the re-check exists because rules are host code, and the host
 	// may have tightened them since the value arrived.
 	base := mustUpdate(t, c, 0,
 		Set("application.fee", Decimal(decimal.NewFromInt(3))),
@@ -426,7 +415,7 @@ func TestViewCarriesValidationProblemsToTheirNodes(t *testing.T) {
 	// And the withheld field was never asked about. `asked` is the whole
 	// claim: a filter that collected the problem and dropped it on the way
 	// out would cost the same call and leave the same sentence in memory,
-	// and §6.1's per-actor view is why the walk is filtered instead.
+	// and the per-actor view is why the walk is filtered instead.
 	if asked != 1 {
 		t.Errorf("the rule ran %d times for a view of one visible value, "+
 			"want 1", asked)
@@ -443,7 +432,7 @@ func TestViewAsksNoRuleThatCouldRefuseTheWholeView(t *testing.T) {
 	catalogue(rt, "application.rows.pick", []string{"p"}, new(int))
 
 	// The nastier half of the same rule. A hook that is not a fixed point on
-	// its own output breaks §6's contract, and the engine's answer is
+	// its own output breaks the contract, and the engine's answer is
 	// HOOK_FAILURE for the whole operation — so a view that asked it about
 	// withheld content would let one actor's unviewable field refuse another
 	// actor's form. `owed` is the only money cell with a value, and `fee` is
@@ -630,12 +619,10 @@ func TestWithStepCopiesAndEndsAtReadsTheInnermostCollection(t *testing.T) {
 }
 
 func TestSubmitMaskIsTheFormsMaskEverywhere(t *testing.T) {
-	// The equivalence `ViewNode.CanSubmit` reads a node's own mask on: P3
-	// lets a `submit` grant be written only at a top-level form, and §3.5's
-	// fold is total, so a member carries its form's bit and no bit of its
-	// own. Nothing here needs a case — the claim is about the table lowering
-	// builds — and if it ever fails, the symptom is a view offering or
-	// withholding a submit button that `Submit` then contradicts.
+	// The equivalence `ViewNode.CanSubmit` reads a node's own mask on. Nothing
+	// here needs a case — the claim is about the table lowering builds — and if
+	// it ever fails, the symptom is a view offering or withholding a submit
+	// button that `Submit` then contradicts.
 	img := mustLowerSource(t, `
 roles {
     Keeper { allow view, edit, submit box; }

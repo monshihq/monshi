@@ -22,15 +22,13 @@ import (
 // `Stage` is the stage the case sits at after this call, which on a refusal is
 // the one it sat at before.
 //
-// `Affected` is §5.3's answer for an operation whose batch wrote nothing: the
+// `Affected` is the answer for an operation whose batch wrote nothing: the
 // paths whose view moved because the masks the definition resolves for this
-// actor moved with the stage (§3.5's stage overlays). It is the acting
-// actor's list, for the same reason `ChangeResult.Affected` is — a second
-// actor's answer is a second list, and whom to notify is DESIGN §7's
-// `OnCommit` question rather than a field of this result (affected.go).
+// actor moved with the stage (the stage overlays). It is the acting actor's
+// list, for the same reason `ChangeResult.Affected` is.
 type TransitionResult struct {
 	// Revision is the case's committed revision after this call. A transition
-	// always commits — a stage move is a semantic change (§5.1), so there is
+	// always commits — a stage move is a semantic change, so there is
 	// no empty-diff no-op here — and so this is always the revision the
 	// operation produced.
 	Revision uint64
@@ -39,15 +37,8 @@ type TransitionResult struct {
 	// stage it was already at on a refusal.
 	Stage string
 
-	// Affected holds the paths whose visibility changed for this actor when
-	// the stage moved, in declaration order and collapsed the way §5.3
-	// collapses: no entry contains another, so a group that changed stands
-	// for its subtree. A path appears whether the move gained it or took it
-	// away, because the list answers "which views are now rendered
-	// differently". Empty when no overlay any held role resolves differs
-	// between the two stages, which is the common case — transition
-	// permissions are not per-node (SYNTAX P1) — and not a failure to
-	// compute.
+	// Affected lists paths whose visibility changed for this actor, including
+	// paths the move hid. A changed container stands for its subtree.
 	Affected []string
 
 	// Missing holds what the destination's `require` still wants, in the same
@@ -55,31 +46,23 @@ type TransitionResult struct {
 	// declaration order, one entry per gap, empty on a transition that
 	// committed. An entry is usually a field that needs a value, and two kinds
 	// are not: a `verifiable` declaration the case has not APPROVED, and a
-	// `required signature` field no hand stands behind (DESIGN §4.4's
-	// `require`). Both arrive named at the declaration rather than at anything
-	// inside it, because the remedy for one is a `Review` and for the other a
-	// `Sign`, and neither is an edit. The kinds are told apart by asking the
-	// definition — the path names a `verifiable` declaration, or it names a
-	// signature slot — and a host that renders one sentence says which is
-	// wanted, which is what `requireSentence` exists for.
+	// `required signature` field no hand stands behind. Both arrive named at
+	// the declaration rather than at anything inside it, because the remedy for
+	// one is a `Review` and for the other a `Sign`, and neither is an edit. The
+	// kinds are told apart by asking the definition — the path names a
+	// `verifiable` declaration, or it names a signature slot — and a host that
+	// renders one sentence says which is wanted, which is what
+	// `requireSentence` exists for.
 	Missing []string
 }
 
-// Transition moves this case along one declared edge (DESIGN §6.4).
+// Transition moves this case along one declared edge.
 //
-// `dest` names the destination stage, and the caller names it rather than
-// choosing among alternatives because ST3 guarantees at most one edge to any
-// destination: `(current, dest)` is a lookup and never a search with ambiguity
-// (§5.5). `observed` is the case's committed revision as the actor was shown
-// it — the number `Revision` returned, not a working copy's — and any commit
-// since then refuses this call.
+// dest names an edge from the current stage. observed must match the committed
+// revision the caller saw, not a draft revision.
 //
-// The checks run in the order RUNTIME §5.5 lists them with one inversion: the
-// revision guard moves ahead of the guard and the require walk, because both
-// of those read case content and content the caller has not seen is not
-// content it can be told to fix. Refusing a transition on a condition the
-// caller's snapshot does not contain would send it a message about a case it
-// cannot look at; staleness is the answer that is actionable either way.
+// Check the revision before evaluating guards and destination requirements. A
+// stale caller must not learn anything about newer content from a refusal.
 //
 // Nothing is written until the whole list passes, and the write is one call:
 // a refused transition leaves the case, every working copy and the history
@@ -112,7 +95,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 	}
 
 	// Roles from the committed snapshot, as every committing operation folds
-	// them (§4.3). A transition cannot assign a role, so the draft is not
+	// them. A transition cannot assign a role, so the draft is not
 	// merely untrustworthy here — it is irrelevant, which is the clearest
 	// statement of why nothing in this operation reads a working copy.
 	roles := rolesHeld(img, c.actor, rec.commit.s)
@@ -128,10 +111,8 @@ func (c Case) Transition(ctx context.Context, dest string,
 				" is not granted at stage "+quote(img.StageName(from)))
 	}
 
-	// DESIGN §6.4's guard, and invariant 5's: a stale observed revision cannot
-	// transition. The store's own commit guard repeats this under the lock
-	// below; this one exists so the refusal arrives before any content is
-	// read, and with the case's number in it.
+	// Check staleness before reading content. The commit still repeats the
+	// revision check atomically in case another writer wins after this point.
 	if observed != rec.revision {
 		return TransitionResult{}, refuse.now(StaleRevision,
 			"the case is at revision "+dec(rec.revision)+", not "+
@@ -140,42 +121,35 @@ func (c Case) Transition(ctx context.Context, dest string,
 
 	res := TransitionResult{Revision: rec.revision, Stage: img.StageName(from)}
 
-	// The edge's condition, over the committed frame. An edge guard was
-	// lowered like any other condition (§3.4), so this is one closure call on
-	// dense slots, and it is the only reason a transition reads case data at
-	// all. Note what is *not* involved: edge guards are absent from the §5.3
-	// adjacency on purpose, so nothing here walks a fanout — the guard is
-	// asked at the moment of the transition and nowhere else.
+	// The edge's condition, over the committed frame. An edge guard was lowered
+	// like any other condition, so this is one closure call on dense slots, and
+	// it is the only reason a transition reads case data at all.
 	if e.Guard != 0 && !img.Cond(e.Guard)(rec.commit.s.row) {
 		return res, refuse.now(InvalidOp,
 			"the "+kind+" toward "+quote(dest)+" is declared with a "+
 				"condition the committed content does not meet")
 	}
 
-	// ST4's destination requirement, and only for an accept (§4.4). The
-	// question is §5.4's question — the same `incomplete` walk, so a form that
-	// a submit would refuse to publish is a form a transition cannot require
-	// — asked of the *committed* state: a draft cannot satisfy a stage, and
-	// the content the reviewer is vouching for is the content the case holds.
+	// Only accept edges require the destination forms to be complete. Check all
+	// of them in declaration order.
 	if !e.Reject {
 		var gaps []gap
 		for _, form := range img.Requires(to) {
 			gaps = append(gaps, rec.commit.s.incomplete(form)...)
-			// §5.5's second conjunct, and the one `Review` exists to answer: a
-			// required form's `verifiable` units must stand APPROVED (DESIGN
-			// §4.2, §4.4). It joins the same gap list rather than becoming a
-			// new shape, because the question is already "what does the
-			// destination still want", and a host that gets two lists has to
-			// join them itself. The units are read in declaration order after
-			// their form's fields, so one form's answer arrives together.
+			// The second conjunct, and the one `Review` exists to answer: a
+			// required form's `verifiable` units must stand APPROVED. It joins
+			// the same gap list rather than becoming a new shape, because the
+			// question is already "what does the destination still want", and a
+			// host that gets two lists has to join them itself. The units are
+			// read in declaration order after their form's fields, so one
+			// form's answer arrives together.
 			gaps = append(gaps, pendingUnits(&rec.commit.s,
 				rec.commit.reviews, form)...)
-			// §5.5's third conjunct, and the one only `Sign` can answer: of a
+			// The third conjunct, and the one only `Sign` can answer: of a
 			// required form's signature fields, the ones its declaration marks
-			// `required` must hold an attestation standing for this content
-			// (SYNTAX §5.6's "its required signatures are valid"). Same list,
-			// same reason, third kind of entry — and the scan reads the range
-			// §3.2's grouping built, so a definition that declares no
+			// `required` must hold an attestation standing for this content.
+			// Same list, same reason, third kind of entry — and the scan reads
+			// the range the grouping built, so a definition that declares no
 			// signature field answers with an empty slice and one loop that
 			// runs zero times.
 			gaps = append(gaps, unsignedSigs(&rec.commit.s,
@@ -206,9 +180,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 	// handing the same state forward safe, and it is why a transition is the
 	// one commit that copies no case data.
 	//
-	// `changes` is empty and that is not a no-op: §5.1 counts the stage among
-	// the semantic committed changes, and commitRecord carries the stage of
-	// the entry for exactly the replay that has to land the case where it is.
+	// `changes` is empty and that is not a no-op.
 	out, err := c.w.cases.commit(ctx, refuse, img, rec.revision,
 		committedState{s: rec.commit.s, stage: to,
 			reviews: rec.commit.reviews,
@@ -221,13 +193,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 	}
 	res.Revision = out.rec.revision
 	res.Stage = img.StageName(to)
-	// The actor's roles are unchanged by the move — a transition assigns
-	// nothing — so the two stages are the only difference in what §3.5's
-	// function is handed, and the answer needs no state.
-	// §5.4's rule, with this commit's two empty terms empty: a transition
-	// writes no entries and erases no fact, and the only §3.5 input it moves
-	// is the stage — for this actor alone, which is why a stage walk answers
-	// in one list what a role commit can only answer per reader (§5.3).
+	// The actor's roles are unchanged by the move.
 	res.Affected = img.ViewChanges(roles, from, to)
 	c.notify(ctx, img, rec, out)
 	return res, nil
@@ -239,7 +205,7 @@ func (c Case) Transition(ctx context.Context, dest string,
 // merged into one number because the errands are different — "fill this in",
 // "wait for the registrar", "get it signed" — and a refusal that said "2 fields
 // with no value" about an approval would send the user back to a form they had
-// already finished. The order is the order §5.5's scan produces them in, which
+// already finished. The order is the order the scan produces them in, which
 // is the order a client can act on: content, then judgement, then attestation.
 func requireSentence(dest string, fields, units, sigs int) string {
 	var parts []string
@@ -256,10 +222,7 @@ func requireSentence(dest string, fields, units, sigs int) string {
 	return quote(dest) + " still requires " + andList(parts)
 }
 
-// andList joins what a destination wants into one sentence. The comma before
-// "and" is kept for two parts because that is the wording §5.5 shipped with, and
-// a third conjunct arrives as the third element of the same list rather than as
-// a new shape of message.
+// andList joins what a destination wants into one sentence.
 func andList(parts []string) string {
 	if len(parts) == 1 {
 		return parts[0]
